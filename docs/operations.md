@@ -94,7 +94,7 @@ file docs/diagrams/*.png
   - current global `--readonly` mount에서 `touch`는 `EROFS`
 - plain `chroot <mount> /bin/bash`는 권한 모델상 사용할 수 없지만, `unshare -UrR <mount> /bin/true`와 `unshare -UrR <mount> /bin/bash --noprofile --norc ...`는 성공했다. 단, FUSE mount는 `nodev`이므로 `/dev/null` 같은 device-node 동작은 상위 supervisor/namespace layer에서 별도 제공해야 한다. 관련 transcript artifact는 `docs/artifacts/fuse-smoke-transcript.md`에 있다.
 
-중요: 요구사항/설계 목표로 읽어야 하는 readonly contract는 이제 "전체 mount readonly"가 아니라 "특정 path/pattern에만 적용되는 selective readonly rule"이다. 하지만 현재 코드와 live smoke evidence는 아직 global `--readonly` bool 동작만 증명한다. 아래 checklist도 이 둘을 분리해 기록한다.
+중요: 요구사항/설계 목표로 읽어야 하는 readonly contract는 이제 "전체 mount readonly"가 아니라 "특정 path/pattern에만 적용되는 selective readonly rule"이다. 하지만 현재 코드와 live smoke evidence는 아직 global `--readonly` bool 동작만 증명한다. `readonly-root` + `allowWrite` carve-out 같은 alternate policy model은 향후 고려 가능성일 뿐, 현재 CLI/검증 범위로 읽으면 안 된다. 아래 checklist도 이들을 분리해 기록한다.
 
 ## Smoke evidence recording rules
 
@@ -109,7 +109,7 @@ file docs/diagrams/*.png
 
 ## Mount 예시
 
-아래 명령은 운영 예시다. 이번 문서 갱신의 검증 증거에는 포함되지 않는다.
+아래 명령은 운영 예시다. 이번 문서 갱신의 검증 증거에는 포함되지 않는다. `pi-bash-sandbox` + chroot는 대표 통합 시나리오지만, 동일한 whole-root mount는 다른 sandbox/chroot consumer에도 재사용될 수 있다.
 
 기본 mount:
 
@@ -214,7 +214,7 @@ mkdir /tmp/holefs-root/tmp/holefs-mkdir-check
 
 ## Selective readonly target checklist
 
-이 절은 목표 계약을 위한 checklist이며, 현재 저장소의 구현/증거 상태로는 아직 미완료다.
+이 절은 현재 목표 계약(path-scoped selective readonly)을 위한 checklist이며, 현재 저장소의 구현/증거 상태로는 아직 미완료다. `readonly-root` + `allowWrite` carve-out 같은 alternate policy family는 이 checklist의 범위 밖이며, 별도 precedence/verification 정의 없이는 현재 계약으로 승격하지 않는다.
 
 검증 시 확인할 점:
 
