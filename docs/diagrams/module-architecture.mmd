@@ -1,13 +1,13 @@
 flowchart TD
-    main["src/main.rs\nCLI entry + Session::run"] --> cli["src/cli.rs\nparse <source-root> <mount-root>\n--hide / --readonly / --readonly-rule"]
-    main --> config["src/config.rs\nRuntimeConfig builder\ncurrent global readonly flag\n+ readonly matcher surface"]
-    config --> matcher["src/matcher.rs\nHideMatcher\nexact / prefix / glob\ninternal mount-root prefix"]
+    main["src/main.rs\nCLI entry + Session::run"] --> cli["src/cli.rs\ncurrent: --hide / --readonly / --readonly-rule\nfuture contract: + --policy-family / --allow-write"]
+    main --> config["src/config.rs\nRuntimeConfig builder\ncurrent global readonly flag\nfuture: MutabilityPolicy family + compiled rule sets"]
+    config --> matcher["src/matcher.rs\nshared rule matcher\nanchored path / prefixed recursive-tail glob\ninternal mount-root prefix"]
     main --> fs["src/fs.rs\nHoleFs + Filesystem impl"]
     fs --> path["src/path.rs\nVirtualPath\nlexical normalize\nsymlink target resolve"]
     fs --> matcher
-    fs --> errors["src/errors.rs\nENOENT / EROFS guard classification"]
+    fs --> errors["src/errors.rs\nENOENT / EROFS classification\nwrite-intent + precedence helpers"]
     fs --> state["fs.rs internal state\ninode map + file handles"]
     fs --> host["fs.rs host access helpers\nconfined backing access\nunder source_root"]
-    target["policy status\ntarget: path-scoped selective readonly\nverified evidence: global --readonly"] -.-> config
+    target["mutability policy status\nfuture families: selective-readonly | readonly-root-allowwrite\nverified evidence: current global --readonly"] -.-> config
 
     host --> source["source_root backing tree\nexample: real /"]

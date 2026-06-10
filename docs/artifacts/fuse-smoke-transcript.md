@@ -2,6 +2,8 @@
 
 This artifact is a command transcript captured from the root pi session, not from isolated subagents. It records runtime FUSE state, repo-local smoke, whole-root smoke, and `unshare -UrR` chroot execution.
 
+Startup log lines shown below are captured historical output from that run. Current binaries now print `readonly-rule-policy=compiled` in the startup line, so the transcript log wording should not be reused as fresh evidence for the current startup-string contract.
+
 - Captured: 2026-06-10T09:57:06+09:00
 - Working directory: /home/spi-ca/Codebase/holefs
 - Binary: target/debug/holefs

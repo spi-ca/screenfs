@@ -31,7 +31,11 @@ Selective readonly rule 목표는 다음을 지킨다.
 - readonly rule에 매치된 visible path의 read/stat/list 허용
 - `write`, `create`, `mkdir`, `mknod`, `unlink`, `rmdir`, `rename`, `link`, `symlink`, mutation `setattr`, `fallocate`는 readonly rule에 매치된 path에서 `EROFS`
 - readonly rule에 매치되지 않은 visible path는 이 요구사항만으로 자동 readonly가 되지 않음
-- CLI syntax는 TBD이며, 현재 구현/검증은 global `--readonly` bool 기준임
+- future documented mutability policy family는 `selective-readonly`와 `readonly-root-allowwrite` 두 개로 닫고, mount당 하나만 선택한다.
+- current `--readonly`는 legacy current-state surface로만 취급하고, future canonical family contract로 승격하지 않는다.
+- future carve-out family에서는 hidden `ENOENT` 우선, allowWrite union semantics, affected-coordinate-wide writable requirement를 유지한다.
+- hide / `--readonly-rule` / future `--allow-write`는 exact path, supported prefixed glob, broader unsupported wildcard, `HOME`/`source_root`/`~user` fail-fast semantics를 같은 normalization contract로 공유한다.
+- 현재 구현/검증 evidence는 여전히 global `--readonly` bool 기준이며, future CLI/config surface는 구현 완료로 간주하지 않는다.
 
 ## Pi role agents
 

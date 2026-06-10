@@ -19,7 +19,7 @@ $ARGUMENTS
    - `docs/diagrams/*.mmd`, `docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`이 변경되면 `docs/diagrams/README.md`의 공용 규칙도 함께 맞춘다.
    - Mermaid PNG 산출물 규칙은 반드시 `docs/diagrams/mermaid-config.json` + `docs/diagrams/puppeteer-config.json` + Mermaid CLI `--scale 2` 조합으로 기록한다. 두 config 파일만으로 2x scale이 자동 보장된다고 가정하지 않는다.
    - 다이어그램 source/config 변경 시 대응 `*.svg`, `*.png` 재생성 여부와 근거 명령을 남긴다.
-   - path-like CLI/rule grammar가 바뀌면 current implementation과 target/considered behavior를 분리해 문서화하고, exact path normalization / supported prefixed glob grammar / fail-fast error semantics를 각각 명시한다.
+   - path-like CLI/rule grammar가 바뀌면 current implementation과 target contract를 분리해 문서화하고, exact path normalization / supported prefixed glob grammar / fail-fast error semantics를 각각 명시한다.
 6. 문서 리뷰는 가능한 병렬로 진행하고, 특히 `software-reviewer`를 사용한다. 문서 검증 명령, prompt flow smoke check, 정합성 확인이 있으면 `software-qa`도 함께 사용한다.
 7. 리뷰에서 findings 또는 blocker가 나오면 피드백을 반영해 문서를 다시 수정하고 검증/리뷰를 반복한다.
 8. findings와 blocker가 없어질 때까지 반복한다.
@@ -31,8 +31,9 @@ $ARGUMENTS
 - project-local subagent 확인이 필요하면 우회하지 말고 확인을 요청한다.
 - 요구사항 분석, 영향 분석, 문서 수정, QA, 리뷰 결과를 분리해서 남긴다.
 - 용어, workflow, 예시, acceptance criteria가 바뀌면 인접 문서도 함께 갱신한다.
-- path-like rule 입력을 다루면 exact path 입력과 glob grammar를 분리하고, supported prefixed glob 예시와 broader unsupported wildcard forms, `HOME`/`source_root` 관련 fail-fast 조건을 문서 간 일관되게 맞춘다.
-- 현재 `--readonly-rule` surface와 그 향후 확장이 같은 normalization contract를 재사용하는지, 그리고 current verified evidence가 여전히 global `--readonly` 중심인지도 분리해서 적는다.
+- mutability policy 문서를 다루면 one-family-per-mount, hidden `ENOENT` precedence, allowWrite union semantics, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, current `--readonly`의 legacy current-state 지위, standalone compatibility mode, future canonical contract 비포함, family/rule/config surface와의 fail-fast를 함께 점검한다.
+- path-like rule 입력을 다루면 exact path 입력과 glob grammar를 분리하고, supported prefixed glob 예시와 broader unsupported wildcard forms, `HOME`/`source_root`/`~user` fail-fast 조건을 문서 간 일관되게 맞춘다.
+- 현재 `--readonly-rule` surface와 그 향후 확장이 같은 normalization contract를 재사용하는지, `--allow-write`와 config mutability block 규칙이 그 계약을 공유하는지, CLI mutability option이 없을 때 config `mutability` block이 우선하는지, current `--readonly`가 legacy current-state/standalone compatibility surface로만 남는지, 그리고 current verified evidence가 여전히 global `--readonly` 중심인지도 분리해서 적는다.
 - 다이어그램 관련 변경이면 `README.md`, `docs/architecture.md`, `docs/design.md`, `docs/operations.md`, `docs/diagrams/README.md` 사이의 렌더링 규칙 문구가 일치하는지 확인한다.
 - 문서, 리뷰, 검증이 모두 정리될 때까지 반복한다.
 

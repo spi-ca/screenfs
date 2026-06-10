@@ -14,7 +14,7 @@
 
 이 절은 holefs가 host filesystem과 whole-root consumer 사이에서 어떤 경계 역할을 하는지 빠르게 보여준다.
 
-holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mount를 만들고, 그 mount를 sandbox/chroot 같은 상위 consumer가 읽는 구조다. `pi-bash-sandbox`는 대표 통합 예시지만 시스템 경계 자체는 특정 supervisor 하나에 고정되지 않는다. 아래 그림의 mount path는 `/tmp/holefs-root` 예시일 뿐 고정 경로가 아니다. 목표 계약상 숨김 경로는 `ENOENT`, selective readonly rule에 매칭된 visible mutation은 `EROFS`로 분기한다. 현재 구현/검증 evidence는 이 readonly 판정을 아직 global `--readonly` bool로만 수행한다.
+holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mount를 만들고, 그 mount를 sandbox/chroot 같은 상위 consumer가 읽는 구조다. `pi-bash-sandbox`는 대표 통합 예시지만 시스템 경계 자체는 특정 supervisor 하나에 고정되지 않는다. 아래 그림의 mount path는 `/tmp/holefs-root` 예시일 뿐 고정 경로가 아니다. 목표 계약상 숨김 경로는 `ENOENT`, selective readonly rule에 매칭된 visible mutation은 `EROFS`로 분기한다. 현재 구현/검증 evidence는 이 readonly 판정을 아직 global `--readonly` bool로만 수행한다. future documented alternate policy family는 `readonly-root-allowwrite`로 닫혀 있으며, canonical future contract는 explicit family/rule surface만 사용한다. legacy `--readonly`는 current-state compatibility mode로만 남고 future family/rule/config surface와 병용 시 fail-fast 대상으로 본다. 그 경우에도 handler-level policy evaluator가 source/target/parent와 hidden 우선순위를 함께 판정해야 하며 mount-level `ro`만으로는 충분하지 않다.
 
 ![holefs system context](diagrams/system-context.png)
 
@@ -31,12 +31,12 @@ holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mou
 핵심 포인트:
 
 - `src/main.rs`: mount option 구성과 `Session::run(HoleFs::new(cfg))` 진입점
-- `src/cli.rs`: `<source-root> <mount-root>`, 반복 `--hide`, global `--readonly`, 반복 `--readonly-rule` 파싱. exact hide rule은 아직 이미 절대화된 입력만 전제한다.
-- `src/config.rs`: `RuntimeConfig` 구성과 mount-root recursion exclusion internal rule 주입, global readonly flag와 readonly matcher를 함께 보관/조립
-- `src/path.rs`: lexical virtual path normalization, symlink target lexical resolution, source-root confinement 보조
-- `src/matcher.rs`: exact/prefix/limited glob hide matcher. future exact-path normalization contract가 추가되면 여기로 들어오기 전 virtual absolute path로 rebasing된 입력을 받는 전제를 유지한다.
-- `src/fs.rs`: hidden guard, 현재 global readonly guard, symlink target guard, directory filtering, host delegation
-- `src/errors.rs`: hidden 우선 `ENOENT`, readonly-target mutation `EROFS` 분류
+- `src/cli.rs`: `<source-root> <mount-root>`, 반복 `--hide`, global `--readonly`, 반복 `--readonly-rule` 파싱. future family-aware surface(`--policy-family`, `--allow-write`)는 아직 없다.
+- `src/config.rs`: `RuntimeConfig` 구성과 mount-root recursion exclusion internal rule 주입, global readonly flag와 readonly matcher를 함께 보관/조립한다. hide/current `--readonly-rule` 입력은 shared normalization contract를 거쳐 matcher로 들어간다. future documented contract에서는 `MutabilityPolicy` family + compiled readonly/`allow_write` rule set을 담는 evaluator-oriented data model이 추가로 필요하다.
+- `src/path.rs`: lexical virtual path normalization, symlink target lexical resolution, source-root confinement 보조, relative/`~` exact·prefixed-glob rule input rebasing helper
+- `src/matcher.rs`: exact/prefix/limited glob matcher. 현재는 absolute exact rule과 optional normalized prefix가 붙은 limited glob(`**/<basename>`, `**/*.<suffix>`)까지 처리한다. broader unsupported wildcard forms는 계속 fail-fast다.
+- `src/fs.rs`: hidden guard, 현재 global readonly guard, symlink target guard, directory filtering, host delegation. future carve-out에서는 `guard_mutation_path`/`guard_multi_path_mutation`가 affected-path set 전체를 보는 policy evaluator 방향으로 확장돼야 한다.
+- `src/errors.rs`: hidden 우선 `ENOENT`, readonly-target mutation `EROFS` 분류. future family에서도 errno taxonomy는 유지하되 evaluator reason model은 더 풍부해질 수 있다.
 
 구현 파일 바로가기: `src/main.rs`, `src/cli.rs`, `src/config.rs`, `src/path.rs`, `src/matcher.rs`, `src/errors.rs`, `src/fs.rs`
 
@@ -44,7 +44,7 @@ holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mou
 
 이 절은 한 요청이 `ENOENT`, `EROFS`, pass-through 중 어디로 분기되는지 이해하기 위한 운영 중심 요약이다.
 
-많은 조회·traversal 요청은 virtual path 계산 후 hidden 판정이 먼저, symlink target hidden 검사와 readonly 판정이 뒤따르고, host filesystem delegation이 마지막 순서로 진행된다. 아래 다이어그램은 selective readonly 목표 계약을 기준으로 읽되, callout처럼 현재 구현은 이 readonly 판정을 global `--readonly` bool로만 수행한다고 이해하면 된다.
+많은 조회·traversal 요청은 virtual path 계산 후 hidden 판정이 먼저, symlink target hidden 검사와 mutability policy evaluator 판정이 뒤따르고, host filesystem delegation이 마지막 순서로 진행된다. 아래 다이어그램은 current target selective-readonly family를 기준으로 읽되, same evaluator shape가 future carve-out family에도 재사용된다고 이해하면 된다. callout처럼 현재 구현은 이 evaluator를 아직 global `--readonly` bool 단순화로만 수행한다.
 
 ![holefs request decision flow](diagrams/request-decision-flow.png)
 
@@ -52,6 +52,7 @@ holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mou
 
 - hidden path는 가능한 한 존재하지 않는 것처럼 보여야 한다
 - readonly는 rule에 매칭된 visible mutation에만 적용된다. 현재 구현 evidence는 global `--readonly`가 모든 visible mutation에 적용되는 형태다.
+- future alternate policy family로 `readonly-root-allowwrite`를 도입하더라도 hidden `ENOENT` 우선과 handler-level 판정은 유지돼야 한다.
 - symlink는 entry path뿐 아니라 resolved virtual target도 검사한다
 - `rename`/`link`/`symlink`/copy-like mutation 같은 multi-path 연산은 source/target/parent 각각을 다시 검사한다
 
@@ -76,10 +77,10 @@ hide matcher는 host canonical path가 아니라 lexical virtual path 기준으�
 핵심 포인트:
 
 - `.` 제거, 중복 `/` 정리, `..`는 virtual `/` 위로 못 올라감
-- 현재 구현의 exact hide rule은 이미 virtual absolute path여야 하고, glob은 `**/<basename>` 또는 `**/*.<suffix>` 계열만 허용한다.
-- 고려 중인 target behavior에서는 exact path와 supported prefixed glob 모두에 대해 relative path와 leading `~`, `~/...` prefix를 host path로 확장한 뒤 `source_root` 내부일 때만 virtual absolute path 또는 virtual glob prefix로 rebase한다.
-- supported glob 확장 범위는 optional normalized prefix + 기존 recursive basename/suffix tail(`**/<basename>`, `**/*.<suffix>`)까지다.
-- `HOME` 없음, `source_root` 밖으로 확장됨, `~user`, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`)은 fail-fast/unsupported로 남긴다.
+- 현재 구현의 exact hide/current readonly rule은 absolute virtual path를 직접 받거나, relative/`~` exact 입력을 `source_root` 내부 virtual absolute path로 rebase해 사용한다.
+- 현재 구현의 supported glob은 prefix 없는 `**/<basename>` / `**/*.<suffix>`뿐 아니라 optional normalized prefix가 붙은 limited glob까지 포함한다.
+- relative path와 leading `~`, `~/...` prefix는 host path로 해석된 뒤 `source_root` 내부일 때만 virtual absolute path 또는 virtual glob prefix로 rebase된다.
+- `HOME` 없음, `source_root` 밖으로 확장됨, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`)은 fail-fast/unsupported로 남는다.
 - symlink target은 lexical virtual target으로 재해석해 hidden 여부를 다시 검사
 - host backing 접근은 `source_root` 밖 escape를 허용하지 않음
 
@@ -125,9 +126,10 @@ hide matcher는 host canonical path가 아니라 lexical virtual path 기준으�
 CLI args
   -> RuntimeConfig
   -> HideMatcher + internal mount-root prefix + current global readonly flag
-  -> current absolute exact-rule surface, with future exact-path rebasing contract documented separately
+  -> future documented contract: MutabilityPolicy family + compiled readonly/allow_write rule sets
+  -> current shared rule normalization for hide/current readonly rules (absolute/relative/`~` exact + supported prefixed glob)
   -> HoleFs Filesystem implementation
-  -> VirtualPath normalization + hidden/readonly rule guard
+  -> VirtualPath normalization + hidden/affected-coordinate policy evaluator
   -> confined host filesystem access
   -> FUSE replies to whole-root consumer (예: sandbox/chroot)
 ```

@@ -178,8 +178,9 @@ description: Run a software-writing workflow with Pi subagents for user represen
 - 사용자 요구사항의 모든 명시 항목이 파일 내용, command output, diff, test, log 같은 fresh evidence에 매핑되었다.
 - 시스템 제약과 운영 위험이 검토되었다.
 - 기존 동작과 사용자 변경을 보존했다.
-- path/input grammar 변경이면 current implementation과 target/considered behavior, supported exact path forms, supported prefixed-glob grammar, unsupported wildcard forms, fail-fast semantics가 분리 기록되었다.
-- 현재 `--readonly-rule` surface와 그 향후 확장이 hide와 같은 normalization contract를 재사용해야 한다는 요구가 있으면 그 점과 current global `--readonly`-centered evidence가 혼동 없이 표기되었다.
+- path/input grammar 변경이면 current implementation과 target contract, supported exact path forms, supported prefixed-glob grammar, unsupported wildcard forms, fail-fast semantics가 분리 기록되었다.
+- mutability policy 변경이면 one-family-per-mount, hidden `ENOENT` precedence, allowWrite union semantics, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, current `--readonly`의 legacy current-state 지위, standalone compatibility mode, future canonical contract 비포함, family/rule/config surface와의 fail-fast, no-CLI 시 config `mutability` block 우선 규칙이 일관되게 기록되었다.
+- 현재 `--readonly-rule` surface와 그 향후 확장이 hide와 같은 normalization contract를 재사용해야 한다는 요구가 있으면 그 점과 current global `--readonly`-centered evidence, `--allow-write`/config mutability 규칙이 혼동 없이 표기되었다.
 - 변경 유형에 맞는 저장소 검증 명령을 실행했다. 문서/Pi resource 전용 변경은 `AGENTS.md`와 `docs/operations.md`의 문서 변경 검증을 따르고, Rust 코드 변경이 포함되면 fmt/clippy/test 같은 코드 검증을 추가한다.
 - 미승인 shortcut, 임시 미완성 표식, dead code, duplicated logic, 숨은 가정, 문서화되지 않은 behavior change가 없다.
 - QA와 리뷰어 결과가 blocking issue 없이 완료 가능하다고 판단했다.
