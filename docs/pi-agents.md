@@ -162,11 +162,11 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
 - 모든 적용 대상 역할의 산출물이 있거나, 작은 작업에서는 root agent가 각 적용 대상 역할 관점 결과를 분리해 보고한다.
 - `software-developer`는 독립 work package가 있을 때 적용 대상이다. 사용한 경우 각 lane의 allowed files, changed files, validation, conflict 여부가 fresh evidence로 남아 있고, 사용하지 않은 경우 안전하게 분리할 package가 없다는 근거가 남아 있다.
 - 사용자 요구사항, 시스템 제약, 설계, 구현, QA, 리뷰가 fresh evidence로 연결된다.
-- 목표 계약과 현재 구현 evidence를 섞지 않는다. 예를 들어 selective readonly rule 요구사항을 다룰 때는 current global `--readonly` 구현/검증을 historical 또는 current-state evidence로 분리 표기한다.
-- mutability policy 문서를 갱신하면 one-family-per-mount, hidden `ENOENT` precedence, allowWrite union semantics, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, current `--readonly`의 legacy current-state 지위, standalone compatibility mode, future canonical contract 비포함, family/rule/config surface와의 fail-fast를 함께 점검한다.
+- 목표 계약과 현재 구현 evidence를 섞지 않는다. pre-removal global `--readonly` transcript는 archival evidence로만 분리 표기하고, 현재 구현/검증은 family-aware surface 기준으로 적는다.
+- mutability policy 문서를 갱신하면 one-family-per-mount, hidden `ENOENT` precedence, allowWrite union semantics, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, 제거된 `--readonly` historical 지위, family/rule/config surface와의 fail-fast를 함께 점검한다.
 - path/input grammar 변경이면 supported exact path forms, supported prefixed-glob grammar, broader unsupported wildcard forms, `HOME`/`source_root`/`~user` fail-fast semantics가 문서와 prompt/skill에 일관되게 반영된다.
 - 현재 `--readonly-rule` surface와 그 향후 확장이 hide와 같은 normalization contract를 재사용해야 한다는 요구가 있으면 그 점도 current implementation evidence와 분리해서 기록한다.
-- future CLI/config contract를 다루면 `--readonly-rule`/`--allow-write` exclusivity, current `--readonly`의 legacy current-state 분리와 standalone compatibility/fail-fast 규칙, config의 legacy bool 부재, CLI mutability option의 config block 대체 규칙과 no-CLI 시 config `mutability` block 우선 규칙까지 함께 반영한다.
+- future CLI/config contract를 다루면 `--readonly-rule`/`--allow-write` exclusivity, 제거된 `--readonly`의 archival-only 분리, config의 legacy bool 부재, CLI mutability option의 config block 대체 규칙과 no-CLI 시 config `mutability` block 우선 규칙까지 함께 반영한다.
 - goal 기반 prompt를 사용할 때는 `create_goal`에 작업 규모에 맞는 `token_budget`을 명시하고, 이미 `budgetLimited`인 goal 위에서 그대로 실질 작업을 이어가지 않는다.
 - 변경 유형에 맞는 저장소 검증 명령을 실행한다. 문서/Pi resource 전용 변경은 `AGENTS.md`와 `docs/operations.md`의 문서 변경 검증을 따르고, Rust 코드 변경이 포함되면 fmt/clippy/test 같은 코드 검증을 추가한다.
 - 다이어그램 source/config 변경은 문서 검증 외에도 `docs/diagrams/README.md` 기준 render 명령과 PNG `--scale 2` 규칙이 인접 문서에 일관되게 반영됐는지 확인한다.
