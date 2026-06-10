@@ -7,4 +7,4 @@ pub mod path;
 
 pub use cli::CliArgs;
 pub use config::RuntimeConfig;
-pub use fs::HoleFs;
+pub use fs::ScreenFs;

@@ -19,7 +19,7 @@ use crate::errors::{errno_from_io, open_has_write_intent};
 use crate::path::VirtualPath;
 
 #[derive(Debug)]
-pub struct HoleFs {
+pub struct ScreenFs {
     cfg: RuntimeConfig,
     state: Mutex<State>,
 }
@@ -250,7 +250,7 @@ impl State {
     }
 }
 
-impl HoleFs {
+impl ScreenFs {
     pub fn new(cfg: RuntimeConfig) -> Self {
         Self {
             cfg,
@@ -518,7 +518,7 @@ impl HoleFs {
     }
 }
 
-impl Filesystem for HoleFs {
+impl Filesystem for ScreenFs {
     async fn lookup(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<ReplyEntry> {
         let path = self.child_path(parent, name)?;
         self.reply_entry_for_path(path)
@@ -1384,7 +1384,7 @@ mod tests {
         hide_rules: Vec<String>,
         readonly: bool,
         readonly_rules: Vec<String>,
-    ) -> HoleFs {
+    ) -> ScreenFs {
         let mount = source.join("mount");
         std::fs::create_dir_all(&mount).unwrap();
         let cfg = RuntimeConfig::from_cli(CliArgs {
@@ -1395,7 +1395,7 @@ mod tests {
             readonly_rules,
         })
         .unwrap();
-        HoleFs::new(cfg)
+        ScreenFs::new(cfg)
     }
 
     #[test]
@@ -2559,7 +2559,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    fn assert_readdir_handle_invalidated(fs: &HoleFs, inode: u64, fh: u64) {
+    fn assert_readdir_handle_invalidated(fs: &ScreenFs, inode: u64, fh: u64) {
         assert_eq!(
             block_on(fs.readdir(dummy_req(), inode, fh, 0, 4096)).unwrap_err(),
             ENOENT
@@ -2586,7 +2586,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("holefs-{label}-{id}"));
+        dir.push(format!("screenfs-{label}-{id}"));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

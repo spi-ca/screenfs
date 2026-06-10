@@ -533,7 +533,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("holefs-path-{label}-{id}"));
+        dir.push(format!("screenfs-path-{label}-{id}"));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

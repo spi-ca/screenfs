@@ -1,5 +1,5 @@
 use fractal_fuse::{MountOptions, Session};
-use holefs::{CliArgs, HoleFs, RuntimeConfig};
+use screenfs::{CliArgs, RuntimeConfig, ScreenFs};
 
 fn main() -> std::io::Result<()> {
     let args = match CliArgs::parse_from(std::env::args_os()) {
@@ -29,7 +29,7 @@ fn main() -> std::io::Result<()> {
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
 
     eprintln!(
-        "mounting holefs: source={} mount={} readonly={} readonly-rule-policy=compiled hide-policy=compiled io_uring=required",
+        "mounting screenfs: source={} mount={} readonly={} readonly-rule-policy=compiled hide-policy=compiled io_uring=required",
         cfg.source_root.display(),
         cfg.mount_root.display(),
         cfg.readonly
@@ -37,7 +37,7 @@ fn main() -> std::io::Result<()> {
     eprintln!("FUSE_OVER_IO_URING negotiation is mandatory; session startup fails without it.");
 
     let opts = MountOptions::new()
-        .fs_name("holefs")
+        .fs_name("screenfs")
         // Handler-level readonly is the source of truth. Do not set mount-level ro
         // until mount smoke proves it preserves hidden-before-EROFS semantics.
         .read_only(false)
@@ -46,5 +46,5 @@ fn main() -> std::io::Result<()> {
         .allow_other(false);
 
     let mount_root = cfg.mount_root.clone();
-    Session::new(mount_root, opts)?.run(HoleFs::new(cfg))
+    Session::new(mount_root, opts)?.run(ScreenFs::new(cfg))
 }

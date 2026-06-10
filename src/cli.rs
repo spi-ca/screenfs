@@ -79,7 +79,7 @@ impl CliArgs {
     }
 
     pub fn usage() -> String {
-        "usage: holefs <source-root> <mount-root> [--readonly] [--hide <pattern> ...] [--readonly-rule <pattern> ...]".to_string()
+        "usage: screenfs <source-root> <mount-root> [--readonly] [--hide <pattern> ...] [--readonly-rule <pattern> ...]".to_string()
     }
 
     fn missing_required_arguments(args: &str) -> String {
@@ -114,9 +114,9 @@ mod tests {
     #[test]
     fn parses_positionals_after_binary_name() {
         let args =
-            CliArgs::parse_from(["/tmp/target/debug/holefs", "/", "/tmp/holefs-root"]).unwrap();
+            CliArgs::parse_from(["/tmp/target/debug/screenfs", "/", "/tmp/screenfs-root"]).unwrap();
         assert_eq!(args.source_root, PathBuf::from("/"));
-        assert_eq!(args.mount_root, PathBuf::from("/tmp/holefs-root"));
+        assert_eq!(args.mount_root, PathBuf::from("/tmp/screenfs-root"));
         assert!(!args.readonly);
         assert!(args.hide_rules.is_empty());
         assert!(args.readonly_rules.is_empty());
@@ -125,12 +125,12 @@ mod tests {
     #[test]
     fn parses_readonly_and_repeated_hide_and_readonly_rules() {
         let args = CliArgs::parse_from([
-            "holefs",
+            "screenfs",
             "--readonly",
             "/",
             "--hide",
             "/home/me/.ssh",
-            "/tmp/holefs-root",
+            "/tmp/screenfs-root",
             "--readonly-rule",
             "/var/log",
             "--hide",
@@ -140,7 +140,7 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(args.source_root, PathBuf::from("/"));
-        assert_eq!(args.mount_root, PathBuf::from("/tmp/holefs-root"));
+        assert_eq!(args.mount_root, PathBuf::from("/tmp/screenfs-root"));
         assert!(args.readonly);
         assert_eq!(args.hide_rules, vec!["/home/me/.ssh", "**/*.pem"]);
         assert_eq!(args.readonly_rules, vec!["/var/log", "**/*.lock"]);
@@ -148,35 +148,36 @@ mod tests {
 
     #[test]
     fn reports_missing_required_positionals() {
-        let err = CliArgs::parse_from(["holefs"]).unwrap_err();
+        let err = CliArgs::parse_from(["screenfs"]).unwrap_err();
         assert!(err.contains("missing required arguments: <source-root> <mount-root>"));
 
-        let err = CliArgs::parse_from(["holefs", "/"]).unwrap_err();
+        let err = CliArgs::parse_from(["screenfs", "/"]).unwrap_err();
         assert!(err.contains("missing required argument: <mount-root>"));
     }
 
     #[test]
     fn reports_unknown_and_missing_option_arguments() {
-        let err = CliArgs::parse_from(["holefs", "/", "/mnt", "--bad"]).unwrap_err();
+        let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--bad"]).unwrap_err();
         assert!(err.contains("unknown option: --bad"));
 
-        let err = CliArgs::parse_from(["holefs", "/", "/mnt", "--hide"]).unwrap_err();
+        let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--hide"]).unwrap_err();
         assert!(err.contains("missing value for --hide"));
-
-        let err = CliArgs::parse_from(["holefs", "/", "/mnt", "--hide", "--readonly"]).unwrap_err();
-        assert!(err.contains("missing value for --hide"));
-
-        let err = CliArgs::parse_from(["holefs", "/", "/mnt", "--readonly-rule"]).unwrap_err();
-        assert!(err.contains("missing value for --readonly-rule"));
 
         let err =
-            CliArgs::parse_from(["holefs", "/", "/mnt", "--readonly-rule", "--hide"]).unwrap_err();
+            CliArgs::parse_from(["screenfs", "/", "/mnt", "--hide", "--readonly"]).unwrap_err();
+        assert!(err.contains("missing value for --hide"));
+
+        let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--readonly-rule"]).unwrap_err();
+        assert!(err.contains("missing value for --readonly-rule"));
+
+        let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--readonly-rule", "--hide"])
+            .unwrap_err();
         assert!(err.contains("missing value for --readonly-rule"));
     }
 
     #[test]
     fn reports_unexpected_extra_positionals() {
-        let err = CliArgs::parse_from(["holefs", "/", "/mnt", "/extra"]).unwrap_err();
+        let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "/extra"]).unwrap_err();
         assert!(err.contains("unexpected positional argument: /extra"));
     }
 }

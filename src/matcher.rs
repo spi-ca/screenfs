@@ -329,7 +329,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("holefs-test-{id}"));
+        dir.push(format!("screenfs-test-{id}"));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
