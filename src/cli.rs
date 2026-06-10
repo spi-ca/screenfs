@@ -1,16 +1,105 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MutabilityFamily {
+    SelectiveReadonly,
+    ReadonlyRootAllowwrite,
+}
+
+impl MutabilityFamily {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SelectiveReadonly => "selective-readonly",
+            Self::ReadonlyRootAllowwrite => "readonly-root-allowwrite",
+        }
+    }
+
+    fn parse(raw: &str) -> Result<Self, String> {
+        match raw {
+            "selective-readonly" => Ok(Self::SelectiveReadonly),
+            "readonly-root-allowwrite" => Ok(Self::ReadonlyRootAllowwrite),
+            _ => Err(format!(
+                "invalid value for --policy-family: {raw} (expected selective-readonly or readonly-root-allowwrite)"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliArgs {
     pub source_root: PathBuf,
     pub mount_root: PathBuf,
-    pub readonly: bool,
     pub hide_rules: Vec<String>,
     pub readonly_rules: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchArgs {
+    pub cli: CliArgs,
+    pub config_path: Option<PathBuf>,
+    pub policy_family: Option<MutabilityFamily>,
+    pub allow_write_rules: Vec<String>,
+}
+
 impl CliArgs {
+    #[cfg(test)]
+    pub(crate) fn parse_from<I, S>(args: I) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        Ok(LaunchArgs::parse_from(args)?.cli)
+    }
+
+    pub(crate) fn usage() -> String {
+        LaunchArgs::usage()
+    }
+
+    fn error_with_usage(message: impl Into<String>) -> String {
+        format!(
+            "{}\n{}\nTry 'screenfs --help' for detailed usage.",
+            message.into(),
+            Self::usage()
+        )
+    }
+
+    fn missing_required_arguments(args: &str) -> String {
+        Self::error_with_usage(format!("missing required arguments: {args}"))
+    }
+
+    fn missing_required_argument(arg: &str) -> String {
+        Self::error_with_usage(format!("missing required argument: {arg}"))
+    }
+
+    fn missing_value(option: &str) -> String {
+        Self::error_with_usage(format!("missing value for {option}"))
+    }
+
+    fn unknown_option(option: &str) -> String {
+        Self::error_with_usage(format!("unknown option: {option}"))
+    }
+
+    fn unexpected_argument(arg: &Path) -> String {
+        Self::error_with_usage(format!("unexpected positional argument: {}", arg.display()))
+    }
+}
+
+impl LaunchArgs {
+    const USAGE_LINE: &str = "usage: screenfs <source-root> <mount-root> [--config <path>] [--hide <pattern> ...] [--policy-family <selective-readonly|readonly-root-allowwrite>] [--readonly-rule <pattern> ...] [--allow-write <pattern> ...]";
+
+    pub fn wants_help<I, S>(args: I) -> bool
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        args.into_iter().skip(1).any(|arg| {
+            let arg: OsString = arg.into();
+            matches!(arg.to_string_lossy().as_ref(), "--help" | "-h")
+        })
+    }
+
     pub fn parse_from<I, S>(args: I) -> Result<Self, String>
     where
         I: IntoIterator<Item = S>,
@@ -22,39 +111,67 @@ impl CliArgs {
         }
 
         let mut positionals = Vec::new();
-        let mut readonly = false;
         let mut hide_rules = Vec::new();
         let mut readonly_rules = Vec::new();
+        let mut allow_write_rules = Vec::new();
+        let mut config_path = None;
+        let mut policy_family = None;
         let mut i = 0;
         while i < args.len() {
             let arg = args[i].to_string_lossy();
             match arg.as_ref() {
-                "--readonly" => {
-                    readonly = true;
-                    i += 1;
-                }
                 "--hide" => {
                     let Some(value) = args.get(i + 1) else {
-                        return Err(Self::missing_value("--hide"));
+                        return Err(CliArgs::missing_value("--hide"));
                     };
                     if value.to_string_lossy().starts_with('-') {
-                        return Err(Self::missing_value("--hide"));
+                        return Err(CliArgs::missing_value("--hide"));
                     }
                     hide_rules.push(value.to_string_lossy().into_owned());
                     i += 2;
                 }
                 "--readonly-rule" => {
                     let Some(value) = args.get(i + 1) else {
-                        return Err(Self::missing_value("--readonly-rule"));
+                        return Err(CliArgs::missing_value("--readonly-rule"));
                     };
                     if value.to_string_lossy().starts_with('-') {
-                        return Err(Self::missing_value("--readonly-rule"));
+                        return Err(CliArgs::missing_value("--readonly-rule"));
                     }
                     readonly_rules.push(value.to_string_lossy().into_owned());
                     i += 2;
                 }
+                "--allow-write" => {
+                    let Some(value) = args.get(i + 1) else {
+                        return Err(CliArgs::missing_value("--allow-write"));
+                    };
+                    if value.to_string_lossy().starts_with('-') {
+                        return Err(CliArgs::missing_value("--allow-write"));
+                    }
+                    allow_write_rules.push(value.to_string_lossy().into_owned());
+                    i += 2;
+                }
+                "--config" => {
+                    let Some(value) = args.get(i + 1) else {
+                        return Err(CliArgs::missing_value("--config"));
+                    };
+                    if value.to_string_lossy().starts_with('-') {
+                        return Err(CliArgs::missing_value("--config"));
+                    }
+                    config_path = Some(PathBuf::from(value));
+                    i += 2;
+                }
+                "--policy-family" => {
+                    let Some(value) = args.get(i + 1) else {
+                        return Err(CliArgs::missing_value("--policy-family"));
+                    };
+                    if value.to_string_lossy().starts_with('-') {
+                        return Err(CliArgs::missing_value("--policy-family"));
+                    }
+                    policy_family = Some(MutabilityFamily::parse(&value.to_string_lossy())?);
+                    i += 2;
+                }
                 "--help" | "-h" => return Err(Self::usage()),
-                other if other.starts_with('-') => return Err(Self::unknown_option(other)),
+                other if other.starts_with('-') => return Err(CliArgs::unknown_option(other)),
                 _ => {
                     positionals.push(PathBuf::from(&args[i]));
                     i += 1;
@@ -62,48 +179,146 @@ impl CliArgs {
             }
         }
 
-        match positionals.len() {
-            0 => Err(Self::missing_required_arguments(
-                "<source-root> <mount-root>",
-            )),
-            1 => Err(Self::missing_required_argument("<mount-root>")),
-            2 => Ok(Self {
+        let cli = match positionals.len() {
+            0 => {
+                return Err(CliArgs::missing_required_arguments(
+                    "<source-root> <mount-root>",
+                ));
+            }
+            1 => return Err(CliArgs::missing_required_argument("<mount-root>")),
+            2 => CliArgs {
                 source_root: positionals.remove(0),
                 mount_root: positionals.remove(0),
-                readonly,
                 hide_rules,
                 readonly_rules,
-            }),
-            _ => Err(Self::unexpected_argument(&positionals[2])),
+            },
+            _ => return Err(CliArgs::unexpected_argument(&positionals[2])),
+        };
+
+        if Self::has_future_mutability_options(
+            policy_family,
+            &cli.readonly_rules,
+            &allow_write_rules,
+        ) {
+            validate_future_mutability_surface(
+                policy_family,
+                "--policy-family",
+                "--readonly-rule",
+                &cli.readonly_rules,
+                "--allow-write",
+                &allow_write_rules,
+            )?;
         }
+
+        Ok(Self {
+            cli,
+            config_path,
+            policy_family,
+            allow_write_rules,
+        })
     }
 
     pub fn usage() -> String {
-        "usage: screenfs <source-root> <mount-root> [--readonly] [--hide <pattern> ...] [--readonly-rule <pattern> ...]".to_string()
+        Self::USAGE_LINE.to_string()
     }
 
-    fn missing_required_arguments(args: &str) -> String {
-        format!("missing required arguments: {args}\n{}", Self::usage())
+    pub fn help() -> String {
+        "Create a non-root FUSE whole-root view that hides selected paths and applies one mutability policy family per mount.
+
+Usage:
+  screenfs <SOURCE_ROOT> <MOUNT_ROOT> [OPTIONS]
+
+Arguments:
+  <SOURCE_ROOT>  Backing filesystem root to mirror, typically /
+  <MOUNT_ROOT>   Existing directory where the ScreenFS view is mounted
+
+Options:
+      --config <PATH>            Load YAML config
+                                 CLI mutability options replace the config mutability block
+      --hide <PATTERN>           Hide a path or supported glob
+                                 Repeatable; hidden paths resolve as ENOENT
+      --policy-family <FAMILY>   Select mutability family
+                                 [possible values: selective-readonly, readonly-root-allowwrite]
+      --readonly-rule <PATTERN>  Mark matching visible paths read-only (EROFS)
+                                 Repeatable; selective-readonly only
+      --allow-write <PATTERN>    Re-enable writes for matching paths
+                                 Repeatable; readonly-root-allowwrite only
+  -h, --help                     Show this help text
+
+Mutability families:
+  selective-readonly       Default writable view; matching --readonly-rule paths become read-only
+  readonly-root-allowwrite Default read-only view; matching --allow-write paths become writable
+
+Rules and precedence:
+  - Hidden paths win first: hidden entries stay ENOENT even if a mutability rule also matches.
+  - --readonly-rule and --allow-write cannot be used together on the same mount.
+  - If --policy-family is omitted, --allow-write implies readonly-root-allowwrite; otherwise the default is selective-readonly.
+  - With no CLI mutability options, config mutability.family supplies the family; otherwise CLI replaces config mutability settings.
+
+Examples:
+  screenfs / /tmp/screenfs-root --hide /home/me/.ssh --hide '**/*.pem'
+  screenfs / /tmp/screenfs-root --policy-family selective-readonly --readonly-rule /etc/ssh
+  screenfs / /tmp/screenfs-root --policy-family readonly-root-allowwrite --allow-write /tmp
+  screenfs / /tmp/screenfs-root --config screenfs.yaml
+
+  # screenfs.yaml
+  mutability:
+    family: selective-readonly
+    readonly_rules:
+      - /etc/ssh
+
+Notes:
+  - Run as a non-root user.
+  - <MOUNT_ROOT> must already exist.
+  - Supported glob inputs share the same normalization contract across --hide, --readonly-rule, and --allow-write.
+"
+        .to_string()
     }
 
-    fn missing_required_argument(arg: &str) -> String {
-        format!("missing required argument: {arg}\n{}", Self::usage())
+    pub fn has_future_mutability_options(
+        policy_family: Option<MutabilityFamily>,
+        readonly_rules: &[String],
+        allow_write_rules: &[String],
+    ) -> bool {
+        policy_family.is_some() || !readonly_rules.is_empty() || !allow_write_rules.is_empty()
     }
 
-    fn missing_value(option: &str) -> String {
-        format!("missing value for {option}\n{}", Self::usage())
-    }
-
-    fn unknown_option(option: &str) -> String {
-        format!("unknown option: {option}\n{}", Self::usage())
-    }
-
-    fn unexpected_argument(arg: &Path) -> String {
-        format!(
-            "unexpected positional argument: {}\n{}",
-            arg.display(),
-            Self::usage()
+    pub fn has_future_mutability_cli(&self) -> bool {
+        Self::has_future_mutability_options(
+            self.policy_family,
+            &self.cli.readonly_rules,
+            &self.allow_write_rules,
         )
+    }
+}
+
+pub(crate) fn validate_future_mutability_surface(
+    policy_family: Option<MutabilityFamily>,
+    family_label: &str,
+    readonly_label: &str,
+    readonly_rules: &[String],
+    allow_write_label: &str,
+    allow_write_rules: &[String],
+) -> Result<MutabilityFamily, String> {
+    if !readonly_rules.is_empty() && !allow_write_rules.is_empty() {
+        return Err(format!(
+            "{readonly_label} and {allow_write_label} cannot be used together"
+        ));
+    }
+
+    let effective_family = match policy_family {
+        Some(family) => family,
+        None if !allow_write_rules.is_empty() => MutabilityFamily::ReadonlyRootAllowwrite,
+        None => MutabilityFamily::SelectiveReadonly,
+    };
+    match effective_family {
+        MutabilityFamily::SelectiveReadonly if !allow_write_rules.is_empty() => Err(format!(
+            "{allow_write_label} requires {family_label} readonly-root-allowwrite"
+        )),
+        MutabilityFamily::ReadonlyRootAllowwrite if !readonly_rules.is_empty() => Err(format!(
+            "{readonly_label} cannot be used with {family_label} readonly-root-allowwrite"
+        )),
+        _ => Ok(effective_family),
     }
 }
 
@@ -114,36 +329,62 @@ mod tests {
     #[test]
     fn parses_positionals_after_binary_name() {
         let args =
-            CliArgs::parse_from(["/tmp/target/debug/screenfs", "/", "/tmp/screenfs-root"]).unwrap();
-        assert_eq!(args.source_root, PathBuf::from("/"));
-        assert_eq!(args.mount_root, PathBuf::from("/tmp/screenfs-root"));
-        assert!(!args.readonly);
-        assert!(args.hide_rules.is_empty());
-        assert!(args.readonly_rules.is_empty());
+            LaunchArgs::parse_from(["/tmp/target/debug/screenfs", "/", "/tmp/screenfs-root"])
+                .unwrap();
+        assert_eq!(args.cli.source_root, PathBuf::from("/"));
+        assert_eq!(args.cli.mount_root, PathBuf::from("/tmp/screenfs-root"));
+        assert!(args.cli.hide_rules.is_empty());
+        assert!(args.cli.readonly_rules.is_empty());
+        assert!(args.allow_write_rules.is_empty());
+        assert!(args.config_path.is_none());
+        assert_eq!(args.policy_family, None);
     }
 
     #[test]
-    fn parses_readonly_and_repeated_hide_and_readonly_rules() {
-        let args = CliArgs::parse_from([
+    fn parses_future_mutability_options_and_config() {
+        let args = LaunchArgs::parse_from([
             "screenfs",
-            "--readonly",
+            "--config",
+            "screenfs.yaml",
             "/",
             "--hide",
             "/home/me/.ssh",
             "/tmp/screenfs-root",
-            "--readonly-rule",
-            "/var/log",
+            "--policy-family",
+            "readonly-root-allowwrite",
+            "--allow-write",
+            "/var/tmp",
             "--hide",
             "**/*.pem",
-            "--readonly-rule",
+            "--allow-write",
             "**/*.lock",
         ])
         .unwrap();
-        assert_eq!(args.source_root, PathBuf::from("/"));
-        assert_eq!(args.mount_root, PathBuf::from("/tmp/screenfs-root"));
-        assert!(args.readonly);
-        assert_eq!(args.hide_rules, vec!["/home/me/.ssh", "**/*.pem"]);
-        assert_eq!(args.readonly_rules, vec!["/var/log", "**/*.lock"]);
+        assert_eq!(args.cli.source_root, PathBuf::from("/"));
+        assert_eq!(args.cli.mount_root, PathBuf::from("/tmp/screenfs-root"));
+        assert_eq!(args.cli.hide_rules, vec!["/home/me/.ssh", "**/*.pem"]);
+        assert!(args.cli.readonly_rules.is_empty());
+        assert_eq!(args.allow_write_rules, vec!["/var/tmp", "**/*.lock"]);
+        assert_eq!(args.config_path, Some(PathBuf::from("screenfs.yaml")));
+        assert_eq!(
+            args.policy_family,
+            Some(MutabilityFamily::ReadonlyRootAllowwrite)
+        );
+    }
+
+    #[test]
+    fn rejects_removed_readonly_option() {
+        let err = CliArgs::parse_from([
+            "screenfs",
+            "--readonly",
+            "--hide",
+            "/secret",
+            "/",
+            "/tmp/screenfs-root",
+        ])
+        .unwrap_err();
+        assert!(err.contains("unknown option: --readonly"));
+        assert!(err.contains("Try 'screenfs --help' for detailed usage."));
     }
 
     #[test]
@@ -163,21 +404,101 @@ mod tests {
         let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--hide"]).unwrap_err();
         assert!(err.contains("missing value for --hide"));
 
-        let err =
-            CliArgs::parse_from(["screenfs", "/", "/mnt", "--hide", "--readonly"]).unwrap_err();
+        let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--hide", "--config"]).unwrap_err();
         assert!(err.contains("missing value for --hide"));
 
         let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--readonly-rule"]).unwrap_err();
         assert!(err.contains("missing value for --readonly-rule"));
 
-        let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--readonly-rule", "--hide"])
+        let err = LaunchArgs::parse_from(["screenfs", "/", "/mnt", "--allow-write"]).unwrap_err();
+        assert!(err.contains("missing value for --allow-write"));
+
+        let err = LaunchArgs::parse_from(["screenfs", "/", "/mnt", "--config"]).unwrap_err();
+        assert!(err.contains("missing value for --config"));
+
+        let err = LaunchArgs::parse_from(["screenfs", "/", "/mnt", "--policy-family"]).unwrap_err();
+        assert!(err.contains("missing value for --policy-family"));
+    }
+
+    #[test]
+    fn reports_mutability_conflicts_and_family_mismatch() {
+        let err = LaunchArgs::parse_from([
+            "screenfs",
+            "/",
+            "/mnt",
+            "--readonly-rule",
+            "/logs",
+            "--allow-write",
+            "/tmp",
+        ])
+        .unwrap_err();
+        assert!(err.contains("cannot be used together"));
+
+        let args =
+            LaunchArgs::parse_from(["screenfs", "/", "/mnt", "--allow-write", "/tmp"]).unwrap();
+        assert_eq!(args.policy_family, None);
+        assert_eq!(args.allow_write_rules, vec!["/tmp"]);
+
+        let err = LaunchArgs::parse_from([
+            "screenfs",
+            "/",
+            "/mnt",
+            "--policy-family",
+            "readonly-root-allowwrite",
+            "--readonly-rule",
+            "/logs",
+        ])
+        .unwrap_err();
+        assert!(err.contains("cannot be used with --policy-family readonly-root-allowwrite"));
+
+        let err = LaunchArgs::parse_from(["screenfs", "/", "/mnt", "--policy-family", "bogus"])
             .unwrap_err();
-        assert!(err.contains("missing value for --readonly-rule"));
+        assert!(err.contains("invalid value for --policy-family"));
+        assert!(!LaunchArgs::usage().contains("[--readonly]"));
+    }
+
+    #[test]
+    fn infers_readonly_root_allowwrite_from_allow_write_rules() {
+        let family = validate_future_mutability_surface(
+            None,
+            "--policy-family",
+            "--readonly-rule",
+            &[],
+            "--allow-write",
+            &["/tmp".to_string()],
+        )
+        .unwrap();
+        assert_eq!(family, MutabilityFamily::ReadonlyRootAllowwrite);
     }
 
     #[test]
     fn reports_unexpected_extra_positionals() {
         let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "/extra"]).unwrap_err();
         assert!(err.contains("unexpected positional argument: /extra"));
+    }
+
+    #[test]
+    fn detects_help_flag() {
+        assert!(LaunchArgs::wants_help(["screenfs", "--help"]));
+        assert!(LaunchArgs::wants_help(["screenfs", "/", "/mnt", "-h"]));
+        assert!(!LaunchArgs::wants_help(["screenfs", "/", "/mnt"]));
+    }
+
+    #[test]
+    fn help_text_describes_options_and_examples() {
+        let help = LaunchArgs::help();
+        assert!(help.contains("Usage:"));
+        assert!(help.contains("Arguments:"));
+        assert!(help.contains("Options:"));
+        assert!(help.contains("Mutability families:"));
+        assert!(help.contains("Examples:"));
+        assert!(help.contains("[possible values: selective-readonly, readonly-root-allowwrite]"));
+        assert!(help.contains("Repeatable; hidden paths resolve as ENOENT"));
+        assert!(help.contains("--readonly-rule and --allow-write cannot be used together"));
+        assert!(help.contains("screenfs / /tmp/screenfs-root --hide /home/me/.ssh"));
+        assert!(help.contains("screenfs / /tmp/screenfs-root --config screenfs.yaml"));
+        assert!(help.contains("# screenfs.yaml"));
+        assert!(help.contains("mutability:"));
+        assert!(help.contains("readonly_rules:"));
     }
 }

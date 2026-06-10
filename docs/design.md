@@ -4,7 +4,7 @@
 
 아키텍처 시각화 요약은 [docs/architecture.md](architecture.md)에 정리되어 있다. 다이어그램 원본과 공용 렌더링 규칙은 [docs/diagrams/README.md](diagrams/README.md)를 따른다. `docs/diagrams/*.png`는 `docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`을 함께 사용하고 Mermaid CLI `--scale 2`로 렌더링하는 것을 기준으로 읽는다.
 
-> Implementation status note (2026-06): initial v1 core modules for `cli`, `config`, `errors`, `path`, `matcher`, and `fs` now exist. Current partial implementation status also includes visible-path `access` pass-through, symlink-target guards on `lookup`/`open`/`readlink`, readonly `create` -> `EROFS` handling, readonly/hidden multi-path mutation guard coverage, handler-level readonly enforcement with mount-level `ro` still disabled, and fresh mount-free unit-test coverage over path normalization, matcher behavior, readonly precedence, symlink-target hiding, source-root symlink escape rejection, mount-root recursion exclusion, CLI parsing, FUSE read/list/access/xattr guard behavior, `copy_file_range` visible/hidden paths, relative/`~` exact·prefixed-glob normalization, hide/current `--readonly-rule` shared semantics, and partial selective-readonly regression coverage for scoped exact/glob rules plus symlink write-intent handling. Current source also contains `--readonly-rule` parsing plus readonly matcher plumbing, and hide/current readonly rule inputs now share the implemented normalization contract for absolute/relative/`~` exact rules plus supported prefixed globs. Fresh current-session verification includes `cargo test --all-targets --all-features` passing 54 tests. Documented real-FUSE evidence includes successful repo-local and `source-root=/` whole-root mounts in an environment where `/dev/fuse` exists; the smoke results confirmed hidden-path `ENOENT`, readonly mutation `EROFS`, `stat /bin/bash`, and `ls /usr`. `unshare -UrR <mount> /bin/true` and `unshare -UrR <mount> /bin/bash --noprofile --norc ...` also appear in the historical smoke record, confirming user-namespace chroot execution smoke. Current validation and live evidence still center on the global `--readonly` boolean, and the fresh current-session verification status lives in `docs/operations.md`. The broader selective readonly rule contract described below must therefore be read separately from that currently verified evidence. This is partial implementation progress only; the design requirements below still define the remaining v1 contract.
+> Implementation status note (2026-06): v1 core modules `cli`, `config`, `errors`, `path`, `matcher`, and `fs` now include the family-aware mutability surface. Current source implements `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` loading, one-family-per-mount validation, CLI-over-config precedence, shared hide/readonly/allow-write normalization, hidden-before-`EROFS` precedence, and affected-coordinate-wide writability checks for path-only and multi-path mutation. Fresh mount-free verification also covers visible-path `access` pass-through, symlink-target guards on `lookup`/`open`/`readlink`, whole-mount readonly via `readonly-root-allowwrite` empty carve-out, xattr/fallocate guards, source-root symlink escape rejection, mount-root recursion exclusion, and `copy_file_range` source/destination handling. Fresh current-session verification includes `cargo test --all-targets --all-features` passing 68 tests plus repo-local real-FUSE family-aware smoke for `selective-readonly`, `readonly-root-allowwrite`, config-backed family selection, relative hide exact path, relative/`~` prefixed-glob rules, and conflict fail-fast stderr (`docs/artifacts/future-mutability-smoke-transcript.md`). Fresh current-session whole-root/chroot smoke also exists for the current CLI surface via `readonly-root-allowwrite --allow-write /tmp` (`docs/artifacts/whole-root-family-smoke-transcript.md`) and `readonly-root-allowwrite` with empty `allow_write` (`docs/artifacts/whole-mount-readonly-smoke-transcript.md`). Pre-removal whole-root/chroot smoke remains a separate archival artifact (`docs/artifacts/fuse-smoke-transcript.md`). This remains partial implementation progress only; the design requirements below still define the remaining v1 contract and any remaining family-by-family whole-root/chroot matrix gap.
 
 ## 한눈에 보기
 
@@ -32,9 +32,9 @@
 
 | 관점 | 현재 구현에서 확인된 것 | 여전히 설계 목표로 읽어야 하는 것 |
 | --- | --- | --- |
-| hidden/readonly 기본 의미론 | hidden=`ENOENT`, readdir 필터링, visible mutation=`EROFS` under global `--readonly` | hide와 별개인 selective readonly rule(특정 path/pattern만 `EROFS`) 의미론과 edge case hardening |
-| readonly 설정 표면 | current source에는 global `--readonly` bool + `--readonly-rule` parser/matcher surface가 있고, current 검증 evidence는 주로 global `--readonly` bool 기준 | selective readonly rule 표현식과 검증 matrix 정리, live evidence 보강 |
-| rule 입력 정규화 | hide와 current `--readonly-rule`가 shared normalization contract를 사용하며 absolute/relative/`~` exact rule과 optional prefixed limited glob을 mount-free test로 검증 | live smoke evidence 보강, future `allow_write`까지 같은 contract로 확장 |
+| hidden/readonly 기본 의미론 | hidden=`ENOENT`, readdir 필터링, family-aware evaluator 기준 visible mutation=`EROFS`/carve-out 허용, current whole-root/chroot smoke 존재 | family-by-family whole-root/chroot matrix 보강 |
+| readonly 설정 표면 | current source에는 `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` block, one-family-per-mount/CLI-over-config/fail-fast가 구현돼 있다 | family-by-family whole-root/chroot live evidence 추가 보강 |
+| rule 입력 정규화 | hide, current `--readonly-rule`, `--allow-write`가 shared normalization contract를 사용하며 absolute/relative/`~` exact rule과 optional prefixed limited glob을 mount-free test로 검증하고, repo-local live smoke는 relative hide exact + relative/`~` prefixed glob 일부를 보강한다 | already-absolute live cases, broader unsupported wildcard fail-fast, whole-root smoke까지 포함한 추가 live evidence 보강 |
 | symlink 처리 | direct symlink-entry guard, hidden target 차단, source-root escape rejection | broader ancestor-symlink traversal hardening |
 | whole-root view | `source-root=/` mount smoke, `/bin`/`/usr`/`/etc` 확인 | 상위 supervisor와의 production integration |
 | chroot 실행 | `unshare -UrR` 기반 smoke 확인 | plain `chroot` 운영 모델 정리 |
@@ -54,7 +54,7 @@
 - 전체 `/` view를 상위 whole-root consumer(대표 예시: chroot root)에게 제공한다.
 - 기본은 underlying filesystem pass-through이며, hide rule에 걸린 경로만 없는 것처럼 숨긴다.
 - hidden path는 가능한 한 `ENOENT`로 처리해 존재를 노출하지 않는다.
-- hide와 별개인 selective readonly rule에 매칭된 visible mutation은 `EROFS`로 거부한다. future documented CLI/config syntax는 16절에 정의한다.
+- hide와 별개인 selective readonly rule에 매칭된 visible mutation은 `EROFS`로 거부한다. current canonical CLI/config syntax는 16절에 정의한다.
 - metadata-heavy workload를 고려해 `readdirplus`, matcher/cache, handle lifecycle을 설계한다.
 
 
@@ -153,7 +153,7 @@ hide rule에 매칭되지 않는 visible path는 underlying filesystem으로 pas
 ```text
 src/main.rs      CLI entry, config loading, mount lifecycle
 src/cli.rs       argument parsing and validation
-src/config.rs    runtime config, current global readonly flag, compiled hide rules, future selective readonly config
+src/config.rs    runtime config, mutability family resolution, compiled hide/readonly/allow-write rules
 src/path.rs      virtual path normalization and source-root resolution
 src/matcher.rs   exact, prefix, glob hide matcher
 src/inode.rs     inode table, reverse map, lookup/forget refcount
@@ -207,7 +207,7 @@ Current implementation snapshot:
 - Leading `~` / `~/...` exact or prefixed-glob inputs expand through `HOME` and follow the same containment/rebasing rules.
 - The glob parser still limits the recursive tail grammar to basename/suffix forms such as `**/.env`, `**/*.pem`, `**/*.key`, and `**/*.lock`, but now permits an optional normalized absolute/relative/tilde prefix.
 - Missing `HOME`, expanded paths outside `source_root`, `~user`, wildcard-in-prefix forms, and broader unsupported wildcard forms still fail fast.
-- Current validation evidence for this normalization is mount-free unit-test coverage; live mount smoke for relative/`~` inputs is not yet refreshed.
+- Current validation evidence for this normalization is mount-free unit-test coverage plus repo-local family-aware live smoke for relative hide exact path and relative/`~` prefixed-glob inputs; broader fail-fast edge cases remain covered by unit tests and CLI stderr evidence.
 
 Target contract for path-like rule inputs:
 
@@ -219,8 +219,8 @@ Target contract for path-like rule inputs:
 6. Leading `~` and `~/...` exact or prefixed-glob candidates are expanded through `HOME`, then subjected to the same `source_root` containment check and rebasing.
 7. Missing `HOME`, expanded paths outside `source_root`, and `~user` forms are all fail-fast errors.
 8. Broader wildcard forms such as `foo/*/bar.pem`, `**/secret?.pem`, brace expansion, env-var expansion, and command substitution stay unsupported in this contract.
-9. The existing `--readonly-rule` surface and any future expansion of that surface should reuse the same rule-input normalization contract so hide and readonly classify the same virtual path or glob prefix before policy matching.
-10. Current implementation now reaches this normalization contract for hide and the current `--readonly-rule` surface in mount-free code/tests, while verified live readonly evidence still centers on the current global `--readonly` bool.
+9. The existing `--readonly-rule` and current `--allow-write` surfaces should reuse the same rule-input normalization contract so hide and mutability classification share the same virtual path or glob prefix before policy matching.
+10. Current implementation now reaches this normalization contract for hide and the current mutability rule surfaces in mount-free code/tests. Repo-local family-aware live smoke covers relative hide exact path, relative/`~` prefixed-glob rules, config-backed family selection, and conflict fail-fast; current whole-root smoke covers the current CLI surface on `source-root=/` for carve-out and empty-allow-write whole-mount readonly modes; pre-removal whole-root live readonly evidence remains a separate archival transcript.
 
 
 구현 파일 바로가기: `src/path.rs`, `src/fs.rs`, `src/matcher.rs`, `src/cli.rs`
@@ -313,14 +313,16 @@ Directory iteration:
 
 이 표는 구현자가 가장 자주 참고해야 하는 의미론 요약이다.
 
-아래 표의 **목표 계약**은 hide와 별개인 selective readonly rule을 기준으로 읽는다. 현재 구현은 아직 global `--readonly` bool만 지원하므로, 현재 빌드/검증에서는 아래의 `Visible path matched by readonly rule` 열을 "`--readonly`가 켜진 동안의 모든 visible path"로 해석해야 한다.
+아래 표의 **목표 계약**은 hide와 별개인 family-aware selective readonly semantics를 기준으로 읽는다. 현재 소스는 `selective-readonly`와 `readonly-root-allowwrite` evaluator를 mount-free code/tests로 구현했다. whole-mount readonly semantics가 필요하면 `readonly-root-allowwrite` family를 empty `allow_write`와 함께 사용한다. repo-local family-aware live smoke, current whole-root/chroot family-aware smoke, archival pre-removal transcript는 서로 다른 artifact로 관리한다.
 
 ### 9.1 조회 / 탐색 연산
 
 | Operation class | Hidden path behavior | Visible path matched by readonly rule | Visible path not matched by readonly rule |
 | --- | --- | --- | --- |
-| `lookup`, `getattr`, `statx`, `access` | `ENOENT` | pass-through | pass-through |
-| `opendir` | `ENOENT` | pass-through handle | pass-through handle |
+| `lookup`, `getattr`, `statx`, `access` without write mask | `ENOENT` | pass-through | pass-through |
+| `access` with `W_OK` | `ENOENT` | `EROFS` | pass-through if allowed by host |
+| `opendir` read-only intent | `ENOENT` | pass-through handle | pass-through handle |
+| `opendir` write intent | `ENOENT` | `EROFS` | pass-through handle if host and flags allow |
 | `readdir`, `readdirplus` | exclude entries | filtered listing | filtered listing |
 | `open` read-only intent | `ENOENT` | pass-through handle | pass-through handle |
 | `read`, `flush`, `fsync`, `release` | hidden handles must not exist | pass-through/close | pass-through/close |
@@ -358,7 +360,7 @@ Directory iteration:
 - `rename`, `link`, `symlink`, and copy-like mutation operations classify every involved source, target, and parent virtual path against hide rules and readonly rules.
 - If any involved path is hidden, return `ENOENT` to avoid exposing hidden existence.
 - If no involved path is hidden and any mutated visible path/parent is matched by a readonly rule, return `EROFS`.
-- Current implementation snapshot: when global `--readonly` is active, it applies the same `EROFS` result to all visible mutations regardless of per-path match.
+- Current implementation snapshot: `readonly-root-allowwrite` with empty `allow_write` applies the same `EROFS` result to all visible mutations regardless of per-path match.
 - Otherwise delegate to the underlying filesystem and preserve host errno where possible.
 
 
@@ -380,42 +382,32 @@ Directory iteration:
 6. If any affected visible path is readonly-matched and the operation mutates state or opens with write intent, return `EROFS`.
 7. Delegate visible read/stat/list operations and visible mutations outside readonly scope to the host filesystem.
 
-**현재 목표 계약과 확정된 future family를 구분해서 읽을 점**
+**현재 목표 계약과 live evidence를 구분해서 읽을 점**
 
 - 현재 목표 계약은 writable-by-default + path-scoped selective readonly deny rules다.
-- `readonly-root-allowwrite` 같은 alternate default/override model은 별도 future policy family다.
-- 이 문서는 carve-out family의 target semantics를 더 구체화하지만, current implementation/live evidence가 그것을 이미 지원한다고 주장하지는 않는다.
-- 따라서 현재 문서의 selective readonly 표와 checklist를 future carve-out 정책으로 확장 해석하면 안 된다.
+- `readonly-root-allowwrite`는 현재 소스/마운트-프리 테스트와 fresh repo-local/whole-root FUSE smoke transcript에 반영된 alternate family다. pre-removal historical transcript는 archival evidence로만 분리해 읽는다.
+- 따라서 현재 문서의 selective readonly 표와 checklist를 family별 live smoke 완료로 확장 해석하면 안 된다.
 
-### 10.1 Future carve-out support가 요구하는 change hotspots
+### 10.1 Current family-aware implementation hotspots
 
-`readonly-root-allowwrite`는 단순히 현재 `is_readonly()` bool 판정을 뒤집는 수준이 아니다. 현재 소스 기준으로는 다음 계층/함수 변화가 필요하다.
+현재 소스는 `readonly-root-allowwrite`를 단순 bool 뒤집기가 아니라 family-aware evaluator로 구현한다. 주요 구현 지점은 다음과 같다.
 
 - `src/config.rs`
-  - current state: `readonly: bool`, `readonly_matcher`, `matches_readonly_rule()`, `is_readonly()` 조합
-  - future need: policy family selection, compiled `allow_write` rule set, shared normalization contract를 함께 담는 policy data model
+  - policy family selection, YAML `mutability` loading, CLI-over-config precedence, default family resolution
+  - compiled `readonly_rules`/`allow_write` matcher와 `MutabilitySource` 기록
 - `src/fs.rs`
-  - current state: `readonly()`, `guard_mutation_path()`, `guard_multi_path_mutation()`가 per-path bool 판정 중심
-  - future need: operation-aware affected-path evaluation. source/target/parent set 전체를 본 뒤 hidden 우선, 그 다음 carve-out 허용 여부를 판정하는 evaluator
+  - `guard_mutation_path()`/`guard_multi_path_mutation()`가 source/target/parent 및 symlink resolution을 포함한 affected-coordinate evaluation 수행
+  - hidden 우선 `ENOENT`, 그 다음 family별 `EROFS` 판정
 - `src/errors.rs`
-  - current state: hidden 우선 `ENOENT`, readonly mutation `EROFS`, write-intent `open` 분류 helper
-  - future need: `allow_write` carve-out이 있어도 hidden `ENOENT` 우선과 write-intent/multi-path 분류가 유지되도록 errno precedence helper 확장
+  - hidden/read-only/write-intent 분류 helper로 errno precedence 유지
 - `src/cli.rs`
-  - current state: `--readonly`, `--readonly-rule`
-  - future need: `--policy-family`, `--allow-write`, `--readonly-rule`를 다루는 family-aware surface와 legacy `--readonly` standalone compatibility/fail-fast/deprecation 전략. 현재 selective readonly surface의 단순 재해석으로 확정하면 안 된다.
+  - `--policy-family`, `--readonly-rule`, `--allow-write`, `--config` 파싱 및 family mismatch/conflict fail-fast
 - `src/path.rs` / `src/matcher.rs`
-  - current state: hide/readonly-like path input은 같은 normalization 방향을 문서화
-  - future need: `allow_write`도 exact path / supported prefixed glob / fail-fast semantics를 같은 contract로 재사용
+  - hide/readonly/allow-write가 exact path + supported prefixed glob + fail-fast semantics를 공유
 
-문서상 구현 우선순위는 다음 순서를 기준으로 고정한다.
+남은 설계 과제는 family surface 자체가 아니라 family별 live FUSE smoke 보강, broader ancestor-symlink hardening, production integration evidence 정리다.
 
-1. `src/config.rs`의 family data model과 config/CLI precedence 정리
-2. hide/readonly/allow-write 공용 rule-input normalization 구현
-3. `src/fs.rs`의 affected-coordinate evaluator 구현
-4. `src/errors.rs`의 hidden-vs-EROFS precedence helper 확장
-5. `src/cli.rs`의 family surface와 conflict/fail-fast 처리 구현
-
-### 10.2 Future carve-out family의 확정 의미론
+### 10.2 Current carve-out family semantics in source
 
 이 문서가 carve-out family에 대해 확정하는 자연스러운 적용 규칙은 다음과 같다.
 
@@ -424,12 +416,12 @@ Directory iteration:
 - hidden precedence: hidden path나 hidden target이 하나라도 관여하면 allowWrite보다 hidden `ENOENT`가 우선한다.
 - host gate remains final: ScreenFS policy가 쓰기를 허용해도 최종 성공 여부는 host filesystem 권한/소유권/LSM이 결정한다.
 - shared normalization contract: allowWrite도 hide/current readonly와 같은 exact path + supported prefixed glob + fail-fast semantics를 재사용한다.
-- legacy handling: current `--readonly`는 current implementation/evidence를 설명하는 legacy CLI surface일 뿐이며, 제3 family가 아니고 future documented CLI/config contract에도 포함하지 않는다.
-- migration path: legacy `--readonly`는 standalone compatibility mode로만 잠정 허용하고, `--policy-family`, `--readonly-rule`, `--allow-write`, future config `mutability` block과 병용하면 fail-fast한다. 구현 시 deprecation warning을 내고 canonical family surface로 이행시킨다.
+- whole-mount readonly semantics는 `readonly-root-allowwrite` family와 empty `allow_write`로 표현한다.
+- canonical CLI/config contract는 explicit family/rule/config surface만 유지한다.
 
-### 10.3 Future carve-out support가 요구하는 연산 분류
+### 10.3 Current carve-out operation classification
 
-carve-out 모델을 실제로 지원하려면 최소한 다음 operation class를 별도로 다뤄야 한다.
+현재 소스는 carve-out 모델을 최소한 다음 operation class로 나눠 family-aware하게 다룬다.
 
 - read/stat/list: hidden이 아니면 pass-through
 - write-intent `open`: entry path와 resolved target을 hidden 검사한 뒤, 해당 entry coordinate가 allowWrite인지와 host permission을 함께 고려
@@ -456,12 +448,13 @@ carve-out 모델을 실제로 지원하려면 최소한 다음 operation class�
 - 제3 mutability policy family 추가
 - `selective-readonly`와 `readonly-root-allowwrite`의 한 mount 내 동시 활성
 - future deny-like family와의 조합
-- legacy global `--readonly`를 제3 family나 config bool로 승격하는 해석
+- 제거된 whole-mount readonly bool shorthand를 제3 family나 config bool로 복원하는 해석
 
 **현재 구현 상태**
 
-- The handler still enforces a global `--readonly` boolean before host delegation.
-- In current code/tests, step 5 is effectively "treat every visible path as readonly-matched when `--readonly` is enabled."
+- The handler enforces family-aware readonly decisions before host delegation.
+- In current code/tests, `selective-readonly`는 rule-matched visible paths만 readonly-matched로 보고, `readonly-root-allowwrite`는 allow-write non-match coordinate를 readonly-matched로 본다.
+- Whole-mount readonly가 필요하면 `readonly-root-allowwrite` with empty `allow_write`가 모든 visible path를 readonly-matched로 만든다.
 - Handler-level guards are the source of truth. Mount-level read-only remains disabled and is not relied on for semantics.
 
 
@@ -527,7 +520,7 @@ Mount options to evaluate:
 
 - `default_permissions`: use only if it preserves required `access` and hidden `ENOENT` behavior.
 - `allow_other`: not part of v1 default behavior. Same-host-uid access is the v1 contract. A future explicit `--allow-other` option must require `/etc/fuse.conf` `user_allow_other`, restrictive mountpoint permissions, and a security warning.
-- `ro`: mount-level read-only cannot express selective readonly rules, so it cannot be the source of truth for the target contract. It is only a possible whole-mount defense in depth for the current global `--readonly` implementation or for a future explicit full-readonly mode.
+- `ro`: mount-level read-only cannot express selective readonly rules, so it cannot be the source of truth for the target contract. It is only a possible whole-mount defense in depth for `readonly-root-allowwrite` empty-carve-out deployments or a future separately documented full-readonly mode.
 - `force_readdir_plus`: consider enabling if compatible with `fractal-fuse` and workload.
 - passthrough/backing fd optimization: phase 2 after correctness baseline.
 
@@ -592,24 +585,25 @@ Implementation priorities:
 
 이 절은 사용자에게 노출되는 인터페이스를 문서와 구현 사이에서 일치시키기 위한 기준이다.
 
-목표 계약에서 mutability policy는 hide와 별도의 surface여야 하며, future documented family contract는 아래처럼 확정한다.
+목표 계약에서 mutability policy는 hide와 별도의 surface여야 하며, current canonical family contract는 아래처럼 정리된다. family-preserving nested override를 검토하는 future option B proposal과 candidate canonical wording은 `docs/nested-mutability-option-b.md`에 따로 정리하고, 이 절의 current canonical contract와는 분리해서 읽는다.
 
-Future documented CLI shape:
+Current canonical CLI shape:
 
 ```text
 screenfs <source-root> <mount-root> \
+  [--config <path>] \
   [--hide <rule> ...] \
   [--policy-family selective-readonly|readonly-root-allowwrite] \
   [--readonly-rule <rule> ...] \
   [--allow-write <rule> ...]
 ```
 
-Future CLI contract:
+Current CLI contract:
 
 - mount당 하나의 mutability policy family만 선택한다.
 - `--readonly-rule`는 `selective-readonly` family 전용이다.
 - `--allow-write`는 `readonly-root-allowwrite` family 전용이다.
-- future documented contract는 explicit family/rule surface만 사용한다. current `--readonly`는 legacy CLI surface로만 남고 future contract에 포함하지 않는다.
+- canonical contract는 explicit family/rule surface만 사용한다. whole-mount readonly shorthand는 제공하지 않는다.
 - family inference rules:
   - CLI mutability option이 하나라도 있으면 CLI가 family를 결정한다.
   - explicit `--policy-family`가 있으면 그 값을 사용한다.
@@ -622,15 +616,14 @@ Future CLI contract:
   - `--policy-family selective-readonly`와 `--allow-write` 조합 금지
   - `--policy-family readonly-root-allowwrite`와 `--readonly-rule` 조합 금지
   - explicit family와 그 family 전용이 아닌 mutability rule 조합은 fail-fast다.
-- exact path inputs may later accept relative paths and leading `~` / `~/...`, but only under the documented source-root rebasing contract.
+- exact path inputs now accept absolute paths plus relative paths and leading `~` / `~/...` under the documented source-root rebasing contract.
 - supported glob grammar remains limited to the current recursive basename/suffix tails (`**/<basename>`, `**/*.<suffix>`) while allowing an optional normalized absolute/relative/tilde path prefix such as `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, or `/home/<user>/**/*.pem`.
 - missing `HOME`, expanded paths outside `source_root`, and `~user` forms must remain fail-fast errors.
 - broader wildcard forms outside that prefix+tail contract remain unsupported.
-- the existing `--readonly-rule` parsing/matcher surface and any future `--allow-write` expansion should reuse the same rule-input normalization contract as hide rules.
-- current implementation evidence for mutability still centers on the global `--readonly` placeholder; this future CLI contract is specified but not yet implemented.
-- future implementation should keep legacy `--readonly` only as standalone compatibility mode, emit a deprecation warning, and fail-fast whenever it is combined with future family/rule/config mutability surfaces.
+- the existing `--readonly-rule` and current `--allow-write` parsing/matcher surfaces reuse the same rule-input normalization contract as hide rules.
+- current implementation/source-test evidence now covers this CLI contract, while live smoke evidence is split between repo-local family-aware transcript, current whole-root/chroot family-aware transcript, and pre-removal archival transcript.
 
-Future config contract:
+Current config contract:
 
 ```yaml
 mutability:
@@ -649,7 +642,7 @@ mutability:
 Current implementation snapshot:
 
 ```text
-screenfs <source-root> <mount-root> [--hide <pattern> ...] [--readonly] [--readonly-rule <rule> ...]
+screenfs <source-root> <mount-root> [--config <path>] [--hide <pattern> ...] [--policy-family <selective-readonly|readonly-root-allowwrite>] [--readonly-rule <rule> ...] [--allow-write <rule> ...]
 ```
 
 Current example:
@@ -665,11 +658,11 @@ screenfs / /tmp/screenfs-root \
   --hide '**/*.key'
 ```
 
-Current readonly smoke example (still global, not selective):
+Current whole-mount readonly example:
 
 ```bash
 screenfs / /tmp/screenfs-root \
-  --readonly \
+  --policy-family readonly-root-allowwrite \
   --hide /home/spi-ca/.ssh
 ```
 
@@ -680,7 +673,7 @@ screenfs / /tmp/screenfs-root \
 
 이 절은 어떤 근거가 있으면 "동작한다"고 말할 수 있는지 검증 층위를 나눈다.
 
-Validation is split into unit, integration, mount smoke, and system smoke levels. Readonly-related validation must be read in two tracks: the **target selective readonly contract** and the **current global `--readonly` implementation coverage**.
+Validation is split into unit, integration, mount smoke, and system smoke levels. Readonly-related validation must be read in two tracks: the **target selective readonly contract** and the **whole-mount readonly coverage expressed through `readonly-root-allowwrite`**.
 
 ### Unit tests
 
@@ -691,13 +684,13 @@ Validation is split into unit, integration, mount smoke, and system smoke levels
 - current implementation coverage: relative exact path rebasing from process cwd into a virtual absolute path when inside `source_root`
 - current implementation coverage: relative prefixed-glob rebasing from process cwd into a virtual glob prefix when inside `source_root`
 - current implementation coverage: leading `~` / `~/...` expansion through `HOME` for exact and prefixed-glob inputs plus `source_root` containment checks
-- current implementation coverage: hide/current `--readonly-rule` shared normalization semantics and fail-fast propagation through `RuntimeConfig::from_cli`
+- current implementation coverage: hide/current `--readonly-rule` shared normalization semantics and fail-fast propagation through `RuntimeConfig`
 - target contract: fail-fast errors for missing `HOME`, `~user`, and expanded paths outside `source_root`
 - hidden directory prefix matching
 - mount-root recursion exclusion
 - selective readonly rule matching for path/pattern-scoped rules (target contract)
 - affected-path mutation classification, including write-intent `open` and multi-path operations (target contract)
-- current implementation coverage: global `--readonly` operation classifier, including write-intent `open`
+- current implementation coverage: `readonly-root-allowwrite` empty-carve-out operation classifier, including write-intent `open`
 - errno mapping
 - inode table lookup/forget/refcount behavior
 - readdir snapshot cookie behavior
@@ -712,7 +705,7 @@ Validation is split into unit, integration, mount smoke, and system smoke levels
 - target rule-input normalization fail-fast cases: missing `HOME`, `~user`, expanded path outside `source_root`, broader unsupported wildcard forms
 - selective readonly rule application to matching and non-matching visible paths (target contract)
 - multi-path op classification for hidden source/target/parent and readonly-matched source/target/parent (target contract)
-- current implementation coverage: global `--readonly` `EROFS` precedence after hidden `ENOENT`
+- current implementation coverage: whole-mount readonly `EROFS` precedence after hidden `ENOENT`
 - cache invalidation after writable mutation
 - symlink target hidden checks are not served from stale direct-path hidden cache
 - alias index updates after `link`, `rename`, and `unlink`
@@ -731,7 +724,7 @@ Validation is split into unit, integration, mount smoke, and system smoke levels
 - also smoke supported prefixed globs such as `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, and `/home/<user>/**/*.pem`
 - keep broader unsupported wildcard forms in fail-fast smoke (for example `foo/*/bar.pem`, `**/secret?.pem`) rather than implicit shell expansion
 - target contract: readonly-matched paths reject `touch`, `mkdir`, `rename`, `chmod`, `truncate`, `setxattr`, and write-intent `open` with `EROFS`, while visible non-matching paths remain writable if the host allows it
-- current implementation smoke: the same mutation cases still use global `--readonly` until selective CLI/config lands
+- current implementation smoke: the same mutation cases use `readonly-root-allowwrite` with empty `allow_write` when whole-mount readonly semantics are desired
 
 ### System smoke tests
 

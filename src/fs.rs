@@ -318,7 +318,7 @@ impl ScreenFs {
         self.guard_hidden_symlink_target_if_needed(path)
     }
 
-    fn guard_mutation_path(
+    fn guard_coordinate_hidden(
         &self,
         path: &VirtualPath,
         follow_final_symlink: bool,
@@ -326,8 +326,18 @@ impl ScreenFs {
         self.guard_hidden_path(path)?;
         let resolved = self.resolved_virtual_path(path, follow_final_symlink)?;
         if self.hidden(&resolved) {
-            return Err(ENOENT);
+            Err(ENOENT)
+        } else {
+            Ok(())
         }
+    }
+
+    fn guard_coordinate_writable(
+        &self,
+        path: &VirtualPath,
+        follow_final_symlink: bool,
+    ) -> Result<(), i32> {
+        let resolved = self.resolved_virtual_path(path, follow_final_symlink)?;
         if self.readonly(path) || self.readonly(&resolved) {
             Err(libc::EROFS)
         } else {
@@ -335,23 +345,31 @@ impl ScreenFs {
         }
     }
 
-    fn guard_multi_path_mutation(&self, paths: &[(&VirtualPath, bool)]) -> Result<(), i32> {
-        for (path, _) in paths {
-            self.guard_hidden_path(path)?;
+    fn guard_mutation_coordinates(
+        &self,
+        visible: &[(&VirtualPath, bool)],
+        writable: &[(&VirtualPath, bool)],
+    ) -> Result<(), i32> {
+        for (path, follow_final_symlink) in visible.iter().copied().chain(writable.iter().copied())
+        {
+            self.guard_coordinate_hidden(path, follow_final_symlink)?;
         }
-        for (path, follow_final_symlink) in paths {
-            let resolved = self.resolved_virtual_path(path, *follow_final_symlink)?;
-            if self.hidden(&resolved) {
-                return Err(ENOENT);
-            }
-        }
-        for (path, follow_final_symlink) in paths {
-            let resolved = self.resolved_virtual_path(path, *follow_final_symlink)?;
-            if self.readonly(path) || self.readonly(&resolved) {
-                return Err(libc::EROFS);
-            }
+        for (path, follow_final_symlink) in writable {
+            self.guard_coordinate_writable(path, *follow_final_symlink)?;
         }
         Ok(())
+    }
+
+    fn guard_mutation_path(
+        &self,
+        path: &VirtualPath,
+        follow_final_symlink: bool,
+    ) -> Result<(), i32> {
+        self.guard_mutation_coordinates(&[], &[(path, follow_final_symlink)])
+    }
+
+    fn guard_multi_path_mutation(&self, paths: &[(&VirtualPath, bool)]) -> Result<(), i32> {
+        self.guard_mutation_coordinates(&[], paths)
     }
 
     fn guard_hidden_symlink_target_if_needed(&self, path: &VirtualPath) -> Result<(), i32> {
@@ -777,13 +795,10 @@ impl Filesystem for ScreenFs {
         if self.cfg.matcher.is_hidden_symlink_target(&path, link) {
             return Err(ENOENT);
         }
-        self.guard_mutation_path(&path, false)?;
+        let parent_path = Self::parent_path(&path);
+        self.guard_mutation_coordinates(&[], &[(&path, false), (&parent_path, true)])?;
         std::os::unix::fs::symlink(link, self.host_path(&path, false)?).map_err(errno_from_io)?;
-        self.invalidate_after_mutation(
-            &[Self::parent_path(&path)],
-            std::slice::from_ref(&path),
-            &[],
-        );
+        self.invalidate_after_mutation(&[parent_path], std::slice::from_ref(&path), &[]);
         self.reply_entry_for_path(path)
     }
 
@@ -796,7 +811,8 @@ impl Filesystem for ScreenFs {
         rdev: u32,
     ) -> FsResult<ReplyEntry> {
         let path = self.child_path(parent, name)?;
-        self.guard_mutation_path(&path, false)?;
+        let parent_path = Self::parent_path(&path);
+        self.guard_mutation_coordinates(&[], &[(&path, false), (&parent_path, true)])?;
         let source = self.host_path(&path, false)?;
         let c_path = cstring_path(&source)?;
         let result =
@@ -804,27 +820,25 @@ impl Filesystem for ScreenFs {
         if result != 0 {
             return Err(errno_from_io(std::io::Error::last_os_error()));
         }
-        self.invalidate_after_mutation(
-            &[Self::parent_path(&path)],
-            std::slice::from_ref(&path),
-            &[],
-        );
+        self.invalidate_after_mutation(&[parent_path], std::slice::from_ref(&path), &[]);
         self.reply_entry_for_path(path)
     }
 
     async fn unlink(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<()> {
         let path = self.child_path(parent, name)?;
-        self.guard_mutation_path(&path, false)?;
+        let parent_path = Self::parent_path(&path);
+        self.guard_mutation_coordinates(&[], &[(&path, false), (&parent_path, true)])?;
         fs::remove_file(self.host_path(&path, false)?).map_err(errno_from_io)?;
-        self.invalidate_after_mutation(&[Self::parent_path(&path)], &[], &[path]);
+        self.invalidate_after_mutation(&[parent_path], &[], &[path]);
         Ok(())
     }
 
     async fn rmdir(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<()> {
         let path = self.child_path(parent, name)?;
-        self.guard_mutation_path(&path, false)?;
+        let parent_path = Self::parent_path(&path);
+        self.guard_mutation_coordinates(&[], &[(&path, false), (&parent_path, true)])?;
         fs::remove_dir(self.host_path(&path, false)?).map_err(errno_from_io)?;
-        self.invalidate_after_mutation(&[Self::parent_path(&path)], &[], &[path]);
+        self.invalidate_after_mutation(&[parent_path], &[], &[path]);
         Ok(())
     }
 
@@ -837,16 +851,13 @@ impl Filesystem for ScreenFs {
         _umask: u32,
     ) -> FsResult<ReplyEntry> {
         let path = self.child_path(parent, name)?;
-        self.guard_mutation_path(&path, false)?;
+        let parent_path = Self::parent_path(&path);
+        self.guard_mutation_coordinates(&[], &[(&path, false), (&parent_path, true)])?;
         let source = self.host_path(&path, false)?;
         fs::create_dir(&source).map_err(errno_from_io)?;
         fs::set_permissions(source, fs::Permissions::from_mode(mode & 0o7777))
             .map_err(errno_from_io)?;
-        self.invalidate_after_mutation(
-            &[Self::parent_path(&path)],
-            std::slice::from_ref(&path),
-            &[],
-        );
+        self.invalidate_after_mutation(&[parent_path], std::slice::from_ref(&path), &[]);
         self.reply_entry_for_path(path)
     }
 
@@ -861,14 +872,17 @@ impl Filesystem for ScreenFs {
     ) -> FsResult<()> {
         let from = self.child_path(parent, name)?;
         let to = self.child_path(new_parent, new_name)?;
-        self.guard_multi_path_mutation(&[(&from, false), (&to, false)])?;
+        let from_parent = Self::parent_path(&from);
+        let to_parent = Self::parent_path(&to);
+        self.guard_multi_path_mutation(&[
+            (&from, false),
+            (&to, false),
+            (&from_parent, true),
+            (&to_parent, true),
+        ])?;
         fs::rename(self.host_path(&from, false)?, self.host_path(&to, false)?)
             .map_err(errno_from_io)?;
-        self.invalidate_after_mutation(
-            &[Self::parent_path(&from), Self::parent_path(&to)],
-            &[],
-            &[from, to],
-        );
+        self.invalidate_after_mutation(&[from_parent, to_parent], &[], &[from, to]);
         Ok(())
     }
 
@@ -881,17 +895,18 @@ impl Filesystem for ScreenFs {
     ) -> FsResult<ReplyEntry> {
         let source = self.path_for_inode(inode)?;
         let target = self.child_path(new_parent, new_name)?;
-        self.guard_multi_path_mutation(&[(&source, false), (&target, false)])?;
+        let target_parent = Self::parent_path(&target);
+        self.guard_multi_path_mutation(&[
+            (&source, false),
+            (&target, false),
+            (&target_parent, true),
+        ])?;
         fs::hard_link(
             self.host_path(&source, false)?,
             self.host_path(&target, false)?,
         )
         .map_err(errno_from_io)?;
-        self.invalidate_after_mutation(
-            &[Self::parent_path(&target)],
-            std::slice::from_ref(&target),
-            &[],
-        );
+        self.invalidate_after_mutation(&[target_parent], std::slice::from_ref(&target), &[]);
         self.reply_entry_for_path(target)
     }
 
@@ -904,10 +919,10 @@ impl Filesystem for ScreenFs {
         flags: u32,
     ) -> FsResult<ReplyCreate> {
         let path = self.child_path(parent, name)?;
-        self.guard_mutation_path(&path, false)?;
+        let parent_path = Self::parent_path(&path);
+        self.guard_mutation_coordinates(&[], &[(&path, false), (&parent_path, true)])?;
         let file =
             self.open_confined(&path, sanitize_open_flags(flags, true), Some(mode & 0o7777))?;
-        let parent_path = Self::parent_path(&path);
         let (inode, fh) = {
             let mut state = self.state.lock().expect("state mutex poisoned");
             state.invalidate_directory_snapshots(std::slice::from_ref(&parent_path));
@@ -999,7 +1014,8 @@ impl Filesystem for ScreenFs {
             return Err(ENOENT);
         }
         self.guard_read_path(&input.path)?;
-        self.guard_mutation_path(&output.path, true)?;
+        let output_parent = Self::parent_path(&output.path);
+        self.guard_mutation_coordinates(&[], &[(&output.path, true), (&output_parent, true)])?;
         let mut in_off = off_in as libc::off64_t;
         let mut out_off = off_out as libc::off64_t;
         let copied = unsafe {
@@ -1370,7 +1386,7 @@ fn file_type_from_metadata(metadata: &fs::Metadata) -> FileType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::CliArgs;
+    use crate::cli::{CliArgs, LaunchArgs, MutabilityFamily};
     use crate::config::RuntimeConfig;
     use std::future::Future;
     use std::path::Path;
@@ -1379,23 +1395,42 @@ mod tests {
     use std::task::{Context, Poll, Wake, Waker};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn fs_for(
+    fn fs_for_policy(
         source: &Path,
         hide_rules: Vec<String>,
-        readonly: bool,
         readonly_rules: Vec<String>,
+        policy_family: Option<MutabilityFamily>,
+        allow_write_rules: Vec<String>,
     ) -> ScreenFs {
         let mount = source.join("mount");
         std::fs::create_dir_all(&mount).unwrap();
-        let cfg = RuntimeConfig::from_cli(CliArgs {
-            source_root: source.to_path_buf(),
-            mount_root: mount,
-            readonly,
-            hide_rules,
-            readonly_rules,
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.to_path_buf(),
+                mount_root: mount,
+                hide_rules,
+                readonly_rules,
+            },
+            config_path: None,
+            policy_family,
+            allow_write_rules,
         })
         .unwrap();
         ScreenFs::new(cfg)
+    }
+
+    fn fs_for(source: &Path, hide_rules: Vec<String>, readonly_rules: Vec<String>) -> ScreenFs {
+        fs_for_policy(source, hide_rules, readonly_rules, None, Vec::new())
+    }
+
+    fn fs_for_root_readonly(source: &Path, hide_rules: Vec<String>) -> ScreenFs {
+        fs_for_policy(
+            source,
+            hide_rules,
+            Vec::new(),
+            Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            Vec::new(),
+        )
     }
 
     #[test]
@@ -1405,12 +1440,7 @@ mod tests {
         std::fs::write(dir.join("hidden.pem"), b"secret").unwrap();
         std::fs::create_dir(dir.join("private")).unwrap();
         std::fs::write(dir.join("private/note.txt"), b"nope").unwrap();
-        let fs = fs_for(
-            &dir,
-            vec!["**/*.pem".to_string(), "/private".to_string()],
-            true,
-            Vec::new(),
-        );
+        let fs = fs_for_root_readonly(&dir, vec!["**/*.pem".to_string(), "/private".to_string()]);
 
         let hidden = VirtualPath::new("/hidden.pem");
         let hidden_inode = fs
@@ -1455,7 +1485,7 @@ mod tests {
         let dir = test_dir("visible-read-list");
         std::fs::create_dir_all(dir.join("a/b")).unwrap();
         std::fs::write(dir.join("a/b/hello.txt"), b"hello world").unwrap();
-        let fs = fs_for(&dir, Vec::new(), true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, Vec::new());
 
         let file_inode = fs
             .reply_entry_for_path(VirtualPath::new("/a/b/hello.txt"))
@@ -1509,7 +1539,7 @@ mod tests {
         std::fs::create_dir(dir.join("listing")).unwrap();
         std::fs::write(dir.join("listing/alpha"), b"a").unwrap();
         std::fs::write(dir.join("listing/gamma"), b"g").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
+        let fs = fs_for(&dir, Vec::new(), Vec::new());
         let listing = fs
             .reply_entry_for_path(VirtualPath::new("/listing"))
             .unwrap()
@@ -1552,7 +1582,7 @@ mod tests {
         let dir = test_dir("releasedir-cleanup");
         std::fs::create_dir(dir.join("listing")).unwrap();
         std::fs::write(dir.join("listing/file"), b"ok").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
+        let fs = fs_for(&dir, Vec::new(), Vec::new());
         let listing = fs
             .reply_entry_for_path(VirtualPath::new("/listing"))
             .unwrap()
@@ -1590,7 +1620,7 @@ mod tests {
         std::fs::write(dir.join("visible"), b"ok").unwrap();
         std::fs::create_dir(dir.join("docs")).unwrap();
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
 
         let visible = fs
             .reply_entry_for_path(VirtualPath::new("/visible"))
@@ -1617,7 +1647,7 @@ mod tests {
         let dir = test_dir("symlink-hidden-readonly-mutation");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
         let inode = fs
             .state
             .lock()
@@ -1640,7 +1670,7 @@ mod tests {
         let dir = test_dir("symlink-hidden");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
 
         let lookup_err = fs
             .reply_entry_for_path(VirtualPath::new("/link"))
@@ -1668,7 +1698,7 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
         std::os::unix::fs::symlink("../outside/secret.txt", source.join("escape")).unwrap();
-        let fs = fs_for(&source, Vec::new(), true, Vec::new());
+        let fs = fs_for_root_readonly(&source, Vec::new());
 
         let inode = fs
             .reply_entry_for_path(VirtualPath::new("/escape"))
@@ -1697,7 +1727,7 @@ mod tests {
         std::fs::create_dir_all(&source).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
         std::os::unix::fs::symlink("../outside", source.join("escape-dir")).unwrap();
-        let fs = fs_for(&source, Vec::new(), false, Vec::new());
+        let fs = fs_for(&source, Vec::new(), Vec::new());
 
         let inode = fs
             .reply_entry_for_path(VirtualPath::new("/escape-dir"))
@@ -1733,7 +1763,7 @@ mod tests {
         let dir = test_dir("access");
         let file = dir.join("file");
         std::fs::write(&file, b"data").unwrap();
-        let fs = fs_for(&dir, Vec::new(), true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, Vec::new());
         let inode = fs
             .reply_entry_for_path(VirtualPath::new("/file"))
             .unwrap()
@@ -1755,7 +1785,7 @@ mod tests {
     fn hidden_access_returns_enoent_for_read_and_write_masks() {
         let dir = test_dir("hidden-access");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
         let hidden = fs
             .state
             .lock()
@@ -1776,7 +1806,7 @@ mod tests {
     #[test]
     fn readonly_create_returns_erofs_instead_of_enosys() {
         let dir = test_dir("readonly-create");
-        let fs = fs_for(&dir, Vec::new(), true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, Vec::new());
         let err = block_on(fs.create(
             dummy_req(),
             FUSE_ROOT_ID,
@@ -1795,7 +1825,7 @@ mod tests {
         std::fs::write(dir.join("visible"), b"ok").unwrap();
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::fs::create_dir(dir.join("nested")).unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
         let visible = fs
             .reply_entry_for_path(VirtualPath::new("/visible"))
             .unwrap()
@@ -1829,7 +1859,7 @@ mod tests {
         let dir = test_dir("open-host-flags");
         let file = dir.join("file");
         std::fs::write(&file, b"abc").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
+        let fs = fs_for(&dir, Vec::new(), Vec::new());
         let inode = fs
             .reply_entry_for_path(VirtualPath::new("/file"))
             .unwrap()
@@ -1863,7 +1893,7 @@ mod tests {
     fn create_honors_host_exclusive_and_readonly_flags() {
         let dir = test_dir("create-host-flags");
         std::fs::write(dir.join("existing"), b"abc").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
+        let fs = fs_for(&dir, Vec::new(), Vec::new());
 
         let err = block_on(fs.create(
             dummy_req(),
@@ -1904,7 +1934,7 @@ mod tests {
     #[test]
     fn hidden_create_returns_enoent_before_readonly() {
         let dir = test_dir("hidden-create");
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
 
         let err = block_on(fs.create(
             dummy_req(),
@@ -1930,7 +1960,6 @@ mod tests {
         let fs = fs_for(
             &dir,
             Vec::new(),
-            false,
             vec!["/locked".to_string(), "**/*.lock".to_string()],
         );
 
@@ -2048,7 +2077,6 @@ mod tests {
                 "/hidden.lock".to_string(),
                 "/hidden-link-create".to_string(),
             ],
-            false,
             vec!["**/*.lock".to_string(), "/locked-link-create".to_string()],
         );
 
@@ -2122,10 +2150,246 @@ mod tests {
     }
 
     #[test]
+    fn readonly_root_allowwrite_match_non_match_and_hidden_precedence() {
+        let dir = test_dir("allowwrite-match-hidden");
+        std::fs::write(dir.join("allowed.txt"), b"ok").unwrap();
+        std::fs::write(dir.join("blocked.bin"), b"no").unwrap();
+        std::fs::write(dir.join("hidden.txt"), b"secret").unwrap();
+        let fs = fs_for_policy(
+            &dir,
+            vec!["/hidden.txt".to_string()],
+            Vec::new(),
+            Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            vec!["**/*.txt".to_string()],
+        );
+
+        let allowed = fs
+            .reply_entry_for_path(VirtualPath::new("/allowed.txt"))
+            .unwrap()
+            .attr
+            .ino;
+        let blocked = fs
+            .reply_entry_for_path(VirtualPath::new("/blocked.bin"))
+            .unwrap()
+            .attr
+            .ino;
+        let hidden = fs
+            .state
+            .lock()
+            .expect("state mutex poisoned")
+            .inode_for_path(VirtualPath::new("/hidden.txt"));
+
+        let allowed_handle =
+            block_on(fs.open(dummy_req(), allowed, libc::O_WRONLY as u32)).unwrap();
+        block_on(fs.release(dummy_req(), allowed, allowed_handle.fh, 0, 0, false, false)).unwrap();
+        assert_eq!(
+            block_on(fs.open(dummy_req(), blocked, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS
+        );
+        assert_eq!(
+            block_on(fs.open(dummy_req(), hidden, libc::O_WRONLY as u32)).unwrap_err(),
+            ENOENT
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation() {
+        let dir = test_dir("allowwrite-parent-multi");
+        std::fs::create_dir(dir.join("sandbox")).unwrap();
+        std::fs::create_dir(dir.join("src")).unwrap();
+        std::fs::create_dir(dir.join("dst")).unwrap();
+        std::fs::write(dir.join("src/item.txt"), b"item").unwrap();
+
+        let fs = fs_for_policy(
+            &dir,
+            Vec::new(),
+            Vec::new(),
+            Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            vec!["**/*.txt".to_string()],
+        );
+        assert_eq!(
+            block_on(
+                fs.create(
+                    dummy_req(),
+                    fs.reply_entry_for_path(VirtualPath::new("/sandbox"))
+                        .unwrap()
+                        .attr
+                        .ino,
+                    OsStr::new("new.txt"),
+                    0o644,
+                    libc::O_CREAT as u32,
+                )
+            )
+            .unwrap_err(),
+            libc::EROFS
+        );
+        assert_eq!(
+            block_on(
+                fs.rename(
+                    dummy_req(),
+                    fs.reply_entry_for_path(VirtualPath::new("/src"))
+                        .unwrap()
+                        .attr
+                        .ino,
+                    OsStr::new("item.txt"),
+                    fs.reply_entry_for_path(VirtualPath::new("/dst"))
+                        .unwrap()
+                        .attr
+                        .ino,
+                    OsStr::new("renamed.txt"),
+                    0,
+                )
+            )
+            .unwrap_err(),
+            libc::EROFS
+        );
+        assert!(dir.join("src/item.txt").exists());
+
+        let fs = fs_for_policy(
+            &dir,
+            Vec::new(),
+            Vec::new(),
+            Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            vec!["/src".to_string(), "/dst".to_string()],
+        );
+        block_on(
+            fs.rename(
+                dummy_req(),
+                fs.reply_entry_for_path(VirtualPath::new("/src"))
+                    .unwrap()
+                    .attr
+                    .ino,
+                OsStr::new("item.txt"),
+                fs.reply_entry_for_path(VirtualPath::new("/dst"))
+                    .unwrap()
+                    .attr
+                    .ino,
+                OsStr::new("renamed.txt"),
+                0,
+            ),
+        )
+        .unwrap();
+        assert!(!dir.join("src/item.txt").exists());
+        assert_eq!(std::fs::read(dir.join("dst/renamed.txt")).unwrap(), b"item");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent() {
+        let dir = test_dir("allowwrite-copy-parent");
+        std::fs::create_dir(dir.join("blocked")).unwrap();
+        std::fs::write(dir.join("input.txt"), b"abcdef").unwrap();
+        std::fs::write(dir.join("blocked/out.txt"), b"------").unwrap();
+
+        let fs = fs_for_policy(
+            &dir,
+            Vec::new(),
+            Vec::new(),
+            Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            vec!["**/*.txt".to_string()],
+        );
+        let input = fs
+            .reply_entry_for_path(VirtualPath::new("/input.txt"))
+            .unwrap()
+            .attr
+            .ino;
+        let output = fs
+            .reply_entry_for_path(VirtualPath::new("/blocked/out.txt"))
+            .unwrap()
+            .attr
+            .ino;
+        let input_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
+            input,
+            VirtualPath::new("/input.txt"),
+            OpenOptions::new()
+                .read(true)
+                .open(dir.join("input.txt"))
+                .unwrap(),
+        );
+        let output_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
+            output,
+            VirtualPath::new("/blocked/out.txt"),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("blocked/out.txt"))
+                .unwrap(),
+        );
+        assert_eq!(
+            block_on(fs.copy_file_range(
+                dummy_req(),
+                input,
+                input_fh,
+                0,
+                output,
+                output_fh,
+                0,
+                3,
+                0,
+            ))
+            .unwrap_err(),
+            libc::EROFS
+        );
+
+        std::fs::write(dir.join("blocked/out.txt"), b"------").unwrap();
+        let fs = fs_for_policy(
+            &dir,
+            Vec::new(),
+            Vec::new(),
+            Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            vec!["/blocked".to_string()],
+        );
+        let input = fs
+            .reply_entry_for_path(VirtualPath::new("/input.txt"))
+            .unwrap()
+            .attr
+            .ino;
+        let output = fs
+            .reply_entry_for_path(VirtualPath::new("/blocked/out.txt"))
+            .unwrap()
+            .attr
+            .ino;
+        let input_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
+            input,
+            VirtualPath::new("/input.txt"),
+            OpenOptions::new()
+                .read(true)
+                .open(dir.join("input.txt"))
+                .unwrap(),
+        );
+        let output_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
+            output,
+            VirtualPath::new("/blocked/out.txt"),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("blocked/out.txt"))
+                .unwrap(),
+        );
+        let copied = block_on(fs.copy_file_range(
+            dummy_req(),
+            input,
+            input_fh,
+            1,
+            output,
+            output_fh,
+            2,
+            3,
+            0,
+        ))
+        .unwrap();
+        assert_eq!(copied, 3);
+        assert_eq!(
+            std::fs::read(dir.join("blocked/out.txt")).unwrap(),
+            b"--bcd-"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn hidden_xattr_queries_return_enoent() {
         let dir = test_dir("hidden-xattr");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
         let hidden = fs
             .state
             .lock()
@@ -2148,7 +2412,7 @@ mod tests {
         let dir = test_dir("readonly-mutators");
         std::fs::write(dir.join("a"), b"aaaa").unwrap();
         std::fs::write(dir.join("b"), b"bbbb").unwrap();
-        let fs = fs_for(&dir, Vec::new(), true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, Vec::new());
         let a = fs
             .reply_entry_for_path(VirtualPath::new("/a"))
             .unwrap()
@@ -2208,7 +2472,7 @@ mod tests {
         let dir = test_dir("copy-visible");
         std::fs::write(dir.join("a"), b"abcdef").unwrap();
         std::fs::write(dir.join("b"), b"------").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
+        let fs = fs_for(&dir, Vec::new(), Vec::new());
         let a = fs
             .reply_entry_for_path(VirtualPath::new("/a"))
             .unwrap()
@@ -2242,7 +2506,7 @@ mod tests {
         let dir = test_dir("copy-hidden");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::fs::write(dir.join("visible"), b"------").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
         let hidden = fs
             .state
             .lock()
@@ -2308,7 +2572,7 @@ mod tests {
         let dir = test_dir("hidden-mutators");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::fs::write(dir.join("visible"), b"ok").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
+        let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
         let hidden = fs
             .state
             .lock()
@@ -2365,7 +2629,7 @@ mod tests {
     fn forget_evicts_non_root_mapping_after_lookup_refs_drop_and_handles_close() {
         let dir = test_dir("forget-eviction");
         std::fs::write(dir.join("file"), b"data").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
+        let fs = fs_for(&dir, Vec::new(), Vec::new());
 
         let entry = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("file"))).unwrap();
         let inode = entry.attr.ino;
@@ -2409,7 +2673,7 @@ mod tests {
         std::fs::write(dir.join("node"), b"old").unwrap();
         std::os::unix::fs::symlink("source", dir.join("sym")).unwrap();
         std::fs::write(dir.join("target"), b"old").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
+        let fs = fs_for(&dir, Vec::new(), Vec::new());
 
         let stale_old = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("stale")))
             .unwrap()
@@ -2511,7 +2775,7 @@ mod tests {
         let dir = test_dir("rename-invalidation");
         std::fs::create_dir(dir.join("rename-src")).unwrap();
         std::fs::write(dir.join("rename-src/child"), b"old").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
+        let fs = fs_for(&dir, Vec::new(), Vec::new());
 
         let src_dir = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("rename-src")))
             .unwrap()

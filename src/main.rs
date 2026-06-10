@@ -1,8 +1,14 @@
 use fractal_fuse::{MountOptions, Session};
-use screenfs::{CliArgs, RuntimeConfig, ScreenFs};
+use screenfs::{LaunchArgs, RuntimeConfig, ScreenFs};
 
 fn main() -> std::io::Result<()> {
-    let args = match CliArgs::parse_from(std::env::args_os()) {
+    let argv = std::env::args_os().collect::<Vec<_>>();
+    if LaunchArgs::wants_help(argv.iter().cloned()) {
+        println!("{}", LaunchArgs::help());
+        std::process::exit(0);
+    }
+
+    let args = match LaunchArgs::parse_from(argv) {
         Ok(args) => args,
         Err(message) => {
             eprintln!("{message}");
@@ -10,31 +16,33 @@ fn main() -> std::io::Result<()> {
         }
     };
 
-    if !args.source_root.is_dir() {
+    if !args.cli.source_root.is_dir() {
         eprintln!(
             "source root is not a directory: {}",
-            args.source_root.display()
+            args.cli.source_root.display()
         );
         std::process::exit(2);
     }
-    if !args.mount_root.is_dir() {
+    if !args.cli.mount_root.is_dir() {
         eprintln!(
             "mount root is not a directory: {}",
-            args.mount_root.display()
+            args.cli.mount_root.display()
         );
         std::process::exit(2);
     }
 
-    let cfg = RuntimeConfig::from_cli(args)
+    let cfg = RuntimeConfig::from_launch(args)
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
 
     eprintln!(
-        "mounting screenfs: source={} mount={} readonly={} readonly-rule-policy=compiled hide-policy=compiled io_uring=required",
+        "mounting screenfs: source={} mount={} mutability-family={} mutability-source={} readonly-rules={} allow-write-rules={} hide-policy=compiled io_uring=required",
         cfg.source_root.display(),
         cfg.mount_root.display(),
-        cfg.readonly
+        cfg.mutability_family().as_str(),
+        cfg.mutability_source().as_str(),
+        cfg.readonly_rule_count(),
+        cfg.allow_write_rule_count()
     );
-    eprintln!("FUSE_OVER_IO_URING negotiation is mandatory; session startup fails without it.");
 
     let opts = MountOptions::new()
         .fs_name("screenfs")
