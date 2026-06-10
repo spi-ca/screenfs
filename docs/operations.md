@@ -18,7 +18,7 @@ fusermount3 version: 3.18.2
 프로젝트 상태:
 
 ```text
-/home/spi-ca/Codebase/holefs
+/home/spi-ca/Codebase/screenfs
 Rust v1 core modules present: cli, config, errors, path, matcher, fs
 fractal-fuse = 0.4.0
 ```
@@ -95,7 +95,7 @@ file docs/diagrams/*.png
   - hidden `/home/spi-ca/.ssh` 접근은 `ENOENT`
   - current global `--readonly` mount에서 `touch`는 `EROFS`
 - plain `chroot <mount> /bin/bash`는 권한 모델상 사용할 수 없지만, `unshare -UrR <mount> /bin/true`와 `unshare -UrR <mount> /bin/bash --noprofile --norc ...`는 성공했다. 단, FUSE mount는 `nodev`이므로 `/dev/null` 같은 device-node 동작은 상위 supervisor/namespace layer에서 별도 제공해야 한다. 관련 transcript artifact는 `docs/artifacts/fuse-smoke-transcript.md`에 있다.
-- transcript artifact에 남은 `mounting holefs: ... readonly=true ... hide-policy=compiled ...` startup log 줄은 당시 캡처본이다. 현재 바이너리의 startup line은 `readonly-rule-policy=compiled`를 포함하므로, artifact log wording을 current startup-string evidence로 재사용하면 안 된다.
+- 최신 transcript artifact에는 `mounting screenfs: ... readonly=true readonly-rule-policy=compiled hide-policy=compiled ...` startup log 줄이 포함돼 있다. 이 startup-string contract를 다시 주장할 때는 해당 artifact의 캡처 시각과 현재 소스(`src/main.rs`)를 함께 확인한다.
 
 중요: 요구사항/설계 목표로 읽어야 하는 readonly contract는 이제 "전체 mount readonly"가 아니라 "특정 path/pattern에만 적용되는 selective readonly rule"이다. 하지만 현재 코드와 live smoke evidence는 아직 global `--readonly` bool 동작만 증명한다. `readonly-root-allowwrite` family는 문서상 확정된 future contract이지만, 현재 CLI/검증 범위로 읽으면 안 된다. 아래 checklist도 이들을 분리해 기록한다.
 
@@ -119,7 +119,7 @@ file docs/diagrams/*.png
 기본 mount:
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --hide /home/spi-ca/.ssh \
   --hide /home/spi-ca/.aws \
   --hide /home/spi-ca/.pi/agent/auth.json \
@@ -132,7 +132,7 @@ holefs / /tmp/holefs-root \
 현재 구현의 global readonly mount:
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --readonly \
   --hide /home/spi-ca/.ssh
 ```
@@ -140,20 +140,20 @@ holefs / /tmp/holefs-root \
 chroot 실행 예시:
 
 ```bash
-chroot /tmp/holefs-root /bin/bash
+chroot /tmp/screenfs-root /bin/bash
 ```
 
-`chroot` 자체는 `holefs`가 제공하는 기능이 아니며, `CAP_SYS_CHROOT`, privileged supervisor, user namespace 등 별도 권한 모델이 필요하다. 최신 live smoke에서는 plain `chroot` 대신 `unshare -UrR <mount> ...` 방식으로 `/bin/true`와 `/bin/bash` 실행을 확인했다. `holefs` v1의 기본 접근 모델은 mount owner와 동일 host uid다.
+`chroot` 자체는 `ScreenFS`가 제공하는 기능이 아니며, `CAP_SYS_CHROOT`, privileged supervisor, user namespace 등 별도 권한 모델이 필요하다. 최신 live smoke에서는 plain `chroot` 대신 `unshare -UrR <mount> ...` 방식으로 `/bin/true`와 `/bin/bash` 실행을 확인했다. `ScreenFS` v1의 기본 접근 모델은 mount owner와 동일 host uid다.
 
 ## Hidden path smoke checks
 
 최신 repo-local/whole-root smoke evidence는 아래 조건을 충족했다. 필요 시 동일 절차로 재검증한다.
 
 ```bash
-ls /tmp/holefs-root/home/spi-ca
-find /tmp/holefs-root/home/spi-ca -maxdepth 2 -name .ssh
-stat /tmp/holefs-root/home/spi-ca/.ssh
-cat /tmp/holefs-root/home/spi-ca/.ssh/id_rsa
+ls /tmp/screenfs-root/home/spi-ca
+find /tmp/screenfs-root/home/spi-ca -maxdepth 2 -name .ssh
+stat /tmp/screenfs-root/home/spi-ca/.ssh
+cat /tmp/screenfs-root/home/spi-ca/.ssh/id_rsa
 ```
 
 기대 결과:
@@ -167,12 +167,12 @@ cat /tmp/holefs-root/home/spi-ca/.ssh/id_rsa
 최신 `source-root=/` smoke evidence는 아래 조건을 충족했다. 필요 시 동일 절차로 재검증한다.
 
 ```bash
-ls /tmp/holefs-root
-ls /tmp/holefs-root/bin
-ls /tmp/holefs-root/usr
-ls /tmp/holefs-root/lib
-ls /tmp/holefs-root/lib64
-ls /tmp/holefs-root/etc
+ls /tmp/screenfs-root
+ls /tmp/screenfs-root/bin
+ls /tmp/screenfs-root/usr
+ls /tmp/screenfs-root/lib
+ls /tmp/screenfs-root/lib64
+ls /tmp/screenfs-root/etc
 ```
 
 기대 결과:
@@ -185,10 +185,10 @@ ls /tmp/holefs-root/etc
 최신 repo-local/whole-root smoke evidence는 아래 조건을 충족했다. 이 절은 현재 구현의 global `--readonly` bool 동작만 재검증한다.
 
 ```bash
-stat /tmp/holefs-root/bin/bash
-ls /tmp/holefs-root/etc
-touch /tmp/holefs-root/tmp/holefs-write-check
-mkdir /tmp/holefs-root/tmp/holefs-mkdir-check
+stat /tmp/screenfs-root/bin/bash
+ls /tmp/screenfs-root/etc
+touch /tmp/screenfs-root/tmp/screenfs-write-check
+mkdir /tmp/screenfs-root/tmp/screenfs-mkdir-check
 ```
 
 기대 결과:
@@ -260,7 +260,7 @@ mkdir /tmp/holefs-root/tmp/holefs-mkdir-check
 FUSE mount 해제는 `fusermount3`를 사용한다.
 
 ```bash
-fusermount3 -u /tmp/holefs-root
+fusermount3 -u /tmp/screenfs-root
 ```
 
 ## Requirement-linked verification matrix

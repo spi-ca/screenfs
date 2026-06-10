@@ -1,5 +1,5 @@
 flowchart LR
-    pre["Mount preconditions\nnon-root + fusermount3\nio_uring required\nno fallback mount"] --> mount["holefs process\nFUSE3 + fractal-fuse 0.4.0"]
+    pre["Mount preconditions\nnon-root + fusermount3\nio_uring required\nno fallback mount"] --> mount["screenfs process\nFUSE3 + fractal-fuse 0.4.0"]
     host["Host filesystem\nsource_root\nexample: /"] --> mount
 
     subgraph policy["Runtime policy"]
@@ -14,7 +14,7 @@ flowchart LR
     impl -. current implementation only .-> ro
     internal --> mount
 
-    mount --> view["Mounted virtual root\nexample: /tmp/holefs-root"]
+    mount --> view["Mounted virtual root\nexample: /tmp/screenfs-root"]
     view --> sandbox["sandbox / chroot consumer\nsame host uid baseline"]
     sandbox -. supervisor boundary .-> sup["Upper supervisor responsibility\nchroot privilege + /proc,/sys,/dev,/run semantics"]
 

@@ -1,29 +1,29 @@
-# holefs
+# ScreenFS
 
-`holefs`는 non-root FUSE 기반 whole-filesystem view layer다. 실제 `/` 파일시스템을 pass-through 하되, 지정한 경로는 존재하지 않는 것처럼 숨기고 visible path에는 별도 mutability policy를 적용할 수 있게 설계한다. 대표 통합 시나리오는 `pi-bash-sandbox` 같은 sandbox/chroot consumer지만, 그 용도에만 한정된 컴포넌트로 문서화하지 않는다.
+`ScreenFS`는 non-root FUSE 기반 whole-filesystem view layer다. 실제 `/` 파일시스템을 pass-through 하되, 지정한 경로는 존재하지 않는 것처럼 숨기고 visible path에는 별도 mutability policy를 적용할 수 있게 설계한다. 대표 통합 시나리오는 `pi-bash-sandbox` 같은 sandbox/chroot consumer지만, 그 용도에만 한정된 컴포넌트로 문서화하지 않는다.
 
 ### 시스템 컨텍스트
 
-![holefs system context](docs/diagrams/system-context.png)
+![ScreenFS system context](docs/diagrams/system-context.png)
 
 ### 모듈 구조
 
-![holefs module architecture](docs/diagrams/module-architecture.png)
+![ScreenFS module architecture](docs/diagrams/module-architecture.png)
 
 다이어그램 원본과 공용 렌더링 규칙은 `docs/diagrams/README.md`를 따른다. `docs/diagrams/*.png`는 `docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`을 함께 사용하고 Mermaid CLI `--scale 2`로 생성하는 것을 저장소 기준으로 삼는다.
 
 ## 목적
 
-`holefs`의 기본 역할은 전체 `/`를 입력으로 받아 상위 consumer가 읽을 수 있는 whole-root view를 만드는 것이다. 대표적인 통합 형태는 다음과 같다.
+`ScreenFS`의 기본 역할은 전체 `/`를 입력으로 받아 상위 consumer가 읽을 수 있는 whole-root view를 만드는 것이다. 대표적인 통합 형태는 다음과 같다.
 
 ```text
-real / -> holefs mount root -> sandbox/chroot consumer
+real / -> screenfs mount root -> sandbox/chroot consumer
 ```
 
 대표 사용 시나리오(`pi-bash-sandbox` + chroot)는 아래와 같다.
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --hide /home/spi-ca/.ssh \
   --hide /home/spi-ca/.aws \
   --hide /home/spi-ca/.pi/agent/auth.json \
@@ -32,27 +32,27 @@ holefs / /tmp/holefs-root \
   --hide '**/*.pem' \
   --hide '**/*.key'
 
-chroot /tmp/holefs-root /bin/bash
+chroot /tmp/screenfs-root /bin/bash
 ```
 
-이 예시는 대표 통합 시나리오일 뿐이며, `holefs` 자체의 핵심 역할은 특정 supervisor 하나가 아니라 whole-root consumer 전반에 재사용 가능한 filesystem view layer를 제공하는 데 있다.
+이 예시는 대표 통합 시나리오일 뿐이며, `ScreenFS` 자체의 핵심 역할은 특정 supervisor 하나가 아니라 whole-root consumer 전반에 재사용 가능한 filesystem view layer를 제공하는 데 있다.
 
 선택적 readonly rule은 목표 요구사항이며, 현재 소스에는 `--readonly-rule` surface가 존재한다. 다만 현재 검증/live evidence는 아래 global `--readonly` bool 예시에 한정된다.
 
 현재 구현된 global readonly 예시:
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --readonly \
   --hide /home/spi-ca/.ssh
 
-chroot /tmp/holefs-root /bin/bash
+chroot /tmp/screenfs-root /bin/bash
 ```
 
 future documented mutability policy family는 두 개로 닫는다.
 
 - `selective-readonly`: 기본 writable, `--readonly-rule` 매치 path/pattern만 `EROFS`
-- `readonly-root-allowwrite`: 기본 readonly, `--allow-write` 매치 coordinate만 holefs 차원의 `EROFS` 해제
+- `readonly-root-allowwrite`: 기본 readonly, `--allow-write` 매치 coordinate만 ScreenFS 차원의 `EROFS` 해제
 - 한 mount는 정확히 하나의 family만 선택한다.
 - future canonical CLI/config contract에는 legacy bool surface를 포함하지 않는다. canonical 설명과 예시는 explicit family option만 사용한다.
 - future config contract는 `mutability.family`, `mutability.readonly_rules`, `mutability.allow_write`를 사용한다. CLI mutability option이 하나라도 있으면 해당 config block 전체를 대체하고, CLI mutability option이 없으면 config `mutability` block이 canonical source of truth다.
@@ -147,7 +147,7 @@ hide rule과 별개로 visible path의 mutability policy를 제어하는 selecti
 
 확정된 future alternate family(`readonly-root-allowwrite`)는 다음 계약을 따른다.
 
-- 이 family는 `pi-bash-sandbox` 같은 integration use case가 기대하는 "기본은 readonly, 일부 path만 writable" 요구를 설명하는 대표 예시일 수 있지만, `holefs`의 범용성을 제한하는 전용 모드는 아니다.
+- 이 family는 `pi-bash-sandbox` 같은 integration use case가 기대하는 "기본은 readonly, 일부 path만 writable" 요구를 설명하는 대표 예시일 수 있지만, `ScreenFS`의 범용성을 제한하는 전용 모드는 아니다.
 - `allowWrite` rule들은 union semantics로 합쳐지며, 하나라도 매치되면 해당 mutation coordinate는 carve-out 후보가 된다.
 - hidden path나 hidden target이 하나라도 관여하면 `allowWrite`보다 hidden `ENOENT`가 우선한다.
 - mutation은 관련된 모든 write-requiring affected coordinate가 현재 family 기준으로 writable이어야만 허용된다. 예를 들어 `copy_file_range`는 destination path/parent는 writable이어야 하지만 source는 hidden/read visibility 대상이다.
@@ -233,7 +233,7 @@ fallocate
 - chroot 통합 완료
 - privileged end-to-end 운영 검증 완료
 
-최신 documented live FUSE smoke evidence(2026-06-10 기준): `/dev/fuse`가 존재하는 환경에서 repo-local fixture mount와 `source-root=/` whole-root mount가 성공한 기록이 있다. repo-local smoke는 hidden entry가 부모 listing에서 제외되고 hidden path 직접 접근이 `ENOENT`, global `--readonly` 기준 mutation이 `EROFS`로 처리됨을 확인했고, whole-root smoke는 `stat /bin/bash`, `ls /usr`, hidden `/home/spi-ca/.ssh`의 `ENOENT`, global `--readonly` 기준 `touch`의 `EROFS`를 확인했다. 또한 `unshare -UrR <mount> /bin/true`와 `unshare -UrR <mount> /bin/bash --noprofile --norc ...`가 성공해 user-namespace 기반 chroot 실행 smoke를 확인한 기록이 있다. 관련 transcript에 남은 startup log 줄은 당시 캡처된 historical artifact이며, 현재 바이너리는 startup line에 `readonly-rule-policy=compiled`를 함께 출력한다. 단, 이 문단은 historical documented evidence 요약이며 현재 세션의 fresh 검증 상태는 `docs/operations.md`를 따른다. FUSE mount는 `nodev`이므로 `/dev/null` 같은 device-node 동작은 상위 supervisor/namespace layer에서 별도 제공해야 한다 (`docs/operations.md` 참고).
+최신 documented live FUSE smoke evidence(2026-06-10 기준): `/dev/fuse`가 존재하는 환경에서 repo-local fixture mount와 `source-root=/` whole-root mount가 성공한 기록이 있다. repo-local smoke는 hidden entry가 부모 listing에서 제외되고 hidden path 직접 접근이 `ENOENT`, global `--readonly` 기준 mutation이 `EROFS`로 처리됨을 확인했고, whole-root smoke는 `stat /bin/bash`, `ls /usr`, hidden `/home/spi-ca/.ssh`의 `ENOENT`, global `--readonly` 기준 `touch`의 `EROFS`를 확인했다. 또한 `unshare -UrR <mount> /bin/true`와 `unshare -UrR <mount> /bin/bash --noprofile --norc ...`가 성공해 user-namespace 기반 chroot 실행 smoke를 확인한 기록이 있다. 관련 transcript는 현재 `readonly-rule-policy=compiled`를 포함한 startup log를 담고 있으며, 현재 세션의 fresh 검증 상태와 세부 명령 출력은 `docs/operations.md`와 `docs/artifacts/fuse-smoke-transcript.md`를 따른다. FUSE mount는 `nodev`이므로 `/dev/null` 같은 device-node 동작은 상위 supervisor/namespace layer에서 별도 제공해야 한다 (`docs/operations.md` 참고).
 
 추가로 확인된 환경:
 

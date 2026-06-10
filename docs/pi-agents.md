@@ -101,7 +101,7 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
 사용 예:
 
 ```text
-/software-role-workflow design selective readonly rules for holefs
+/software-role-workflow design selective readonly rules for ScreenFS
 /software-developer-parallel split matcher and readonly-policy implementation work
 /goal-impl readonly mode 구현 및 숨김 경로 ENOENT 보장
 /goal-change subagent workflow에서 테스트 작성 책임을 더 명확히 반영해야 한다

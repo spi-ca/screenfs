@@ -1,8 +1,8 @@
-# holefs 요구사항
+# ScreenFS 요구사항
 
 ## 1. 목적
 
-`holefs`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 실제 `/`를 pass-through 하면서 민감 경로는 존재하지 않는 것처럼 숨기고, visible path에는 별도 readonly policy를 적용할 수 있어야 한다. `pi-bash-sandbox`는 이 요구사항을 소비하는 대표 통합 예시지만, `holefs`의 목적을 그 통합 하나로 한정하지 않는다.
+`ScreenFS`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 실제 `/`를 pass-through 하면서 민감 경로는 존재하지 않는 것처럼 숨기고, visible path에는 별도 readonly policy를 적용할 수 있어야 한다. `pi-bash-sandbox`는 이 요구사항을 소비하는 대표 통합 예시지만, `ScreenFS`의 목적을 그 통합 하나로 한정하지 않는다.
 
 ## 2. 핵심 전제
 
@@ -12,11 +12,11 @@
 - v1은 `FUSE_OVER_IO_URING` 협상 실패 시 fallback mount를 만들지 않고 명시적 오류로 fail-fast 한다.
 - mount는 `fusermount3`로 수행한다.
 - 대표 사용 시나리오에 chroot가 포함되므로 mount 결과는 전체 파일시스템 뷰를 제공해야 한다.
-- `chroot` 실행 권한, same-host-uid 접근 모델, `/proc`·`/sys`·`/dev`·`/run` native semantics는 `holefs` 단독 책임이 아니라 상위 supervisor/namespace layer 책임이다. `pi-bash-sandbox`는 그 책임을 지는 대표 예시다.
+- `chroot` 실행 권한, same-host-uid 접근 모델, `/proc`·`/sys`·`/dev`·`/run` native semantics는 `ScreenFS` 단독 책임이 아니라 상위 supervisor/namespace layer 책임이다. `pi-bash-sandbox`는 그 책임을 지는 대표 예시다.
 
 ## 3. Non-root 실행
 
-`holefs`는 root 권한 없이 실행되어야 한다.
+`ScreenFS`는 root 권한 없이 실행되어야 한다.
 
 - 일반 사용자 권한으로 FUSE mount 가능해야 한다.
 - `fusermount3`를 사용한다.
@@ -27,7 +27,7 @@
 
 ## 4. 상위 consumer 요구 충족
 
-`holefs`는 상위 sandbox/chroot/orchestrator가 요구하는 filesystem view를 제공해야 한다. `pi-bash-sandbox`는 그 요구를 대표하는 통합 예시다.
+`ScreenFS`는 상위 sandbox/chroot/orchestrator가 요구하는 filesystem view를 제공해야 한다. `pi-bash-sandbox`는 그 요구를 대표하는 통합 예시다.
 
 - sandboxed bash가 필요한 시스템 경로를 볼 수 있어야 한다.
 - 실행에 필요한 binary, shared library, config, runtime path가 보존되어야 한다.
@@ -37,10 +37,10 @@
 
 ## 5. Whole-root consumer용 전체 파일시스템 뷰
 
-대표 통합 시나리오에서 chroot를 사용하므로 `holefs`는 단순 프로젝트 디렉터리 view가 아니라 전체 `/` filesystem view를 제공해야 한다. 이 whole-root view 요구는 `pi-bash-sandbox` 외의 다른 consumer에도 동일하게 적용된다.
+대표 통합 시나리오에서 chroot를 사용하므로 `ScreenFS`는 단순 프로젝트 디렉터리 view가 아니라 전체 `/` filesystem view를 제공해야 한다. 이 whole-root view 요구는 `pi-bash-sandbox` 외의 다른 consumer에도 동일하게 적용된다.
 
 ```text
-real / -> holefs mount root -> chroot root
+real / -> screenfs mount root -> chroot root
 ```
 
 chroot 내부에서는 다음 같은 경로 구조가 보여야 한다.
@@ -61,8 +61,8 @@ chroot 내부에서는 다음 같은 경로 구조가 보여야 한다.
 상정 사용법:
 
 ```bash
-holefs / /tmp/holefs-root ...
-chroot /tmp/holefs-root /bin/bash
+screenfs / /tmp/screenfs-root ...
+chroot /tmp/screenfs-root /bin/bash
 ```
 
 ## 6. Hidden path 처리
@@ -121,7 +121,7 @@ cat hidden-path
 
 ## 8. Selective readonly rule
 
-`holefs`는 hide rule과 별개로 visible path의 mutability policy를 제어해야 한다. 현재 요구사항의 기본 target contract는 특정 path/pattern에만 쓰기 금지를 적용하는 selective readonly rule이다.
+`ScreenFS`는 hide rule과 별개로 visible path의 mutability policy를 제어해야 한다. 현재 요구사항의 기본 target contract는 특정 path/pattern에만 쓰기 금지를 적용하는 selective readonly rule이다.
 
 ### 8.1 Current target contract: path-scoped selective readonly
 
@@ -161,7 +161,7 @@ cat hidden-path
 - `copy_file_range`에서는 source는 hidden/read visibility 대상이고, destination path와 destination parent는 writable이어야 한다.
 - future `allow_write`/`--allow-write` surface도 hide/current `--readonly-rule`와 같은 exact path + supported prefixed glob normalization contract를 재사용한다.
 - future documented contract는 legacy bool surface를 포함하지 않으며, config schema에도 별도 legacy bool을 두지 않는다.
-- allowWrite는 holefs 차원의 `EROFS`를 제거할 뿐이며, 최종 성공 여부는 계속 host filesystem 권한/소유권/LSM에 의존한다.
+- allowWrite는 ScreenFS 차원의 `EROFS`를 제거할 뿐이며, 최종 성공 여부는 계속 host filesystem 권한/소유권/LSM에 의존한다.
 
 추가 경계 규칙:
 
@@ -229,7 +229,7 @@ fallocate
 기본 hide 예시:
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --hide /home/spi-ca/.ssh \
   --hide /home/spi-ca/.aws \
   --hide /home/spi-ca/.pi/agent/auth.json \
@@ -242,7 +242,7 @@ holefs / /tmp/holefs-root \
 Future documented CLI contract:
 
 ```text
-holefs <source-root> <mount-root> \
+screenfs <source-root> <mount-root> \
   [--hide <rule> ...] \
   [--policy-family selective-readonly|readonly-root-allowwrite] \
   [--readonly-rule <rule> ...] \
@@ -273,7 +273,7 @@ Future CLI semantics:
 Future selective-readonly example:
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --policy-family selective-readonly \
   --readonly-rule /etc/ssh \
   --readonly-rule '~/.config/**/*.json' \
@@ -301,7 +301,7 @@ mutability:
 Future carve-out example:
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --policy-family readonly-root-allowwrite \
   --allow-write /tmp \
   --allow-write /home/spi-ca/workspace \
@@ -312,7 +312,7 @@ holefs / /tmp/holefs-root \
 현재 구현/검증 기준 예시(global `--readonly` bool, 위 future contracts와는 별개):
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --readonly \
   --hide /home/spi-ca/.ssh
 ```
@@ -320,7 +320,7 @@ holefs / /tmp/holefs-root \
 이후:
 
 ```bash
-chroot /tmp/holefs-root /bin/bash
+chroot /tmp/screenfs-root /bin/bash
 ```
 
 ## 12. 현재 프로젝트 상태
@@ -328,7 +328,7 @@ chroot /tmp/holefs-root /bin/bash
 프로젝트 경로:
 
 ```text
-/home/spi-ca/Codebase/holefs
+/home/spi-ca/Codebase/screenfs
 ```
 
 현재 반영된 구현/검증 상태 요약:

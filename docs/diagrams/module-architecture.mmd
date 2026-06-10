@@ -2,7 +2,7 @@ flowchart TD
     main["src/main.rs\nCLI entry + Session::run"] --> cli["src/cli.rs\ncurrent: --hide / --readonly / --readonly-rule\nfuture contract: + --policy-family / --allow-write"]
     main --> config["src/config.rs\nRuntimeConfig builder\ncurrent global readonly flag\nfuture: MutabilityPolicy family + compiled rule sets"]
     config --> matcher["src/matcher.rs\nshared rule matcher\nanchored path / prefixed recursive-tail glob\ninternal mount-root prefix"]
-    main --> fs["src/fs.rs\nHoleFs + Filesystem impl"]
+    main --> fs["src/fs.rs\nScreenFs + Filesystem impl"]
     fs --> path["src/path.rs\nVirtualPath\nlexical normalize\nsymlink target resolve"]
     fs --> matcher
     fs --> errors["src/errors.rs\nENOENT / EROFS classification\nwrite-intent + precedence helpers"]

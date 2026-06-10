@@ -1,4 +1,4 @@
-# holefs 아키텍처 개요
+# ScreenFS 아키텍처 개요
 
 이 문서는 현재 계획서(`README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`)와 현재 코드(`src/*.rs`)를 함께 기준으로 정리한 아키텍처 요약이다.
 
@@ -12,11 +12,11 @@
 
 ## 1. 시스템 컨텍스트
 
-이 절은 holefs가 host filesystem과 whole-root consumer 사이에서 어떤 경계 역할을 하는지 빠르게 보여준다.
+이 절은 ScreenFS가 host filesystem과 whole-root consumer 사이에서 어떤 경계 역할을 하는지 빠르게 보여준다.
 
-holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mount를 만들고, 그 mount를 sandbox/chroot 같은 상위 consumer가 읽는 구조다. `pi-bash-sandbox`는 대표 통합 예시지만 시스템 경계 자체는 특정 supervisor 하나에 고정되지 않는다. 아래 그림의 mount path는 `/tmp/holefs-root` 예시일 뿐 고정 경로가 아니다. 목표 계약상 숨김 경로는 `ENOENT`, selective readonly rule에 매칭된 visible mutation은 `EROFS`로 분기한다. 현재 구현/검증 evidence는 이 readonly 판정을 아직 global `--readonly` bool로만 수행한다. future documented alternate policy family는 `readonly-root-allowwrite`로 닫혀 있으며, canonical future contract는 explicit family/rule surface만 사용한다. legacy `--readonly`는 current-state compatibility mode로만 남고 future family/rule/config surface와 병용 시 fail-fast 대상으로 본다. 그 경우에도 handler-level policy evaluator가 source/target/parent와 hidden 우선순위를 함께 판정해야 하며 mount-level `ro`만으로는 충분하지 않다.
+ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mount를 만들고, 그 mount를 sandbox/chroot 같은 상위 consumer가 읽는 구조다. `pi-bash-sandbox`는 대표 통합 예시지만 시스템 경계 자체는 특정 supervisor 하나에 고정되지 않는다. 아래 그림의 mount path는 `/tmp/screenfs-root` 예시일 뿐 고정 경로가 아니다. 목표 계약상 숨김 경로는 `ENOENT`, selective readonly rule에 매칭된 visible mutation은 `EROFS`로 분기한다. 현재 구현/검증 evidence는 이 readonly 판정을 아직 global `--readonly` bool로만 수행한다. future documented alternate policy family는 `readonly-root-allowwrite`로 닫혀 있으며, canonical future contract는 explicit family/rule surface만 사용한다. legacy `--readonly`는 current-state compatibility mode로만 남고 future family/rule/config surface와 병용 시 fail-fast 대상으로 본다. 그 경우에도 handler-level policy evaluator가 source/target/parent와 hidden 우선순위를 함께 판정해야 하며 mount-level `ro`만으로는 충분하지 않다.
 
-![holefs system context](diagrams/system-context.png)
+![ScreenFS system context](diagrams/system-context.png)
 
 구현 파일 바로가기: `README.md`, `docs/design.md`, `docs/operations.md`
 
@@ -26,11 +26,11 @@ holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mou
 
 현재 코드는 `main -> cli/config -> fs`를 중심으로 구성되어 있고, `fs`가 `path`, `matcher`, `errors`와 내부 inode/file-handle state를 조합해 대부분의 FUSE 의미론을 수행한다. 별도 backing adapter 모듈은 아직 없고, host 접근 helper는 주로 `src/fs.rs` 안에 있다.
 
-![holefs module architecture](diagrams/module-architecture.png)
+![ScreenFS module architecture](diagrams/module-architecture.png)
 
 핵심 포인트:
 
-- `src/main.rs`: mount option 구성과 `Session::run(HoleFs::new(cfg))` 진입점
+- `src/main.rs`: mount option 구성과 `Session::run(ScreenFs::new(cfg))` 진입점
 - `src/cli.rs`: `<source-root> <mount-root>`, 반복 `--hide`, global `--readonly`, 반복 `--readonly-rule` 파싱. future family-aware surface(`--policy-family`, `--allow-write`)는 아직 없다.
 - `src/config.rs`: `RuntimeConfig` 구성과 mount-root recursion exclusion internal rule 주입, global readonly flag와 readonly matcher를 함께 보관/조립한다. hide/current `--readonly-rule` 입력은 shared normalization contract를 거쳐 matcher로 들어간다. future documented contract에서는 `MutabilityPolicy` family + compiled readonly/`allow_write` rule set을 담는 evaluator-oriented data model이 추가로 필요하다.
 - `src/path.rs`: lexical virtual path normalization, symlink target lexical resolution, source-root confinement 보조, relative/`~` exact·prefixed-glob rule input rebasing helper
@@ -46,7 +46,7 @@ holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mou
 
 많은 조회·traversal 요청은 virtual path 계산 후 hidden 판정이 먼저, symlink target hidden 검사와 mutability policy evaluator 판정이 뒤따르고, host filesystem delegation이 마지막 순서로 진행된다. 아래 다이어그램은 current target selective-readonly family를 기준으로 읽되, same evaluator shape가 future carve-out family에도 재사용된다고 이해하면 된다. callout처럼 현재 구현은 이 evaluator를 아직 global `--readonly` bool 단순화로만 수행한다.
 
-![holefs request decision flow](diagrams/request-decision-flow.png)
+![ScreenFS request decision flow](diagrams/request-decision-flow.png)
 
 핵심 포인트:
 
@@ -72,7 +72,7 @@ holefs는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mou
 
 hide matcher는 host canonical path가 아니라 lexical virtual path 기준으로 동작한다. 이후 backing 접근은 `source_root` 밖으로 빠져나가지 않도록 제한한다. 아래 다이어그램은 특히 visible symlink entry를 직접 다루는 경로를 기준으로 읽는 것이 정확하다.
 
-![holefs path resolution and confinement](diagrams/path-resolution.png)
+![ScreenFS path resolution and confinement](diagrams/path-resolution.png)
 
 핵심 포인트:
 
@@ -88,7 +88,7 @@ hide matcher는 host canonical path가 아니라 lexical virtual path 기준으�
 
 ## 5. 운영/통합 경계
 
-이 절은 holefs가 책임지는 것과 상위 supervisor가 책임지는 것을 분리해 준다.
+이 절은 ScreenFS가 책임지는 것과 상위 supervisor가 책임지는 것을 분리해 준다.
 
 이 아키텍처가 전제하는 운영 경계는 다음과 같다.
 
@@ -96,8 +96,8 @@ hide matcher는 host canonical path가 아니라 lexical virtual path 기준으�
 - `FUSE_OVER_IO_URING` 협상 실패 시 mount를 degraded fallback으로 열지 않고 fail-fast 한다
 - 기본 접근 모델은 mount owner와 동일 host uid다
 - 다른 host uid 접근은 `allow_other`와 `/etc/fuse.conf` 정책이 별도로 필요하다
-- `chroot` 실행 권한, user namespace, supervisor 구성은 `holefs` 바깥 책임이다 (`pi-bash-sandbox`는 대표 예시일 뿐 유일한 상위 레이어는 아님)
-- `/proc`·`/sys`·`/dev`·`/run`의 native semantics 재현도 `holefs` 단독 책임이 아니다
+- `chroot` 실행 권한, user namespace, supervisor 구성은 `ScreenFS` 바깥 책임이다 (`pi-bash-sandbox`는 대표 예시일 뿐 유일한 상위 레이어는 아님)
+- `/proc`·`/sys`·`/dev`·`/run`의 native semantics 재현도 `ScreenFS` 단독 책임이 아니다
 
 구현 파일 바로가기: `README.md`, `docs/design.md`, `docs/operations.md`
 
@@ -128,7 +128,7 @@ CLI args
   -> HideMatcher + internal mount-root prefix + current global readonly flag
   -> future documented contract: MutabilityPolicy family + compiled readonly/allow_write rule sets
   -> current shared rule normalization for hide/current readonly rules (absolute/relative/`~` exact + supported prefixed glob)
-  -> HoleFs Filesystem implementation
+  -> ScreenFs Filesystem implementation
   -> VirtualPath normalization + hidden/affected-coordinate policy evaluator
   -> confined host filesystem access
   -> FUSE replies to whole-root consumer (예: sandbox/chroot)

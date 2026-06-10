@@ -1,6 +1,6 @@
-# holefs 설계 문서
+# ScreenFS 설계 문서
 
-이 문서는 `holefs`를 구현하기 위한 설계 기준이다. 현재 저장소에는 v1 핵심 모듈의 초기 구현이 포함되어 있지만, 이 문서는 여전히 구현 완료 선언이 아니라 구현자가 따라야 할 계약이다.
+이 문서는 `ScreenFS`를 구현하기 위한 설계 기준이다. 현재 저장소에는 v1 핵심 모듈의 초기 구현이 포함되어 있지만, 이 문서는 여전히 구현 완료 선언이 아니라 구현자가 따라야 할 계약이다.
 
 아키텍처 시각화 요약은 [docs/architecture.md](architecture.md)에 정리되어 있다. 다이어그램 원본과 공용 렌더링 규칙은 [docs/diagrams/README.md](diagrams/README.md)를 따른다. `docs/diagrams/*.png`는 `docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`을 함께 사용하고 Mermaid CLI `--scale 2`로 렌더링하는 것을 기준으로 읽는다.
 
@@ -10,15 +10,15 @@
 
 ### 시스템 컨텍스트
 
-![holefs system context](diagrams/system-context.png)
+![ScreenFS system context](diagrams/system-context.png)
 
 ### 요청 처리 흐름
 
-![holefs request decision flow](diagrams/request-decision-flow.png)
+![ScreenFS request decision flow](diagrams/request-decision-flow.png)
 
 ### 모듈 구조
 
-![holefs module architecture](diagrams/module-architecture.png)
+![ScreenFS module architecture](diagrams/module-architecture.png)
 
 ## 빠른 읽기 가이드
 
@@ -44,7 +44,7 @@
 
 이 절은 이 문서 전체가 만족해야 하는 상위 제품/시스템 목표를 고정한다.
 
-`holefs`는 sandbox/chroot 같은 whole-root consumer가 읽을 수 있는 non-root FUSE 기반 filesystem view layer다. `pi-bash-sandbox`는 대표 통합 시나리오지만, 이 설계는 특정 supervisor 하나에 고정되지 않는 일반화된 view layer 계약을 목표로 한다.
+`ScreenFS`는 sandbox/chroot 같은 whole-root consumer가 읽을 수 있는 non-root FUSE 기반 filesystem view layer다. `pi-bash-sandbox`는 대표 통합 시나리오지만, 이 설계는 특정 supervisor 하나에 고정되지 않는 일반화된 view layer 계약을 목표로 한다.
 
 핵심 목표:
 
@@ -64,13 +64,13 @@
 
 이 절은 구현 범위를 넘는 책임을 미리 잘라서 설계 오해를 줄인다.
 
-`holefs`는 path-hiding filesystem view layer다. 단독 sandbox 또는 완전한 host isolation boundary가 아니다.
+`ScreenFS`는 path-hiding filesystem view layer다. 단독 sandbox 또는 완전한 host isolation boundary가 아니다.
 
 통합 전제:
 
-- `holefs` mount 생성은 non-root 사용자 권한으로 가능해야 한다.
-- `chroot` 실행은 별도 권한 모델이 필요할 수 있다. `holefs`는 `CAP_SYS_CHROOT`, privileged supervisor, user namespace 구성, 또는 동일 host uid 실행 정책을 직접 제공하지 않는다.
-- 상위 supervisor/namespace layer(예: `pi-bash-sandbox`)는 `holefs`가 제공한 whole-root view를 어떤 sandbox/chroot consumer에 연결할지 결정한다.
+- `ScreenFS` mount 생성은 non-root 사용자 권한으로 가능해야 한다.
+- `chroot` 실행은 별도 권한 모델이 필요할 수 있다. `ScreenFS`는 `CAP_SYS_CHROOT`, privileged supervisor, user namespace 구성, 또는 동일 host uid 실행 정책을 직접 제공하지 않는다.
+- 상위 supervisor/namespace layer(예: `pi-bash-sandbox`)는 `ScreenFS`가 제공한 whole-root view를 어떤 sandbox/chroot consumer에 연결할지 결정한다.
 - chroot 내부 프로세스가 FUSE mount owner와 동일 host uid로 접근하는 것이 기본 전제다.
 - 다른 host uid가 접근해야 하면 `allow_other`가 필요할 수 있으며, 이는 `/etc/fuse.conf`의 `user_allow_other` 및 mountpoint 권한 정책에 의존한다.
 - project/sandbox 상위 레이어는 process, network, namespace, cgroup, seccomp 같은 isolation을 별도로 담당한다.
@@ -78,7 +78,7 @@
 Non-goals:
 
 - `/dev/null` bind overlay, tmpfs overlay, privileged bind mount 방식 masking은 사용하지 않는다.
-- device node semantics, setuid behavior, procfs/sysfs caller-relative semantics를 `holefs` 단독으로 완전히 재현하지 않는다.
+- device node semantics, setuid behavior, procfs/sysfs caller-relative semantics를 `ScreenFS` 단독으로 완전히 재현하지 않는다.
 - v1 hide guarantee는 virtual path 기반이다. hardlink alias는 별도 hide rule 없이는 자동 차단하지 않는다. symlink는 **목표 계약상** entry path와 resolved virtual target을 모두 검사해 hidden target으로의 symlink traversal을 `ENOENT`로 차단한다. 현재 구현에서 직접 확인된 범위는 status note와 `docs/architecture.md`에 정리된 direct symlink-entry guard다.
 
 
@@ -94,19 +94,19 @@ Non-goals:
 - 출력: whole-root consumer(sandbox/chroot 등)가 읽는 virtual root
 - 기본 정책: 전체 view pass-through + selective hiding
 
-`holefs`는 source root와 mount root를 받는다. chroot 사용을 위해 기본 source root는 `/`를 상정한다.
+`ScreenFS`는 source root와 mount root를 받는다. chroot 사용을 위해 기본 source root는 `/`를 상정한다.
 
 ```text
 source root: /
-mount root:  /tmp/holefs-root
-chroot root: /tmp/holefs-root
+mount root:  /tmp/screenfs-root
+chroot root: /tmp/screenfs-root
 ```
 
 mount root 아래의 virtual path는 source root 아래의 같은 상대 경로로 해석한다.
 
 ```text
-/tmp/holefs-root/usr/bin/bash -> /usr/bin/bash
-/tmp/holefs-root/etc          -> /etc
+/tmp/screenfs-root/usr/bin/bash -> /usr/bin/bash
+/tmp/screenfs-root/etc          -> /etc
 ```
 
 hide rule에 매칭되지 않는 visible path는 underlying filesystem으로 pass-through 한다.
@@ -118,10 +118,10 @@ hide rule에 매칭되지 않는 visible path는 underlying filesystem으로 pas
 
 이 절은 whole-root mount에서 빠지기 쉬운 자기참조 문제를 방지하는 핵심 안전장치다.
 
-`source root = /`이고 `mount root = /tmp/holefs-root`이면 mount root 자체가 source tree 안에 포함된다. 이 경로를 view 내부에 노출하면 다음과 같은 자기참조가 생긴다.
+`source root = /`이고 `mount root = /tmp/screenfs-root`이면 mount root 자체가 source tree 안에 포함된다. 이 경로를 view 내부에 노출하면 다음과 같은 자기참조가 생긴다.
 
 ```text
-/tmp/holefs-root/tmp/holefs-root/tmp/holefs-root/...
+/tmp/screenfs-root/tmp/screenfs-root/tmp/screenfs-root/...
 ```
 
 따라서 mount root의 source-relative subtree는 내부 자동 hide rule로 취급한다.
@@ -183,7 +183,7 @@ Data flow:
 
 이 절은 hide rule이 **host path**가 아니라 **virtual path** 기준으로 동작한다는 점을 기억하고 읽으면 이해가 빠르다.
 
-![holefs path resolution](diagrams/path-resolution.png)
+![ScreenFS path resolution](diagrams/path-resolution.png)
 
 Hidden matching uses a **lexically normalized absolute virtual path**, not `std::fs::canonicalize()`.
 
@@ -279,7 +279,7 @@ Policy:
 
 이 절은 path 기반 정책을 inode 기반 FUSE 요청에 어떻게 연결할지 설명한다.
 
-FUSE is inode-centric, while hide rules are path-centric. `holefs` maintains both views.
+FUSE is inode-centric, while hide rules are path-centric. `ScreenFS` maintains both views.
 
 Inode table:
 
@@ -422,7 +422,7 @@ Directory iteration:
 - one-family-per-mount: 한 mount는 정확히 하나의 mutability policy family만 선택한다.
 - allowWrite union semantics: allowWrite rule들은 합집합으로 평가하며, 하나라도 매치되면 해당 coordinate는 writable 후보다.
 - hidden precedence: hidden path나 hidden target이 하나라도 관여하면 allowWrite보다 hidden `ENOENT`가 우선한다.
-- host gate remains final: holefs policy가 쓰기를 허용해도 최종 성공 여부는 host filesystem 권한/소유권/LSM이 결정한다.
+- host gate remains final: ScreenFS policy가 쓰기를 허용해도 최종 성공 여부는 host filesystem 권한/소유권/LSM이 결정한다.
 - shared normalization contract: allowWrite도 hide/current readonly와 같은 exact path + supported prefixed glob + fail-fast semantics를 재사용한다.
 - legacy handling: current `--readonly`는 current implementation/evidence를 설명하는 legacy CLI surface일 뿐이며, 제3 family가 아니고 future documented CLI/config contract에도 포함하지 않는다.
 - migration path: legacy `--readonly`는 standalone compatibility mode로만 잠정 허용하고, `--policy-family`, `--readonly-rule`, `--allow-write`, future config `mutability` block과 병용하면 fail-fast한다. 구현 시 deprecation warning을 내고 canonical family surface로 이행시킨다.
@@ -495,7 +495,7 @@ Policy:
 
 v1 policy is fixed as follows:
 
-| Path family | holefs v1 policy | Responsible layer |
+| Path family | ScreenFS v1 policy | Responsible layer |
 | --- | --- | --- |
 | `/proc`, `/proc/self`, `/proc/thread-self` | ordinary visible path traversal only; procfs caller-relative semantics are not guaranteed | 상위 supervisor/namespace layer (예: `pi-bash-sandbox`) |
 | `/sys` | ordinary visible path traversal only; kernel sysfs semantics are not guaranteed | 상위 supervisor/namespace layer (예: `pi-bash-sandbox`) |
@@ -503,7 +503,7 @@ v1 policy is fixed as follows:
 | `/dev/fd`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr` | fd-relative semantics are not guaranteed | 상위 supervisor/namespace layer (예: `pi-bash-sandbox`) |
 | `/run` | ordinary visible path traversal only; runtime socket/service availability is not guaranteed | 상위 supervisor/namespace layer (예: `pi-bash-sandbox`) |
 
-`holefs` v1 therefore treats these as ordinary visible paths unless hidden by rule, while explicitly not claiming native magic filesystem/device behavior. 특정 sandbox/chroot consumer가 이 경로들에 native behavior를 요구하면, 상위 supervisor가 `holefs` 바깥에서 별도 namespace/mount 구성을 제공해야 한다.
+`ScreenFS` v1 therefore treats these as ordinary visible paths unless hidden by rule, while explicitly not claiming native magic filesystem/device behavior. 특정 sandbox/chroot consumer가 이 경로들에 native behavior를 요구하면, 상위 supervisor가 `ScreenFS` 바깥에서 별도 namespace/mount 구성을 제공해야 한다.
 
 
 구현 파일 바로가기: `README.md`, `docs/operations.md`, `docs/requirements.md`
@@ -597,7 +597,7 @@ Implementation priorities:
 Future documented CLI shape:
 
 ```text
-holefs <source-root> <mount-root> \
+screenfs <source-root> <mount-root> \
   [--hide <rule> ...] \
   [--policy-family selective-readonly|readonly-root-allowwrite] \
   [--readonly-rule <rule> ...] \
@@ -649,13 +649,13 @@ mutability:
 Current implementation snapshot:
 
 ```text
-holefs <source-root> <mount-root> [--hide <pattern> ...] [--readonly] [--readonly-rule <rule> ...]
+screenfs <source-root> <mount-root> [--hide <pattern> ...] [--readonly] [--readonly-rule <rule> ...]
 ```
 
 Current example:
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --hide /home/spi-ca/.ssh \
   --hide /home/spi-ca/.aws \
   --hide /home/spi-ca/.pi/agent/auth.json \
@@ -668,7 +668,7 @@ holefs / /tmp/holefs-root \
 Current readonly smoke example (still global, not selective):
 
 ```bash
-holefs / /tmp/holefs-root \
+screenfs / /tmp/screenfs-root \
   --readonly \
   --hide /home/spi-ca/.ssh
 ```

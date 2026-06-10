@@ -4,7 +4,7 @@
 
 ## 프로젝트 목적
 
-`holefs`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 전체 `/` 파일시스템을 pass-through 하면서, 지정된 민감 경로는 존재하지 않는 것처럼 숨기고 visible path에는 readonly policy를 적용할 수 있게 설계한다. `pi-bash-sandbox`는 대표 통합 예시지만, 프로젝트 목적을 그 용도 하나로 한정하지 않는다.
+`ScreenFS`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 전체 `/` 파일시스템을 pass-through 하면서, 지정된 민감 경로는 존재하지 않는 것처럼 숨기고 visible path에는 readonly policy를 적용할 수 있게 설계한다. `pi-bash-sandbox`는 대표 통합 예시지만, 프로젝트 목적을 그 용도 하나로 한정하지 않는다.
 
 ## 작업 원칙
 
