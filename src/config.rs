@@ -4,8 +4,10 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use crate::cli::{CliArgs, LaunchArgs, MutabilityFamily, validate_future_mutability_surface};
-use crate::matcher::{HideMatcher, mount_root_internal_prefix};
+use crate::cli::{
+    CliArgs, LaunchArgs, MutabilityFamily, MutabilitySurface, validate_future_mutability_surface,
+};
+use crate::matcher::{MatcherScope, PathRuleMatcher, mount_root_internal_prefix};
 use crate::path::{RuleNormalizationContext, VirtualPath};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,9 +31,9 @@ impl MutabilitySource {
 pub struct RuntimeConfig {
     pub source_root: PathBuf,
     pub mount_root: PathBuf,
-    pub matcher: HideMatcher,
-    pub readonly_matcher: HideMatcher,
-    pub allow_write_matcher: HideMatcher,
+    pub matcher: PathRuleMatcher,
+    pub readonly_matcher: PathRuleMatcher,
+    pub allow_write_matcher: PathRuleMatcher,
     mutability_family: MutabilityFamily,
     mutability_source: MutabilitySource,
     readonly_rule_count: usize,
@@ -69,7 +71,7 @@ impl RuntimeConfig {
             internal_prefixes.push(prefix);
         }
         let matcher = compile_matcher(
-            "hide",
+            MatcherScope::Hide,
             cli.hide_rules.iter().map(String::as_str),
             internal_prefixes,
             &context,
@@ -81,13 +83,13 @@ impl RuntimeConfig {
             file_config.mutability,
         )?;
         let readonly_matcher = compile_matcher(
-            "readonly",
+            MatcherScope::Readonly,
             mutability.readonly_rules.iter().map(String::as_str),
             Vec::new(),
             &context,
         )?;
         let allow_write_matcher = compile_matcher(
-            "allow-write",
+            MatcherScope::AllowWrite,
             mutability.allow_write_rules.iter().map(String::as_str),
             Vec::new(),
             &context,
@@ -109,7 +111,7 @@ impl RuntimeConfig {
     }
 
     pub fn is_hidden(&self, path: &VirtualPath) -> bool {
-        self.matcher.is_hidden(path)
+        self.matcher.matches_path(path)
     }
 
     pub fn is_hidden_symlink_target(&self, link_path: &VirtualPath, raw_target: &OsStr) -> bool {
@@ -117,11 +119,11 @@ impl RuntimeConfig {
     }
 
     pub fn matches_readonly_rule(&self, path: &VirtualPath) -> bool {
-        self.readonly_matcher.is_match(path)
+        self.readonly_matcher.matches_path(path)
     }
 
     pub fn matches_allow_write_rule(&self, path: &VirtualPath) -> bool {
-        self.allow_write_matcher.is_match(path)
+        self.allow_write_matcher.matches_path(path)
     }
 
     pub fn is_readonly(&self, path: &VirtualPath) -> bool {
@@ -168,11 +170,9 @@ fn resolve_mutability(
         allow_write_rules,
     ) {
         let family = validate_future_mutability_surface(
+            MutabilitySurface::Cli,
             policy_family,
-            "--policy-family",
-            "--readonly-rule",
             &cli.readonly_rules,
-            "--allow-write",
             allow_write_rules,
         )?;
         return Ok(ResolvedMutability {
@@ -185,11 +185,9 @@ fn resolve_mutability(
 
     if let Some(config_mutability) = config_mutability {
         let family = validate_future_mutability_surface(
+            MutabilitySurface::Config,
             config_mutability.family,
-            "mutability.family",
-            "mutability.readonly_rules",
             &config_mutability.readonly_rules,
-            "mutability.allow_write",
             &config_mutability.allow_write,
         )?;
         return Ok(ResolvedMutability {
@@ -209,16 +207,15 @@ fn resolve_mutability(
 }
 
 fn compile_matcher<'a, I>(
-    label: &str,
+    scope: MatcherScope,
     rules: I,
     internal_prefixes: Vec<VirtualPath>,
     context: &RuleNormalizationContext,
-) -> Result<HideMatcher, String>
+) -> Result<PathRuleMatcher, String>
 where
     I: IntoIterator<Item = &'a str>,
 {
-    HideMatcher::new(rules, internal_prefixes, context)
-        .map_err(|err| format!("invalid {label} pattern: {err}"))
+    PathRuleMatcher::compile(scope, rules, internal_prefixes, context)
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -319,11 +316,13 @@ mod tests {
                         "../secrets".to_string(),
                         "./fixtures/**/*.pem".to_string(),
                         "~/locks/**/*.lock".to_string(),
+                        "~/.env.*".to_string(),
                     ],
                     readonly_rules: vec![
                         "../secrets".to_string(),
                         "./fixtures/**/*.pem".to_string(),
                         "~/locks/**/*.lock".to_string(),
+                        "~/.env.*".to_string(),
                     ],
                 },
                 config_path: None,
@@ -337,6 +336,7 @@ mod tests {
                 VirtualPath::new("/workspace/app/fixtures/key.pem"),
                 VirtualPath::new("/workspace/app/fixtures/nested/key.pem/chain"),
                 VirtualPath::new("/home/tester/locks/app.lock"),
+                VirtualPath::new("/home/tester/.env.local"),
             ] {
                 assert!(cfg.is_hidden(&path));
                 assert!(cfg.matches_readonly_rule(&path));
@@ -344,6 +344,9 @@ mod tests {
             let visible = VirtualPath::new("/workspace/app/fixtures/key.key");
             assert!(!cfg.is_hidden(&visible));
             assert!(!cfg.matches_readonly_rule(&visible));
+            let nested_env = VirtualPath::new("/home/tester/nested/.env.local");
+            assert!(!cfg.is_hidden(&nested_env));
+            assert!(!cfg.matches_readonly_rule(&nested_env));
         }
 
         std::fs::remove_dir_all(source).unwrap();
@@ -376,6 +379,7 @@ mod tests {
                     "../secrets".to_string(),
                     "./fixtures/**/*.pem".to_string(),
                     "~/locks/**/*.lock".to_string(),
+                    "~/.env.*".to_string(),
                 ],
             })
             .unwrap();
@@ -385,6 +389,7 @@ mod tests {
                 VirtualPath::new("/workspace/app/fixtures/key.pem"),
                 VirtualPath::new("/workspace/app/fixtures/nested/key.pem/chain"),
                 VirtualPath::new("/home/tester/locks/app.lock"),
+                VirtualPath::new("/home/tester/.env.local"),
             ] {
                 assert!(cfg.matches_allow_write_rule(&path));
                 assert!(!cfg.is_readonly(&path));
@@ -392,6 +397,9 @@ mod tests {
             let readonly = VirtualPath::new("/workspace/app/fixtures/key.key");
             assert!(!cfg.matches_allow_write_rule(&readonly));
             assert!(cfg.is_readonly(&readonly));
+            let nested_env = VirtualPath::new("/home/tester/nested/.env.local");
+            assert!(!cfg.matches_allow_write_rule(&nested_env));
+            assert!(cfg.is_readonly(&nested_env));
         }
 
         std::fs::remove_dir_all(source).unwrap();
@@ -585,6 +593,164 @@ mod tests {
 
         assert!(err.contains("failed to parse config"));
         assert!(err.contains("unknown field"));
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn hide_and_readonly_rules_accept_direct_child_suffix_forms_through_runtime_config() {
+        let source = test_dir();
+        let cwd = source.join("workspace/app");
+        let home = source.join("home/tester");
+        std::fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+        std::fs::create_dir_all(source.join("home/tester/nested")).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let mount = source.join("mount");
+        std::fs::create_dir(&mount).unwrap();
+
+        {
+            let _env = ProcessEnvGuard::new(&cwd, Some(&home));
+            let cfg = RuntimeConfig::from_launch(LaunchArgs {
+                cli: CliArgs {
+                    source_root: source.clone(),
+                    mount_root: mount,
+                    hide_rules: vec!["~/*.pem".to_string(), "./fixtures/*.pem".to_string()],
+                    readonly_rules: vec!["~/*.pem".to_string(), "./fixtures/*.pem".to_string()],
+                },
+                config_path: None,
+                policy_family: None,
+                allow_write_rules: Vec::new(),
+            })
+            .unwrap();
+
+            for path in [
+                VirtualPath::new("/home/tester/user.pem"),
+                VirtualPath::new("/home/tester/user.pem/chain"),
+                VirtualPath::new("/workspace/app/fixtures/local.pem"),
+                VirtualPath::new("/workspace/app/fixtures/local.pem/chain"),
+            ] {
+                assert!(cfg.is_hidden(&path));
+                assert!(cfg.matches_readonly_rule(&path));
+            }
+
+            for path in [
+                VirtualPath::new("/home/tester/nested/user.pem"),
+                VirtualPath::new("/workspace/app/fixtures/nested/local.pem"),
+                VirtualPath::new("/home/tester/user.key"),
+                VirtualPath::new("/workspace/app/fixtures/local.key"),
+            ] {
+                assert!(!cfg.is_hidden(&path));
+                assert!(!cfg.matches_readonly_rule(&path));
+            }
+        }
+
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn allow_write_rules_accept_direct_child_suffix_forms_through_runtime_config() {
+        let source = test_dir();
+        let cwd = source.join("workspace/app");
+        let home = source.join("home/tester");
+        std::fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+        std::fs::create_dir_all(source.join("home/tester/nested")).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let mount = source.join("mount");
+        std::fs::create_dir(&mount).unwrap();
+
+        {
+            let _env = ProcessEnvGuard::new(&cwd, Some(&home));
+            let cfg = RuntimeConfig::from_launch(LaunchArgs {
+                cli: CliArgs {
+                    source_root: source.clone(),
+                    mount_root: mount,
+                    hide_rules: vec![],
+                    readonly_rules: vec![],
+                },
+                config_path: None,
+                policy_family: Some(MutabilityFamily::ReadonlyRootAllowwrite),
+                allow_write_rules: vec!["~/*.pem".to_string(), "./fixtures/*.pem".to_string()],
+            })
+            .unwrap();
+
+            for path in [
+                VirtualPath::new("/home/tester/user.pem"),
+                VirtualPath::new("/home/tester/user.pem/chain"),
+                VirtualPath::new("/workspace/app/fixtures/local.pem"),
+                VirtualPath::new("/workspace/app/fixtures/local.pem/chain"),
+            ] {
+                assert!(cfg.matches_allow_write_rule(&path));
+                assert!(!cfg.is_readonly(&path));
+            }
+
+            for path in [
+                VirtualPath::new("/home/tester/nested/user.pem"),
+                VirtualPath::new("/workspace/app/fixtures/nested/local.pem"),
+                VirtualPath::new("/home/tester/user.key"),
+                VirtualPath::new("/workspace/app/fixtures/local.key"),
+            ] {
+                assert!(!cfg.matches_allow_write_rule(&path));
+                assert!(cfg.is_readonly(&path));
+            }
+        }
+
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces() {
+        let source = test_dir();
+        let cwd = source.join("workspace/app");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let mount = source.join("mount");
+        std::fs::create_dir(&mount).unwrap();
+
+        {
+            let _env = ProcessEnvGuard::new(&cwd, None);
+            let hide_err = RuntimeConfig::from_launch(LaunchArgs {
+                cli: CliArgs {
+                    source_root: source.clone(),
+                    mount_root: mount.clone(),
+                    hide_rules: vec!["*.pem".to_string()],
+                    readonly_rules: vec![],
+                },
+                config_path: None,
+                policy_family: None,
+                allow_write_rules: Vec::new(),
+            })
+            .unwrap_err();
+            assert!(hide_err.contains("unsupported glob: *.pem"));
+
+            let readonly_err = RuntimeConfig::from_launch(LaunchArgs {
+                cli: CliArgs {
+                    source_root: source.clone(),
+                    mount_root: mount.clone(),
+                    hide_rules: vec![],
+                    readonly_rules: vec!["*.pem".to_string()],
+                },
+                config_path: None,
+                policy_family: None,
+                allow_write_rules: Vec::new(),
+            })
+            .unwrap_err();
+            assert!(readonly_err.contains("unsupported glob: *.pem"));
+
+            let allow_write_err = RuntimeConfig::from_launch(LaunchArgs {
+                cli: CliArgs {
+                    source_root: source.clone(),
+                    mount_root: mount,
+                    hide_rules: vec![],
+                    readonly_rules: vec![],
+                },
+                config_path: None,
+                policy_family: Some(MutabilityFamily::ReadonlyRootAllowwrite),
+                allow_write_rules: vec!["*.pem".to_string()],
+            })
+            .unwrap_err();
+            assert!(allow_write_err.contains("unsupported glob: *.pem"));
+        }
+
         std::fs::remove_dir_all(source).unwrap();
     }
 

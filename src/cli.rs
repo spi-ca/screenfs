@@ -43,6 +43,35 @@ pub struct LaunchArgs {
     pub allow_write_rules: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MutabilitySurface {
+    Cli,
+    Config,
+}
+
+impl MutabilitySurface {
+    fn family_label(self) -> &'static str {
+        match self {
+            Self::Cli => "--policy-family",
+            Self::Config => "mutability.family",
+        }
+    }
+
+    fn readonly_label(self) -> &'static str {
+        match self {
+            Self::Cli => "--readonly-rule",
+            Self::Config => "mutability.readonly_rules",
+        }
+    }
+
+    fn allow_write_label(self) -> &'static str {
+        match self {
+            Self::Cli => "--allow-write",
+            Self::Config => "mutability.allow_write",
+        }
+    }
+}
+
 impl CliArgs {
     #[cfg(test)]
     pub(crate) fn parse_from<I, S>(args: I) -> Result<Self, String>
@@ -84,6 +113,20 @@ impl CliArgs {
     fn unexpected_argument(arg: &Path) -> String {
         Self::error_with_usage(format!("unexpected positional argument: {}", arg.display()))
     }
+
+    fn option_value<'a>(
+        args: &'a [OsString],
+        index: usize,
+        option: &str,
+    ) -> Result<&'a OsString, String> {
+        let Some(value) = args.get(index + 1) else {
+            return Err(Self::missing_value(option));
+        };
+        if value.to_string_lossy().starts_with('-') {
+            return Err(Self::missing_value(option));
+        }
+        Ok(value)
+    }
 }
 
 impl LaunchArgs {
@@ -121,52 +164,27 @@ impl LaunchArgs {
             let arg = args[i].to_string_lossy();
             match arg.as_ref() {
                 "--hide" => {
-                    let Some(value) = args.get(i + 1) else {
-                        return Err(CliArgs::missing_value("--hide"));
-                    };
-                    if value.to_string_lossy().starts_with('-') {
-                        return Err(CliArgs::missing_value("--hide"));
-                    }
+                    let value = CliArgs::option_value(&args, i, "--hide")?;
                     hide_rules.push(value.to_string_lossy().into_owned());
                     i += 2;
                 }
                 "--readonly-rule" => {
-                    let Some(value) = args.get(i + 1) else {
-                        return Err(CliArgs::missing_value("--readonly-rule"));
-                    };
-                    if value.to_string_lossy().starts_with('-') {
-                        return Err(CliArgs::missing_value("--readonly-rule"));
-                    }
+                    let value = CliArgs::option_value(&args, i, "--readonly-rule")?;
                     readonly_rules.push(value.to_string_lossy().into_owned());
                     i += 2;
                 }
                 "--allow-write" => {
-                    let Some(value) = args.get(i + 1) else {
-                        return Err(CliArgs::missing_value("--allow-write"));
-                    };
-                    if value.to_string_lossy().starts_with('-') {
-                        return Err(CliArgs::missing_value("--allow-write"));
-                    }
+                    let value = CliArgs::option_value(&args, i, "--allow-write")?;
                     allow_write_rules.push(value.to_string_lossy().into_owned());
                     i += 2;
                 }
                 "--config" => {
-                    let Some(value) = args.get(i + 1) else {
-                        return Err(CliArgs::missing_value("--config"));
-                    };
-                    if value.to_string_lossy().starts_with('-') {
-                        return Err(CliArgs::missing_value("--config"));
-                    }
+                    let value = CliArgs::option_value(&args, i, "--config")?;
                     config_path = Some(PathBuf::from(value));
                     i += 2;
                 }
                 "--policy-family" => {
-                    let Some(value) = args.get(i + 1) else {
-                        return Err(CliArgs::missing_value("--policy-family"));
-                    };
-                    if value.to_string_lossy().starts_with('-') {
-                        return Err(CliArgs::missing_value("--policy-family"));
-                    }
+                    let value = CliArgs::option_value(&args, i, "--policy-family")?;
                     policy_family = Some(MutabilityFamily::parse(&value.to_string_lossy())?);
                     i += 2;
                 }
@@ -195,27 +213,26 @@ impl LaunchArgs {
             _ => return Err(CliArgs::unexpected_argument(&positionals[2])),
         };
 
-        if Self::has_future_mutability_options(
-            policy_family,
-            &cli.readonly_rules,
-            &allow_write_rules,
-        ) {
-            validate_future_mutability_surface(
-                policy_family,
-                "--policy-family",
-                "--readonly-rule",
-                &cli.readonly_rules,
-                "--allow-write",
-                &allow_write_rules,
-            )?;
-        }
-
-        Ok(Self {
+        let launch_args = Self {
             cli,
             config_path,
             policy_family,
             allow_write_rules,
-        })
+        };
+        launch_args.validate_policy_surface()?;
+        Ok(launch_args)
+    }
+
+    fn validate_policy_surface(&self) -> Result<(), String> {
+        if self.has_future_mutability_cli() {
+            validate_future_mutability_surface(
+                MutabilitySurface::Cli,
+                self.policy_family,
+                &self.cli.readonly_rules,
+                &self.allow_write_rules,
+            )?;
+        }
+        Ok(())
     }
 
     pub fn usage() -> String {
@@ -293,13 +310,13 @@ Notes:
 }
 
 pub(crate) fn validate_future_mutability_surface(
+    surface: MutabilitySurface,
     policy_family: Option<MutabilityFamily>,
-    family_label: &str,
-    readonly_label: &str,
     readonly_rules: &[String],
-    allow_write_label: &str,
     allow_write_rules: &[String],
 ) -> Result<MutabilityFamily, String> {
+    let readonly_label = surface.readonly_label();
+    let allow_write_label = surface.allow_write_label();
     if !readonly_rules.is_empty() && !allow_write_rules.is_empty() {
         return Err(format!(
             "{readonly_label} and {allow_write_label} cannot be used together"
@@ -313,10 +330,12 @@ pub(crate) fn validate_future_mutability_surface(
     };
     match effective_family {
         MutabilityFamily::SelectiveReadonly if !allow_write_rules.is_empty() => Err(format!(
-            "{allow_write_label} requires {family_label} readonly-root-allowwrite"
+            "{allow_write_label} requires {} readonly-root-allowwrite",
+            surface.family_label()
         )),
         MutabilityFamily::ReadonlyRootAllowwrite if !readonly_rules.is_empty() => Err(format!(
-            "{readonly_label} cannot be used with {family_label} readonly-root-allowwrite"
+            "{readonly_label} cannot be used with {} readonly-root-allowwrite",
+            surface.family_label()
         )),
         _ => Ok(effective_family),
     }
@@ -356,15 +375,25 @@ mod tests {
             "/var/tmp",
             "--hide",
             "**/*.pem",
+            "--hide",
+            "/home/me/.env.*",
             "--allow-write",
             "**/*.lock",
+            "--allow-write",
+            "/home/me/.env.*",
         ])
         .unwrap();
         assert_eq!(args.cli.source_root, PathBuf::from("/"));
         assert_eq!(args.cli.mount_root, PathBuf::from("/tmp/screenfs-root"));
-        assert_eq!(args.cli.hide_rules, vec!["/home/me/.ssh", "**/*.pem"]);
+        assert_eq!(
+            args.cli.hide_rules,
+            vec!["/home/me/.ssh", "**/*.pem", "/home/me/.env.*"]
+        );
         assert!(args.cli.readonly_rules.is_empty());
-        assert_eq!(args.allow_write_rules, vec!["/var/tmp", "**/*.lock"]);
+        assert_eq!(
+            args.allow_write_rules,
+            vec!["/var/tmp", "**/*.lock", "/home/me/.env.*"]
+        );
         assert_eq!(args.config_path, Some(PathBuf::from("screenfs.yaml")));
         assert_eq!(
             args.policy_family,
@@ -460,11 +489,9 @@ mod tests {
     #[test]
     fn infers_readonly_root_allowwrite_from_allow_write_rules() {
         let family = validate_future_mutability_surface(
+            MutabilitySurface::Cli,
             None,
-            "--policy-family",
-            "--readonly-rule",
             &[],
-            "--allow-write",
             &["/tmp".to_string()],
         )
         .unwrap();
