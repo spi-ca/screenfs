@@ -39,9 +39,9 @@ cargo clippy --all-targets --all-features
 현재 문서 갱신 세션의 실제 상태:
 
 - 이번 세션에서는 문서 변경만 수행했고 코드는 수정하지 않았다.
-- `cargo check`는 현재 저장소의 기존 compile blocker 때문에 실패 중이다 (`src/fs.rs`의 guard API 불일치 등).
-- 따라서 이 절은 이전 코드 검증 이력을 보존하더라도, 이번 문서 갱신의 fresh pass evidence로 해석하면 안 된다.
-- 문서 전용 검증으로는 파일 목록 확인 명령(`find README.md AGENTS.md docs ...`, `find .pi/agents .pi/skills .pi/prompts ...`)만 이번 세션에서 다시 실행했다.
+- `cargo check`는 이번 세션에서 다시 실행해 통과했다.
+- 문서 전용 검증으로 파일 목록 확인 명령(`find README.md AGENTS.md docs ...`, `find .pi/agents .pi/skills .pi/prompts ...`)을 다시 실행했다.
+- `docs/diagrams/module-architecture.mmd`를 수정했고, 대응 `module-architecture.svg`, `module-architecture.png`를 공용 config 두 개와 PNG용 Mermaid CLI `--scale 2` 규칙으로 재생성한 뒤 `file`로 산출물을 확인했다.
 
 ## Mermaid 다이어그램 산출물 재생성
 
@@ -240,7 +240,7 @@ fusermount3 -u /tmp/holefs-root
 | 항목 | 현재 상태 | 근거 |
 | --- | --- | --- |
 | Rust formatting | 이번 세션 미재확인 | 이번 세션은 문서만 수정했고 `cargo fmt --check`는 다시 실행하지 않음 |
-| Rust compile check | 현재 차단됨 | 이번 세션에서 `cargo check` 재실행 시 `src/fs.rs` guard API 불일치 등 기존 compile blocker로 실패 |
+| Rust compile check | 통과 | 이번 세션에서 `cargo check` 재실행 완료 |
 | Rust lint | 이번 세션 미재확인 | `cargo clippy --all-targets --all-features`는 이번 세션에서 다시 실행하지 않음 |
 | Mount-free unit tests | 이번 세션 미재확인 | 과거 문서에는 43 tests evidence가 있으나 이번 세션에서 fresh 재실행하지 않음 |
 | FUSE mount smoke | historical evidence only | `/dev/fuse`가 존재하는 환경에서 repo-local fixture mount와 `source-root=/` mount 성공 기록이 있으나 이번 세션 재실행은 없음 |
