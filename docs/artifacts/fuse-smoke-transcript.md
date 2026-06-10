@@ -2,6 +2,8 @@
 
 This artifact was regenerated from the root pi session, not from isolated subagents. It records runtime FUSE state, repo-local smoke, whole-root smoke, and `unshare -UrR` chroot execution using the renamed `screenfs` binary.
 
+Historical note: this transcript predates the removal of the legacy `--readonly` CLI surface. Keep it as whole-root/chroot archival evidence only; current whole-mount readonly usage should be expressed with `--policy-family readonly-root-allowwrite` and no `--allow-write` rules.
+
 - Captured: 2026-06-10T16:22:02+09:00
 - Working directory: /home/spi-ca/Codebase/screenfs
 - Binary: target/debug/screenfs
@@ -116,6 +118,6 @@ FUSE_OVER_IO_URING negotiation is mandatory; session startup fails without it.
 
 ## Current conclusions
 
-- Repo-local fixture mount preserved hidden `ENOENT` and current global `--readonly` `EROFS` behavior.
+- Repo-local fixture mount preserved hidden `ENOENT` and historical whole-mount readonly `EROFS` behavior.
 - Whole-root mount exposed `/bin`, `/usr`, and executable entrypoints while hidden `/home/spi-ca/.ssh` stayed `ENOENT`.
 - `unshare -UrR` entered the whole-root mount and executed `/bin/true` and `/bin/bash` successfully. Device-node behavior such as `/dev/null` still depends on the FUSE mount's `nodev` option and any supervisor/namespace layer that augments it.

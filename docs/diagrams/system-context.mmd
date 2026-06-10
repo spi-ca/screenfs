@@ -4,14 +4,14 @@ flowchart LR
 
     subgraph policy["Runtime policy"]
         hide["hide rules\nexact / prefix / limited glob"]
-        ro["selective readonly rules\nmatched mutation => EROFS"]
-        impl["current implementation evidence\nglobal --readonly bool"]
+        family["mutability family\nselective-readonly | readonly-root-allowwrite\none family per mount"]
+        config["policy source\nCLI mutability options\nor config mutability block"]
         internal["internal hide rule\nmount-root recursion exclusion"]
     end
 
     hide --> mount
-    ro --> mount
-    impl -. current implementation only .-> ro
+    family --> mount
+    config --> family
     internal --> mount
 
     mount --> view["Mounted virtual root\nexample: /tmp/screenfs-root"]
@@ -19,4 +19,4 @@ flowchart LR
     sandbox -. supervisor boundary .-> sup["Upper supervisor responsibility\nchroot privilege + /proc,/sys,/dev,/run semantics"]
 
     mount -. hidden path access .-> enoent["ENOENT\nlooks absent"]
-    mount -. visible write matched by readonly rule .-> erofs["EROFS"]
+    mount -. mutation blocked by family policy .-> erofs["EROFS"]

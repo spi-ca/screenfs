@@ -5,12 +5,11 @@ flowchart LR
     hidden -- yes --> hiddenResult["ENOENT\nor filtered listing"]
     hidden -- no --> op{"Mutation or write intent?"}
     op -- no --> delegate["Delegate to host FS\nwithin source_root confinement"]
-    op -- yes --> policy{"Mutability policy evaluator\nfamily + affected coordinates"}
+    op -- yes --> policy{"Mutability evaluator\nfamily + affected coordinates\nCLI/config resolved at startup"}
     policy -- blocked --> roResult["EROFS"]
     policy -- allowed --> delegate
     delegate --> reply["Build FUSE reply"]
 
-    impl["Current implementation note\n--readonly => all visible mutation"] -.-> policy
-    family["Future family note\nselective-readonly | readonly-root-allowwrite\none family per mount"] -.-> policy
+    family["Current family note\nselective-readonly | readonly-root-allowwrite\none family per mount"] -.-> policy
     pathOnly["Path-only mutation note\ncreate/mkdir/mknod/unlink/rmdir\ncheck path + mutated parent"] -.-> classify
     multi["Multi-path mutation note\nrename/link/symlink/copy-like ops\ncheck source/target/parent coordinates"] -.-> classify
