@@ -24,7 +24,7 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 이 절은 코드를 어디서부터 읽어야 하는지와 책임이 어떻게 나뉘는지를 보여준다.
 
-현재 코드는 `main -> cli/config -> fs`를 중심으로 구성되어 있고, `fs`가 `path`, `matcher`, `errors`와 내부 inode/file-handle state를 조합해 대부분의 FUSE 의미론을 수행한다. 별도 backing adapter 모듈은 아직 없고, host 접근 helper는 주로 `src/fs.rs` 안에 있다.
+현재 코드는 `main -> cli/config -> fs`를 중심으로 구성되어 있고, `src/fs.rs`는 module root/orchestrator로서 `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`에 inode/file-handle state, path guard, confined host access를 위임한다. `src/matcher.rs`의 `PathRuleMatcher`는 hide/readonly/allow-write rule compilation과 runtime policy checks에 공유된다.
 
 ![ScreenFS module architecture](diagrams/module-architecture.png)
 
@@ -32,13 +32,16 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 - `src/main.rs`: mount option 구성과 `Session::run(ScreenFs::new(cfg))` 진입점
 - `src/cli.rs`: `<source-root> <mount-root>`, 반복 `--hide`, 반복 `--readonly-rule`, `--policy-family`, 반복 `--allow-write`, `--config` 파싱과 family conflict/fail-fast 검증
-- `src/config.rs`: `RuntimeConfig` 구성, mount-root recursion exclusion internal rule 주입, family selection, `MutabilitySource`, compiled readonly/`allow_write` matcher, CLI-over-config precedence 조립. hide/current mutability 입력은 shared normalization contract를 거쳐 matcher로 들어간다.
+- `src/config.rs`: `RuntimeConfig` 구성, mount-root recursion exclusion internal rule 주입, family selection, `MutabilitySource` 기록, `MatcherScope` 기반 `PathRuleMatcher` compilation, CLI-over-config precedence 조립. hide/current mutability 입력은 shared normalization contract를 거쳐 matcher로 들어가며, direct-child suffix subset은 `hide_and_readonly_rules_accept_direct_child_suffix_forms_through_runtime_config`, `allow_write_rules_accept_direct_child_suffix_forms_through_runtime_config`, `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`로 보강된다.
 - `src/path.rs`: lexical virtual path normalization, symlink target lexical resolution, source-root confinement 보조, relative/`~` exact·prefixed-glob rule input rebasing helper
-- `src/matcher.rs`: exact/prefix/limited glob matcher. 현재는 absolute exact rule과 optional normalized prefix가 붙은 limited glob(`**/<basename>`, `**/*.<suffix>`)까지 처리한다. broader unsupported wildcard forms는 계속 fail-fast다.
-- `src/fs.rs`: hidden guard, family-aware readonly/allow-write evaluator, symlink target guard, directory filtering, host delegation. `guard_mutation_path`/`guard_multi_path_mutation`가 affected-path set 전체를 본다.
+- `src/matcher.rs`: `PathRuleMatcher`와 `MatcherScope`를 제공한다. exact/prefix/limited glob matcher를 compile하며, 현재는 absolute·relative·`~` exact rule, recursive optional normalized prefix가 붙은 limited glob(`**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*`), normalized-prefix direct-child basename-prefix/suffix form(`~/.env.*`, `~/*.pem`, `/prefix/*.pem` 등)까지 처리한다. matcher 단위 증거는 `normalizes_direct_child_suffix_glob_rules`가 대표적이고, broader unsupported wildcard forms는 계속 fail-fast다.
+- `src/fs.rs`: `ScreenFs` FUSE 구현의 module root/orchestrator. request entrypoint를 `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`와 조합한다.
+- `src/fs/state.rs`: inode/path map, lookup/open refcount, file/directory handle snapshot state를 관리한다.
+- `src/fs/guards.rs`: hidden guard, family-aware readonly/allow-write evaluator, symlink target guard, directory filtering과 reply-building 전 검사를 담당한다. `guard_mutation_path`/`guard_multi_path_mutation`가 affected-path set 전체를 본다.
+- `src/fs/backing.rs`: `source_root` confinement 하의 host delegation, open/statfs/xattr/setattr helper를 담당한다.
 - `src/errors.rs`: hidden 우선 `ENOENT`, readonly-target mutation `EROFS` 분류. family-aware evaluator에서도 같은 errno taxonomy를 유지한다.
 
-구현 파일 바로가기: `src/main.rs`, `src/cli.rs`, `src/config.rs`, `src/path.rs`, `src/matcher.rs`, `src/errors.rs`, `src/fs.rs`
+구현 파일 바로가기: `src/main.rs`, `src/cli.rs`, `src/config.rs`, `src/path.rs`, `src/matcher.rs`, `src/errors.rs`, `src/fs.rs`, `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`
 
 ## 3. 요청 처리 결정 흐름
 
@@ -70,7 +73,7 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 이 절은 왜 path 판단을 host canonical path가 아니라 virtual path 기준으로 하는지 설명한다.
 
-hide matcher는 host canonical path가 아니라 lexical virtual path 기준으로 동작한다. 이후 backing 접근은 `source_root` 밖으로 빠져나가지 않도록 제한한다. 아래 다이어그램은 특히 visible symlink entry를 직접 다루는 경로를 기준으로 읽는 것이 정확하다.
+`PathRuleMatcher` 기반 hide matching은 host canonical path가 아니라 lexical virtual path 기준으로 동작한다. 이후 backing 접근은 `source_root` 밖으로 빠져나가지 않도록 제한한다. 아래 다이어그램은 특히 visible symlink entry를 직접 다루는 경로를 기준으로 읽는 것이 정확하다.
 
 ![ScreenFS path resolution and confinement](diagrams/path-resolution.png)
 
@@ -78,9 +81,9 @@ hide matcher는 host canonical path가 아니라 lexical virtual path 기준으�
 
 - `.` 제거, 중복 `/` 정리, `..`는 virtual `/` 위로 못 올라감
 - 현재 구현의 exact hide/current readonly rule은 absolute virtual path를 직접 받거나, relative/`~` exact 입력을 `source_root` 내부 virtual absolute path로 rebase해 사용한다.
-- 현재 구현의 supported glob은 prefix 없는 `**/<basename>` / `**/*.<suffix>`뿐 아니라 optional normalized prefix가 붙은 limited glob까지 포함한다.
+- 현재 구현의 supported glob은 prefix 없는 `**/<basename>` / `**/*.<suffix>` / `**/<basename-prefix>*`, recursive optional normalized prefix가 붙은 limited glob, normalized-prefix direct-child basename-prefix/suffix form(`~/.env.*`, `~/*.pem`, `/prefix/*.pem` 등)까지 포함한다.
 - relative path와 leading `~`, `~/...` prefix는 host path로 해석된 뒤 `source_root` 내부일 때만 virtual absolute path 또는 virtual glob prefix로 rebase된다.
-- `HOME` 없음, `source_root` 밖으로 확장됨, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`)은 fail-fast/unsupported로 남는다.
+- `HOME` 없음, `source_root` 밖으로 확장됨, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, bare suffix `*.pem`)은 fail-fast/unsupported로 남는다.
 - symlink target은 lexical virtual target으로 재해석해 hidden 여부를 다시 검사
 - host backing 접근은 `source_root` 밖 escape를 허용하지 않음
 
@@ -125,10 +128,10 @@ hide matcher는 host canonical path가 아니라 lexical virtual path 기준으�
 ```text
 CLI args
   -> RuntimeConfig
-  -> HideMatcher + internal mount-root prefix
+  -> PathRuleMatcher + internal mount-root prefix
   -> current MutabilityPolicy family + compiled readonly/allow_write rule sets
   -> current shared rule normalization for hide/current mutability rules (absolute/relative/`~` exact + supported prefixed glob)
-  -> ScreenFs Filesystem implementation
+  -> src/fs.rs orchestrator + fs/{state,guards,backing}
   -> VirtualPath normalization + hidden/affected-coordinate policy evaluator
   -> confined host filesystem access
   -> FUSE replies to whole-root consumer (예: sandbox/chroot)

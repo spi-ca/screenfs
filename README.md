@@ -29,6 +29,7 @@ screenfs / /tmp/screenfs-root \
   --hide /home/spi-ca/.pi/agent/auth.json \
   --hide '/home/spi-ca/.pi/agent/mcp-oauth' \
   --hide '**/.env' \
+  --hide '**/.env.*' \
   --hide '**/*.pem' \
   --hide '**/*.key'
 
@@ -166,6 +167,7 @@ whole-mount readonly가 필요하면 현재 surface에서는 `readonly-root-allo
 /home/<user>/.pi/agent/auth.json
 /home/<user>/.pi/agent/mcp-oauth
 **/.env
+**/.env.*
 **/*.pem
 **/*.key
 ```
@@ -248,25 +250,38 @@ hide rule, `--readonly-rule`, `--allow-write`는 같은 rule-input normalization
 - absolute 입력은 virtual-root anchored semantics를 유지한다.
 - relative 입력은 process cwd 기준 host path로 해석한 뒤, 결과가 `source_root` 내부일 때만 virtual absolute path 또는 virtual glob prefix로 rebase한다.
 - `~`, `~/...` 입력은 `HOME` 기준 host path로 expand한 뒤 같은 rebasing 규칙을 적용한다.
-- supported glob grammar는 현재 recursive basename/suffix tail(`**/<basename>`, `**/*.<suffix>`) + optional normalized path prefix 범위로 제한한다.
+- 현재 구현 snapshot의 supported glob grammar는 recursive basename/suffix/basename-prefix tail(`**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*`) + optional normalized path prefix, 그리고 normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`)까지다.
 
-지원 예시:
+현재 구현/문서화된 예시:
 
 - `**/*.pem`
 - `**/.env`
+- `**/.env.*`
 - `./fixtures/**/*.pem`
 - `~/fixtures/**/*.pem`
 - `/home/spi-ca/**/*.pem`
+- `/home/spi-ca/.env.*`
+- `~/.env.*`
+- `./fixtures/*.pem`
+- `~/*.pem`
+- `/home/spi-ca/*.pem`
 
-다음 입력은 fail-fast다.
+현재 소스/테스트 증거에서 direct-child suffix subset도 확인된다.
+
+- matcher 단위: `src/matcher.rs`의 `normalizes_direct_child_suffix_glob_rules`
+- shared config surface: `src/config.rs`의 `hide_and_readonly_rules_accept_direct_child_suffix_forms_through_runtime_config`, `allow_write_rules_accept_direct_child_suffix_forms_through_runtime_config`
+- unsupported bare suffix 유지: `src/config.rs`의 `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`
+- hidden `ENOENT` 우선순위 유지: `src/fs.rs`의 `hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`
+
+다음 입력은 계속 fail-fast다.
 
 - `HOME` 없는 `~` expansion
 - `source_root` 밖으로 나가는 expanded path
 - `~user`
 - prefix 내부 wildcard
-- 더 넓은 unsupported glob (`foo/*/bar.pem`, `**/secret?.pem`, brace/env/command expansion)
+- 더 넓은 unsupported glob (`foo/*/bar.pem`, `**/secret?.pem`, bare suffix `*.pem`, brace/env/command expansion)
 
-검증은 unit test, CLI fail-fast stderr, repo-local family-aware smoke transcript를 함께 근거로 읽는다. live smoke는 relative exact path, relative/`~` prefixed glob, config-backed source-of-truth 같은 대표 경로를 보강하고, 나머지 edge case는 주로 unit test와 CLI evidence가 source of truth다.
+검증은 unit test, CLI fail-fast stderr, repo-local family-aware smoke transcript를 함께 근거로 읽는다. direct-child suffix form의 현재 근거는 source/unit-test 쪽에 있고, live smoke는 relative exact path, relative/`~` recursive prefixed glob, config-backed source-of-truth 같은 대표 경로를 보강한다. 아직 별도 live artifact가 필요한 쪽은 already-absolute case와 broader unsupported wildcard fail-fast다.
 
 ### 성능 및 메모리 방향
 
@@ -287,12 +302,12 @@ hide rule, `--readonly-rule`, `--allow-write`는 같은 rule-input normalization
 - CLI/config surface가 구현되어 있다: `<source-root> <mount-root>`, 반복 `--hide`, 반복 `--readonly-rule`, `--policy-family`, 반복 `--allow-write`, `--config`, YAML `mutability` block
 - mutability family resolution이 구현되어 있다: `selective-readonly`/`readonly-root-allowwrite`, one-family-per-mount, CLI-over-config precedence, CLI 부재 시 config source-of-truth, 둘 다 없을 때 `selective-readonly` 기본값
 - lexical virtual path normalization과 symlink target 해석이 구현되어 있다.
-- hide/readonly/allow-write matcher가 구현되어 있다: virtual root 기준 absolute exact rule, relative/`~` exact rule rebasing, directory prefix hiding, prefix 없는 limited glob, absolute/relative/`~` prefixed limited glob, shared normalization contract
+- hide/readonly/allow-write matcher가 구현되어 있다: virtual root 기준 absolute exact rule, relative/`~` exact rule rebasing, directory prefix hiding, prefix 없는 limited basename/suffix/prefix glob, recursive absolute/relative/`~` prefixed limited glob, normalized-prefix direct-child basename-prefix/suffix form(`~/.env.*`, `~/*.pem`, `./fixtures/*.pem`, `/prefix/*.pem` 등), shared normalization contract. bare suffix `*.pem`, wildcard-in-prefix, broader unsupported glob은 계속 fail-fast다.
 - hidden/readonly guard 분류가 구현되어 있다: hidden path는 `ENOENT`, rule-matched mutation은 `EROFS`, hidden precedence는 selective/carve-out family 모두에서 유지된다.
 - affected-coordinate evaluator가 구현되어 있다: `create`/`mkdir`/`unlink`/`rename`/`link`/`symlink`/`copy_file_range`/xattr/`fallocate`에서 source/target/parent별 hidden/readonly 판정을 수행한다.
 - 기본 FUSE 조회 경로가 구현되어 있다: `lookup`, `getattr`, `open`, `read`, `readdir`, `readdirplus`, `readlink`, `access`, `statfs`
 - mount-free regression coverage가 구현되어 있다: host permission 기반 `access` pass-through, hidden target symlink에 대한 `lookup`/`open`/`readlink` guard, `readonly-root-allowwrite` empty-carve-out mount의 `create` `EROFS` 반환
-- 현재 mount-free unit test는 `cargo test --all-targets --all-features` 기준 총 68개가 통과하며 parser/path/matcher/guard/FUSE baseline 동작, relative/`~` exact·prefixed-glob normalization, hide/current family rule shared semantics, selective readonly scoped-path coverage, readonly-root-allowwrite union/precedence/affected-coordinate-wide writable requirement, config mutability load/override, access/symlink/create regression, hidden multi-path mutation·xattr guard, symlink target hiding, `copy_file_range` visible/hidden 경로를 검증한다. repo-local family-aware live smoke transcript도 별도로 존재한다.
+- 현재 mount-free unit test는 `cargo test --all-targets --all-features` 기준 parser/path/matcher/guard/FUSE baseline 동작, relative/`~` exact·prefixed-glob normalization, direct-child basename-prefix/suffix glob normalization, hide/current family rule shared semantics, selective readonly scoped-path coverage, readonly-root-allowwrite union/precedence/affected-coordinate-wide writable requirement, config mutability load/override, access/symlink/create regression, hidden multi-path mutation·xattr guard, symlink target hiding, `copy_file_range` visible/hidden 경로를 검증한다. repo-local family-aware live smoke transcript도 별도로 존재한다.
 
 아직 완료로 주장하지 않는 범위:
 

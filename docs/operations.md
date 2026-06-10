@@ -40,7 +40,7 @@ cargo clippy --all-targets --all-features
 
 - 이번 세션은 문서 정렬뿐 아니라 mutability family 구현, `--readonly` 제거, smoke artifact 보강까지 포함한 코드/문서 변경을 함께 다뤘다. 검증은 현재 worktree의 구현 상태(`src/cli.rs`, `src/config.rs`, `src/fs.rs`, `src/main.rs` 등)를 기준으로 재실행했다.
 - fresh evidence 확보를 위해 `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features`, `cargo test --all-targets --all-features`를 이번 세션에서 다시 실행했고 모두 통과했다.
-- `cargo test --all-targets --all-features`는 이번 세션 기준 총 68 tests 통과다.
+- `cargo test --all-targets --all-features`는 이번 세션 기준 총 73 tests 통과다.
 - 현재 mount-free test evidence에는 relative/`~` exact·prefixed-glob normalization, hide/current mutability rule shared semantics, `selective_readonly_rules_are_scoped_to_matching_paths`, `selective_readonly_symlink_returns_erofs_and_hidden_precedence_remains_enoent`, `readonly_root_allowwrite_match_non_match_and_hidden_precedence`, `readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation`, `readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent`, config mutability load/override가 포함된다. 다만 이는 family별 live smoke 완료를 의미하지 않는다.
 - 문서 정합성 확인으로 변경한 `README.md`, `docs/requirements.md`, `docs/design.md`, `docs/architecture.md`, `docs/operations.md`의 해당 구간을 재독해했다.
 
@@ -132,6 +132,7 @@ screenfs / /tmp/screenfs-root \
   --hide /home/spi-ca/.pi/agent/auth.json \
   --hide '/home/spi-ca/.pi/agent/mcp-oauth' \
   --hide '**/.env' \
+  --hide '**/.env.*' \
   --hide '**/*.pem' \
   --hide '**/*.key'
 ```
@@ -208,24 +209,27 @@ mkdir /tmp/screenfs-root/tmp/screenfs-mkdir-check
 
 현재 구현/증거 상태:
 
-- current code와 mount-free unit test는 hide/current `--readonly-rule` shared normalization contract를 구현·검증한다.
+- current code와 mount-free unit test는 hide/current `--readonly-rule`/`--allow-write` shared normalization contract를 recursive prefixed glob과 direct-child basename-prefix/suffix subset까지 구현·검증한다.
 - absolute exact path와 absolute prefixed glob은 virtual-root anchored semantics를 유지한다.
+- basename-prefix glob(`**/.env.*`, `/home/<user>/.env.*`, literal example `~/.env.*`)은 `.env.local`처럼 같은 basename prefix를 가진 entry와 그 descendants에 매치된다.
+- direct-child suffix glob(`./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`)은 normalized prefix 바로 아래 child와 그 descendants에만 매치된다.
 - relative exact path와 relative prefixed glob prefix는 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 rebase된다.
 - `~`/`~/...` exact path와 prefixed glob은 `HOME` 기준으로 expand된 뒤 같은 rebasing 규칙을 따른다.
-- broader unsupported wildcard forms, prefix 내부 wildcard, `HOME` 없음, outside-`source_root`, `~user`는 fail-fast다.
-- fresh family-aware smoke transcript(`docs/artifacts/future-mutability-smoke-transcript.md`)는 relative hide exact path, relative prefixed glob readonly rule, `~/...` prefixed glob readonly rule의 live mount evidence를 포함한다. historical whole-root transcript는 여전히 이미 절대화된 exact hide rule과 prefix 없는 limited glob 위주다.
+- focused source evidence는 `src/matcher.rs`의 `normalizes_direct_child_suffix_glob_rules`, `src/config.rs`의 `hide_and_readonly_rules_accept_direct_child_suffix_forms_through_runtime_config`/`allow_write_rules_accept_direct_child_suffix_forms_through_runtime_config`, `src/config.rs`의 `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`, `src/fs.rs`의 `hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`다.
+- broader unsupported wildcard forms, prefix 내부 wildcard, unprefixed bare suffix `*.pem`, `HOME` 없음, outside-`source_root`, `~user`는 계속 fail-fast다.
+- fresh family-aware smoke transcript(`docs/artifacts/future-mutability-smoke-transcript.md`)는 relative hide exact path, relative prefixed glob readonly rule, `~/...` prefixed glob readonly rule의 live mount evidence를 포함한다. historical whole-root transcript는 여전히 이미 절대화된 exact hide rule과 prefix 없는 limited glob 위주다. direct-child suffix subset은 현재 source/unit-test evidence로 확인된다.
 
-확정된 target checklist(코드에는 반영돼 있고, live smoke는 repo-local family-aware transcript와 unit test를 함께 근거로 읽는다):
+문서화된 current contract checklist:
 
 - relative exact path는 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 virtual absolute path로 rebase된다.
 - relative prefixed glob도 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 virtual glob prefix로 rebase된다.
 - `~`/`~/...` exact path와 prefixed glob은 `HOME` 기준으로 expand된 뒤 같은 rebasing 규칙을 따른다.
-- supported glob 확장 범위는 optional normalized prefix + 기존 recursive basename/suffix tail(`**/<basename>`, `**/*.<suffix>`)까지다.
+- supported glob 확장 범위는 recursive basename/suffix/basename-prefix tail(`**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*`)과 normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`)까지다. canonical examples: `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`.
 - `HOME`이 없으면 fail-fast 한다.
 - expanded host path가 `source_root` 밖이면 fail-fast 한다.
 - `~user`는 unsupported fail-fast다.
-- broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`)은 부분 expansion 없이 fail-fast 한다.
-- 현재 소스의 `--readonly-rule` surface와 향후 그 확장도 같은 normalization contract를 재사용해야 한다.
+- broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, unprefixed bare suffix `*.pem`, brace/env/command expansion)은 부분 expansion 없이 fail-fast 한다.
+- 현재 소스의 `--readonly-rule`/`--allow-write` surface는 같은 normalization contract를 재사용하고, direct-child suffix subset에서도 hidden `ENOENT` precedence를 유지한다.
 
 ## Selective readonly target checklist
 
@@ -279,12 +283,12 @@ fusermount3 -u /tmp/screenfs-root
 | Rust formatting | 통과 | 이번 세션에서 `cargo fmt --check` 재실행 완료 |
 | Rust compile check | 통과 | 이번 세션에서 `cargo check` 재실행 완료 |
 | Rust lint | 통과 | 이번 세션에서 `cargo clippy --all-targets --all-features` 재실행 완료 |
-| Mount-free unit tests | 통과 | 이번 세션에서 `cargo test --all-targets --all-features` 재실행 완료, 총 68 tests 통과 |
+| Mount-free unit tests | 통과 | 이번 세션에서 `cargo test --all-targets --all-features` 재실행 완료, 총 73 tests 통과 |
 | FUSE mount smoke | 통과 | 이번 세션 fresh repo-local family-aware transcript(`docs/artifacts/future-mutability-smoke-transcript.md`), fresh whole-root carve-out transcript(`docs/artifacts/whole-root-family-smoke-transcript.md`), fresh whole-mount readonly transcript(`docs/artifacts/whole-mount-readonly-smoke-transcript.md`)를 보유하고, pre-removal transcript는 archival evidence로 분리한다 |
 | hidden path mount smoke | 통과 | fresh whole-root smoke와 이번 세션 future family smoke에서 hidden path 직접 접근 `ENOENT` 확인 |
 | whole-view smoke | 통과 | 이번 세션 current `source-root=/` family-aware smoke에서 `stat /bin/bash`, `ls /usr`, hidden `/home/spi-ca/.ssh` `ENOENT`를 재확인 |
 | whole-mount readonly smoke | 통과 | 이번 세션 current whole-mount readonly transcript(`docs/artifacts/whole-mount-readonly-smoke-transcript.md`)에서 `readonly-root-allowwrite` with empty `allow_write` 기준 `touch`/`mkdir` `EROFS`, hidden `ENOENT`, chroot 내부 `/tmp` mutation `EROFS`를 재확인 |
-| rule-input normalization smoke | 부분 검증(마운트 프리 + 일부 live smoke) | 이번 세션 unit test는 relative/`~` exact·prefixed-glob normalization과 fail-fast edge case를 검증했고, fresh family-aware mount smoke는 relative hide exact path와 relative/`~` prefixed glob readonly rule을 보강했다. 다만 already-absolute live case와 broader unsupported wildcard fail-fast의 live smoke는 아직 별도 artifact로 남지 않았다 |
+| rule-input normalization smoke | 부분 검증(마운트 프리 + 일부 live smoke) | 이번 세션 unit test는 relative/`~` exact·prefixed-glob normalization, direct-child suffix subset(`normalizes_direct_child_suffix_glob_rules`, runtime-config shared-surface tests), bare suffix rejection, hidden `ENOENT` precedence를 검증했고, fresh family-aware mount smoke는 relative hide exact path와 relative/`~` prefixed glob readonly rule을 보강했다. 다만 already-absolute live case와 broader unsupported wildcard fail-fast의 live smoke는 아직 별도 artifact로 남아 있다 |
 | selective readonly rule smoke | 통과 | 이번 세션 unit test(`selective_readonly_rules_are_scoped_to_matching_paths`, `selective_readonly_symlink_returns_erofs_and_hidden_precedence_remains_enoent`)와 fresh live smoke transcript가 rule-match `EROFS`, non-match visible mutation 성공, hidden `ENOENT`를 함께 입증 |
 | carve-out policy smoke | 통과 | 이번 세션 unit test(`readonly_root_allowwrite_match_non_match_and_hidden_precedence`, `readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation`, `readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent`)와 fresh live smoke transcript가 allow-write carve-out success, non-match `EROFS`, hidden `ENOENT`, config-backed source-of-truth를 입증 |
 | user-namespace chroot smoke | 통과 | 이번 세션 current whole-root carve-out smoke와 current whole-mount readonly smoke에서 `unshare -UrR <mount> /bin/bash --noprofile --norc ...` 기준 allow/block mutation을 재확인; device-node 동작은 supervisor/namespace layer 책임 |

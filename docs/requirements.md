@@ -115,6 +115,7 @@ cat hidden-path
 /home/<user>/.pi/agent/auth.json
 /home/<user>/.pi/agent/mcp-oauth
 **/.env
+**/.env.*
 **/*.pem
 **/*.key
 ```
@@ -198,21 +199,22 @@ fallocate
 - 이미 absolute인 exact path와 absolute prefixed glob은 virtual-root anchored semantics를 유지한다.
 - relative exact path와 relative prefixed glob prefix는 process cwd 기준 host path로 먼저 해석하고, 그 host path가 `source_root` 내부일 때만 source-root-relative virtual absolute path 또는 virtual glob prefix로 rebase한다.
 - `~`/`~/...` 입력은 `HOME` 기준 host path로 expand한 뒤 같은 rebasing 규칙을 적용한다.
-- supported pattern 입력: glob grammar는 현재 `**/<basename>` 또는 `**/*.<suffix>` tail에 optional normalized prefix를 더한 범위까지만 허용한다. 대표 예시는 `**/.env`, `**/*.pem`, `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`이다.
-- fail-fast/unsupported 입력: `HOME` 없음, expanded path outside `source_root`, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`)은 모두 fail-fast다.
+- supported pattern 입력: glob grammar는 현재 recursive `**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*` tail과 normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`)까지 허용한다. 대표 예시는 `**/.env`, `**/.env.*`, `**/*.pem`, `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`이다.
+- source/test evidence는 `src/matcher.rs`의 `normalizes_direct_child_suffix_glob_rules`, `src/config.rs`의 `hide_and_readonly_rules_accept_direct_child_suffix_forms_through_runtime_config`/`allow_write_rules_accept_direct_child_suffix_forms_through_runtime_config`, `src/config.rs`의 `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`, `src/fs.rs`의 `hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`를 포함한다.
+- fail-fast/unsupported 입력: `HOME` 없음, expanded path outside `source_root`, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, bare suffix `*.pem`)은 모두 fail-fast다.
 
-확정된 target behavior(현재 코드에 반영돼 있고, live smoke는 repo-local family-aware transcript와 unit test를 함께 근거로 읽는다):
+현재 문서화된 contract(위 구현 snapshot이 direct-child suffix subset까지 이미 충족한다):
 
 - exact path와 supported prefixed glob 모두 같은 normalization contract를 공유한다.
 - 이미 absolute인 exact path와 absolute prefixed glob은 현재 virtual-root anchored 의미를 유지한다.
 - relative exact path와 relative prefixed glob prefix는 process cwd 기준 host path로 먼저 해석하고, 그 host path가 `source_root` 내부일 때만 source-root-relative virtual absolute path 또는 virtual glob prefix로 rebase한다.
 - `~`/`~/...` 입력은 `HOME` 기준 host path로 expand한 뒤 같은 rebasing 규칙을 적용한다.
-- supported prefixed glob grammar는 현재의 recursive basename/suffix tail(`**/<basename>`, `**/*.<suffix>`)을 유지하되 optional normalized path prefix를 허용한다. 예: `**/*.pem`, `**/.env`, `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`.
+- supported prefixed glob grammar는 recursive basename/suffix/basename-prefix tail(`**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*`)을 유지하고, normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`)도 허용한다. 예: `**/*.pem`, `**/.env`, `**/.env.*`, `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`.
 - `HOME`이 없으면 fail-fast 한다.
 - expanded host path가 `source_root` 밖이면 fail-fast 한다.
 - `~user`는 계속 unsupported이며 fail-fast 한다.
-- wildcard가 prefix 내부에 섞이는 더 넓은 glob(`foo/*/bar.pem`, `**/secret?.pem`, brace/env/command expansion)은 이번 범위에서도 unsupported/fail-fast로 남긴다.
-- 현재 소스에는 `--readonly-rule`과 `--allow-write` matcher surface가 이미 있으며, hide/current mutability rules가 같은 normalization contract를 재사용한다. repo-local family-aware live smoke는 relative hide exact path, relative/`~` prefixed glob, config-backed family selection을 보강하고, 나머지 fail-fast edge case는 unit test/CLI stderr evidence로 확인한다.
+- wildcard가 prefix 내부에 섞이는 더 넓은 glob(`foo/*/bar.pem`, `**/secret?.pem`, unprefixed bare suffix `*.pem`, brace/env/command expansion)은 이번 범위에서도 unsupported/fail-fast로 남긴다.
+- 현재 소스에는 `--readonly-rule`과 `--allow-write` matcher surface가 이미 있으며, hide/current mutability rules가 같은 normalization contract를 재사용한다. direct-child suffix subset도 이 shared contract와 hidden `ENOENT` precedence를 유지한 채 구현돼 있고, repo-local family-aware live smoke는 relative hide exact path, relative/`~` prefixed glob, config-backed family selection을 보강한다. 남은 evidence gap은 already-absolute live case와 broader unsupported wildcard fail-fast live smoke 쪽이다.
 
 ## 10. 성능 및 메모리 요구사항
 
@@ -237,6 +239,7 @@ screenfs / /tmp/screenfs-root \
   --hide /home/spi-ca/.pi/agent/auth.json \
   --hide '/home/spi-ca/.pi/agent/mcp-oauth' \
   --hide '**/.env' \
+  --hide '**/.env.*' \
   --hide '**/*.pem' \
   --hide '**/*.key'
 ```
@@ -279,7 +282,8 @@ screenfs / /tmp/screenfs-root \
   --policy-family selective-readonly \
   --readonly-rule /etc/ssh \
   --readonly-rule '~/.config/**/*.json' \
-  --hide /home/spi-ca/.ssh
+  --hide /home/spi-ca/.ssh \
+  --hide '~/.env.*'
 ```
 
 Current config contract:
@@ -341,7 +345,7 @@ chroot /tmp/screenfs-root /bin/bash
 - hidden/readonly guard: hidden path는 `ENOENT`, rule-matched visible mutation은 `EROFS`, hidden precedence는 selective/carve-out family 모두에서 유지된다.
 - current `--readonly-rule`와 `--allow-write` surface는 hide와 같은 normalization contract를 재사용한다. repo-local family-aware live smoke transcript와 unit test가 현재 evidence를 나눠 보강한다.
 - 기본 FUSE 조회 경로: `lookup`, `getattr`, `open`, `read`, `readdir`, `readdirplus`, `readlink`, `access`, `statfs`
-- mount-free unit tests: `cargo test --all-targets --all-features` 기준 총 68 tests 통과. relative/`~` exact·prefixed-glob normalization, hide/current mutability rule shared semantics, `selective_readonly_rules_are_scoped_to_matching_paths`, `selective_readonly_symlink_returns_erofs_and_hidden_precedence_remains_enoent`, `readonly_root_allowwrite_match_non_match_and_hidden_precedence`, `readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation`, `readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent`, config mutability load/override를 포함한다. repo-local family-aware live smoke transcript는 이와 별도로 현재 runtime evidence를 제공한다.
+- mount-free unit tests: `cargo test --all-targets --all-features` 기준 총 73 tests 통과. relative/`~` exact·prefixed-glob normalization, direct-child basename-prefix/suffix glob normalization, hide/current mutability rule shared semantics, `selective_readonly_rules_are_scoped_to_matching_paths`, `selective_readonly_symlink_returns_erofs_and_hidden_precedence_remains_enoent`, `readonly_root_allowwrite_match_non_match_and_hidden_precedence`, `readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation`, `readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent`, config mutability load/override를 포함한다. repo-local family-aware live smoke transcript는 이와 별도로 현재 runtime evidence를 제공한다.
 - live FUSE smoke: `/dev/fuse`가 있는 환경에서 repo-local family-aware fixture mount, current `source-root=/` whole-root carve-out mount, current `source-root=/` whole-mount readonly mount가 성공한 documented evidence가 있다. pre-removal whole-root/chroot transcript는 archival artifact로 유지한다. 현재 세션의 fresh 상태 표기는 `docs/operations.md`를 source of truth로 따른다.
 - user-namespace chroot smoke: current carve-out whole-root transcript와 current whole-mount readonly transcript에서 `unshare -UrR <mount> /bin/bash --noprofile --norc ...` allow/block smoke를 확인했다. pre-removal transcript의 `unshare -UrR` smoke는 archival evidence로 유지한다. 현재 세션의 fresh 상태 표기는 `docs/operations.md`를 source of truth로 따른다.
 - 아직 미주장 범위: selective-readonly family의 whole-root/chroot live FUSE smoke, production-ready 전체 FUSE 완성, privileged supervisor end-to-end 운영 검증, `/dev/null` 등 device-node namespace 구성

@@ -1,14 +1,21 @@
 flowchart TD
     main["src/main.rs\nLaunchArgs parse + Session::run"] --> cli["src/cli.rs\n--hide / --readonly-rule\n--policy-family / --allow-write / --config"]
-    main --> config["src/config.rs\nRuntimeConfig builder\nfamily resolution + CLI-over-config"]
-    config --> matcher["src/matcher.rs\nshared hide/readonly/allow-write matcher\nexact + prefixed recursive-tail glob\ninternal mount-root prefix"]
-    config --> yaml["YAML mutability block\nfamily / readonly_rules / allow_write"]
-    main --> fs["src/fs.rs\nScreenFs + Filesystem impl"]
-    fs --> path["src/path.rs\nVirtualPath + rule normalization\nrelative/~ rebase\nsymlink target resolve"]
-    fs --> matcher
-    fs --> errors["src/errors.rs\nENOENT / EROFS classification\nwrite-intent helpers"]
-    fs --> state["fs.rs internal state\ninode map + file handles"]
-    fs --> host["fs.rs host access helpers\nconfined backing access\nunder source_root"]
-    policy["mutability evaluator\nselective-readonly | readonly-root-allowwrite\naffected coordinates + hidden precedence"] -.-> fs
+    cli --> config["src/config.rs\nRuntimeConfig builder\ntyped mutability resolution\nCLI-over-config"]
+    main --> fs["src/fs.rs\nScreenFs module root\nFilesystem entrypoints"]
 
-    host --> source["source_root backing tree\nexample: real /"]
+    config --> matcher["src/matcher.rs\nPathRuleMatcher + MatcherScope\nshared hide/readonly/allow-write rules"]
+    config --> yaml["YAML mutability block\nfamily / readonly_rules / allow_write"]
+    config --> fs
+
+    fs --> state["src/fs/state.rs\ninode/path tables\nfile + dir handles"]
+    fs --> guards["src/fs/guards.rs\nhidden/readonly/symlink guards\naffected-coordinate checks"]
+    fs --> backing["src/fs/backing.rs\nconfined host access\nopen/statfs/xattr/setattr"]
+    fs --> path["src/path.rs\nVirtualPath + rule normalization\nrelative/~ rebase\nsymlink target resolve"]
+    fs --> errors["src/errors.rs\nENOENT / EROFS classification\nwrite-intent helpers"]
+
+    guards --> matcher
+    guards --> path
+    guards --> backing
+    guards --> errors
+
+    backing --> source["source_root backing tree\nexample: real /"]
