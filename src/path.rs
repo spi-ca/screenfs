@@ -1,6 +1,13 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
+#[derive(Debug, Clone)]
+pub struct RuleNormalizationContext {
+    source_root: PathBuf,
+    current_dir: PathBuf,
+    home_dir: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct VirtualPath(PathBuf);
 
@@ -104,7 +111,118 @@ impl AsRef<Path> for VirtualPath {
     }
 }
 
+impl RuleNormalizationContext {
+    pub fn from_environment(source_root: &Path) -> Result<Self, String> {
+        let current_dir = std::env::current_dir()
+            .map_err(|err| format!("failed to read current directory: {err}"))?;
+        Self::new(
+            source_root,
+            &current_dir,
+            std::env::var_os("HOME").map(PathBuf::from),
+        )
+    }
+
+    pub fn new(
+        source_root: &Path,
+        current_dir: &Path,
+        home_dir: Option<PathBuf>,
+    ) -> Result<Self, String> {
+        let current_dir = canonicalize_or_normalize_absolute_with_base(current_dir, Path::new("/"))
+            .ok_or_else(|| {
+                format!(
+                    "failed to normalize current directory: {}",
+                    current_dir.display()
+                )
+            })?;
+        let source_root = canonicalize_or_normalize_absolute_with_base(source_root, &current_dir)
+            .ok_or_else(|| {
+            format!("failed to normalize source root: {}", source_root.display())
+        })?;
+        let home_dir = match home_dir {
+            Some(path) => Some(
+                canonicalize_or_normalize_absolute_with_base(&path, &current_dir)
+                    .ok_or_else(|| "failed to normalize HOME".to_string())?,
+            ),
+            None => None,
+        };
+        Ok(Self {
+            source_root,
+            current_dir,
+            home_dir,
+        })
+    }
+}
+
+pub fn normalize_rule_path(
+    raw: &str,
+    ctx: &RuleNormalizationContext,
+) -> Result<VirtualPath, String> {
+    if raw.is_empty() {
+        return Err("empty rule path".to_string());
+    }
+    if raw.starts_with('/') {
+        return Ok(VirtualPath::new(raw));
+    }
+
+    let host_path = expand_rule_host_path(raw, ctx)?;
+    rebase_host_path_into_virtual(&host_path, &ctx.source_root)
+        .map_err(|_| format!("rule path resolves outside source_root: {raw}"))
+}
+
+fn expand_rule_host_path(raw: &str, ctx: &RuleNormalizationContext) -> Result<PathBuf, String> {
+    if raw == "~" || raw.starts_with("~/") {
+        let Some(home_dir) = &ctx.home_dir else {
+            return Err(format!("HOME is not set for rule: {raw}"));
+        };
+        let suffix = raw.strip_prefix('~').expect("tilde-prefixed rule");
+        let suffix = suffix.strip_prefix('/').unwrap_or("");
+        let path = if suffix.is_empty() {
+            home_dir.clone()
+        } else {
+            normalize_absolute_host_path(&home_dir.join(suffix))
+        };
+        return Ok(path);
+    }
+    if raw.starts_with('~') {
+        return Err(format!("unsupported home expansion: {raw}"));
+    }
+    Ok(normalize_absolute_host_path(&ctx.current_dir.join(raw)))
+}
+
+fn rebase_host_path_into_virtual(host_path: &Path, source_root: &Path) -> Result<VirtualPath, ()> {
+    let relative = host_path.strip_prefix(source_root).map_err(|_| ())?;
+    if relative.as_os_str().is_empty() {
+        Ok(VirtualPath::root())
+    } else {
+        let mut virtual_path = PathBuf::from("/");
+        virtual_path.push(relative);
+        Ok(VirtualPath::new(virtual_path))
+    }
+}
+
 pub fn normalize_absolute(path: &Path) -> PathBuf {
+    normalize_absolute_from(path, Path::new("/"))
+}
+
+pub fn canonicalize_or_normalize_absolute(path: &Path) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    canonicalize_or_normalize_absolute_with_base(path, &cwd)
+}
+
+fn canonicalize_or_normalize_absolute_with_base(path: &Path, base: &Path) -> Option<PathBuf> {
+    if let Ok(canonical) = path.canonicalize() {
+        return Some(canonical);
+    }
+
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+    Some(normalize_absolute_host_path(&absolute))
+}
+
+pub fn normalize_absolute_host_path(path: &Path) -> PathBuf {
     normalize_absolute_from(path, Path::new("/"))
 }
 
@@ -134,6 +252,61 @@ fn push_normalized_components<'a>(
                 parts.pop();
             }
             Component::Normal(part) => parts.push(part.to_os_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn process_env_lock() -> &'static std::sync::Mutex<()> {
+    use std::sync::{Mutex, OnceLock};
+
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+#[cfg(test)]
+pub(crate) struct ProcessEnvGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    original_cwd: PathBuf,
+    original_home: Option<OsString>,
+}
+
+#[cfg(test)]
+impl ProcessEnvGuard {
+    pub(crate) fn new(current_dir: &Path, home_dir: Option<&Path>) -> Self {
+        let lock = process_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let original_cwd = std::env::current_dir().expect("current dir available");
+        let original_home = std::env::var_os("HOME");
+        std::env::set_current_dir(current_dir).expect("set current dir");
+        match home_dir {
+            Some(path) => unsafe {
+                std::env::set_var("HOME", path);
+            },
+            None => unsafe {
+                std::env::remove_var("HOME");
+            },
+        }
+        Self {
+            _lock: lock,
+            original_cwd,
+            original_home,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ProcessEnvGuard {
+    fn drop(&mut self) {
+        std::env::set_current_dir(&self.original_cwd).expect("restore current dir");
+        match &self.original_home {
+            Some(path) => unsafe {
+                std::env::set_var("HOME", path);
+            },
+            None => unsafe {
+                std::env::remove_var("HOME");
+            },
         }
     }
 }
@@ -270,6 +443,86 @@ mod tests {
             .resolve_host_path(&source, true)
             .unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn normalizes_relative_and_tilde_rule_paths_inside_source_root() {
+        let root = test_dir("rule-normalization-inside");
+        let source = root.join("source");
+        let cwd = source.join("workspace/app");
+        let home = source.join("home/tester");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(home.join("config")).unwrap();
+        let ctx = RuleNormalizationContext::new(&source, &cwd, Some(home.clone())).unwrap();
+
+        assert_eq!(
+            normalize_rule_path("../secrets", &ctx).unwrap().as_path(),
+            Path::new("/workspace/secrets")
+        );
+        assert_eq!(
+            normalize_rule_path("~/config", &ctx).unwrap().as_path(),
+            Path::new("/home/tester/config")
+        );
+        assert_eq!(
+            normalize_rule_path("~", &ctx).unwrap().as_path(),
+            Path::new("/home/tester")
+        );
+        assert_eq!(
+            normalize_rule_path("/already/virtual", &ctx)
+                .unwrap()
+                .as_path(),
+            Path::new("/already/virtual")
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_rule_paths_outside_source_root_or_without_home() {
+        let root = test_dir("rule-normalization-reject");
+        let source = root.join("source");
+        let cwd = source.join("workspace");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let outside_home = root.join("outside-home");
+        std::fs::create_dir_all(&outside_home).unwrap();
+        let ctx = RuleNormalizationContext::new(&source, &cwd, Some(outside_home)).unwrap();
+
+        let err = normalize_rule_path("../../outside", &ctx).unwrap_err();
+        assert!(err.contains("outside source_root"));
+        let err = normalize_rule_path("~/.ssh", &ctx).unwrap_err();
+        assert!(err.contains("outside source_root"));
+        let err = normalize_rule_path("~user/.ssh", &ctx).unwrap_err();
+        assert!(err.contains("unsupported home expansion"));
+
+        let no_home = RuleNormalizationContext::new(&source, &cwd, None).unwrap();
+        let err = normalize_rule_path("~/.ssh", &no_home).unwrap_err();
+        assert!(err.contains("HOME is not set"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn loads_environment_based_rule_context() {
+        let root = test_dir("rule-normalization-env");
+        let source = root.join("source");
+        let cwd = source.join("docs/guides");
+        let home = source.join("home/tester");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        {
+            let _env = ProcessEnvGuard::new(&cwd, Some(&home));
+            let ctx = RuleNormalizationContext::from_environment(&source).unwrap();
+            assert_eq!(
+                normalize_rule_path("../secrets", &ctx).unwrap().as_path(),
+                Path::new("/docs/secrets")
+            );
+            assert_eq!(
+                normalize_rule_path("~/token", &ctx).unwrap().as_path(),
+                Path::new("/home/tester/token")
+            );
+        }
 
         std::fs::remove_dir_all(root).unwrap();
     }

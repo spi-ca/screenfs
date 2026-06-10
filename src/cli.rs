@@ -169,7 +169,8 @@ mod tests {
         let err = CliArgs::parse_from(["holefs", "/", "/mnt", "--readonly-rule"]).unwrap_err();
         assert!(err.contains("missing value for --readonly-rule"));
 
-        let err = CliArgs::parse_from(["holefs", "/", "/mnt", "--readonly-rule", "--hide"]).unwrap_err();
+        let err =
+            CliArgs::parse_from(["holefs", "/", "/mnt", "--readonly-rule", "--hide"]).unwrap_err();
         assert!(err.contains("missing value for --readonly-rule"));
     }
 

@@ -29,7 +29,7 @@ fn main() -> std::io::Result<()> {
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
 
     eprintln!(
-        "mounting holefs: source={} mount={} readonly={} hide-policy=compiled io_uring=required",
+        "mounting holefs: source={} mount={} readonly={} readonly-rule-policy=compiled hide-policy=compiled io_uring=required",
         cfg.source_root.display(),
         cfg.mount_root.display(),
         cfg.readonly

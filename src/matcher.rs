@@ -1,6 +1,8 @@
 use std::path::{Component, Path, PathBuf};
 
-use crate::path::VirtualPath;
+use crate::path::{
+    RuleNormalizationContext, VirtualPath, canonicalize_or_normalize_absolute, normalize_rule_path,
+};
 
 #[derive(Debug, Clone)]
 pub struct HideMatcher {
@@ -11,15 +13,22 @@ pub struct HideMatcher {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CompiledGlob {
-    Basename(String),
-    Suffix(String),
+    Basename {
+        prefix: Option<VirtualPath>,
+        name: String,
+    },
+    Suffix {
+        prefix: Option<VirtualPath>,
+        suffix: String,
+    },
 }
 
 impl CompiledGlob {
-    fn compile(rule: &str) -> Result<Self, String> {
-        let Some(pattern) = rule.strip_prefix("**/") else {
-            return Err(format!("unsupported glob: {rule}"));
-        };
+    fn compile(rule: &str, context: &RuleNormalizationContext) -> Result<Self, String> {
+        let (prefix, pattern) = split_supported_glob(rule)?;
+        let prefix = prefix
+            .map(|raw| normalize_rule_path(raw, context))
+            .transpose()?;
         if pattern.is_empty() || pattern.contains('/') || pattern.contains('?') {
             return Err(format!("unsupported glob: {rule}"));
         }
@@ -27,21 +36,37 @@ impl CompiledGlob {
             if extension.is_empty() || extension.contains('*') {
                 return Err(format!("unsupported glob: {rule}"));
             }
-            return Ok(Self::Suffix(format!(".{extension}")));
+            return Ok(Self::Suffix {
+                prefix,
+                suffix: format!(".{extension}"),
+            });
         }
         if pattern.contains('*') {
             return Err(format!("unsupported glob: {rule}"));
         }
-        Ok(Self::Basename(pattern.to_string()))
+        Ok(Self::Basename {
+            prefix,
+            name: pattern.to_string(),
+        })
     }
 
-    fn matches_path_or_ancestor(&self, path: &Path) -> bool {
-        path.components().any(|component| match component {
+    fn matches_path_or_ancestor(&self, path: &VirtualPath) -> bool {
+        let candidate = match self {
+            Self::Basename { prefix, .. } | Self::Suffix { prefix, .. } => match prefix.as_ref() {
+                Some(prefix) => match path.as_path().strip_prefix(prefix.as_path()) {
+                    Ok(relative) => relative,
+                    Err(_) => return false,
+                },
+                None => path.as_path(),
+            },
+        };
+
+        candidate.components().any(|component| match component {
             Component::Normal(part) => {
                 let part = part.to_string_lossy();
                 match self {
-                    Self::Basename(name) => part == name.as_str(),
-                    Self::Suffix(suffix) => part.ends_with(suffix),
+                    Self::Basename { name, .. } => part == name.as_str(),
+                    Self::Suffix { suffix, .. } => part.ends_with(suffix),
                 }
             }
             _ => false,
@@ -50,7 +75,11 @@ impl CompiledGlob {
 }
 
 impl HideMatcher {
-    pub fn new<I, P>(rules: I, internal_prefixes: Vec<VirtualPath>) -> Result<Self, String>
+    pub fn new<I, P>(
+        rules: I,
+        internal_prefixes: Vec<VirtualPath>,
+        context: &RuleNormalizationContext,
+    ) -> Result<Self, String>
     where
         I: IntoIterator<Item = P>,
         P: AsRef<str>,
@@ -62,12 +91,9 @@ impl HideMatcher {
         for rule in rules {
             let rule = rule.as_ref();
             if looks_like_glob(rule) {
-                glob_rules.push(CompiledGlob::compile(rule)?);
+                glob_rules.push(CompiledGlob::compile(rule, context)?);
             } else {
-                if !rule.starts_with('/') {
-                    return Err(format!("exact rules must be absolute: {rule}"));
-                }
-                let path = VirtualPath::new(rule);
+                let path = normalize_rule_path(rule, context)?;
                 exact.push(path.clone());
                 prefixes.push(path);
             }
@@ -81,7 +107,11 @@ impl HideMatcher {
     }
 
     pub fn empty() -> Self {
-        Self::new(std::iter::empty::<&str>(), Vec::new()).expect("empty matcher is valid")
+        Self {
+            exact: Vec::new(),
+            prefixes: Vec::new(),
+            glob_rules: Vec::new(),
+        }
     }
 
     pub fn is_match(&self, path: &VirtualPath) -> bool {
@@ -90,7 +120,7 @@ impl HideMatcher {
             || self
                 .glob_rules
                 .iter()
-                .any(|rule| rule.matches_path_or_ancestor(path.as_path()))
+                .any(|rule| rule.matches_path_or_ancestor(path))
     }
 
     pub fn matches_symlink_target(
@@ -132,36 +162,19 @@ fn looks_like_glob(rule: &str) -> bool {
     rule.contains('*') || rule.contains('?')
 }
 
-fn canonicalize_or_normalize_absolute(path: &Path) -> Option<PathBuf> {
-    if let Ok(canonical) = path.canonicalize() {
-        return Some(canonical);
+fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str), String> {
+    if let Some(pattern) = rule.strip_prefix("**/") {
+        return Ok((None, pattern));
     }
-
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir().ok()?.join(path)
-    };
-    Some(normalize_absolute_host_path(&absolute))
-}
-
-fn normalize_absolute_host_path(path: &Path) -> PathBuf {
-    let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::RootDir | Component::Prefix(_) | Component::CurDir => {}
-            Component::ParentDir => {
-                parts.pop();
-            }
-            Component::Normal(part) => parts.push(part.to_os_string()),
+    if let Some(index) = rule.find("/**/") {
+        let prefix = &rule[..index];
+        if prefix.is_empty() || prefix.contains('*') || prefix.contains('?') {
+            return Err(format!("unsupported glob: {rule}"));
         }
+        let pattern = &rule[index + 4..];
+        return Ok((Some(prefix), pattern));
     }
-
-    let mut out = PathBuf::from("/");
-    for part in parts {
-        out.push(part);
-    }
-    out
+    Err(format!("unsupported glob: {rule}"))
 }
 
 #[cfg(test)]
@@ -172,6 +185,10 @@ mod tests {
 
     #[test]
     fn matches_exact_rules_directory_prefixes_and_simple_globs() {
+        let root = test_dir();
+        let source = root.join("source");
+        fs::create_dir_all(source.join("cwd")).unwrap();
+        let context = test_context(&source, &source.join("cwd"), Some(source.join("home")));
         let matcher = HideMatcher::new(
             [
                 "/secret",
@@ -181,6 +198,7 @@ mod tests {
                 "**/*.key",
             ],
             Vec::new(),
+            &context,
         )
         .unwrap();
 
@@ -198,13 +216,57 @@ mod tests {
         assert!(matcher.is_hidden(&VirtualPath::new("/keys/id.key")));
         assert!(matcher.is_hidden(&VirtualPath::new("/keys/id.key/public")));
         assert!(!matcher.is_hidden(&VirtualPath::new("/public/a.txt")));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn rejects_relative_exact_rules_and_unsupported_globs() {
-        assert!(HideMatcher::new(["secret"], Vec::new()).is_err());
-        assert!(HideMatcher::new(["**/secret?.pem"], Vec::new()).is_err());
-        assert!(HideMatcher::new(["*.pem"], Vec::new()).is_err());
+    fn normalizes_relative_exact_and_prefixed_glob_rules() {
+        let root = test_dir();
+        let source = root.join("source");
+        let cwd = source.join("workspace/app");
+        let home = source.join("home/tester");
+        fs::create_dir_all(&cwd).unwrap();
+        fs::create_dir_all(home.join("certs")).unwrap();
+        let context = test_context(&source, &cwd, Some(home));
+        let matcher = HideMatcher::new(
+            [
+                "../secrets",
+                "./fixtures/**/*.pem",
+                "~/certs/**/*.lock",
+                "/system/**/*.pem",
+            ],
+            Vec::new(),
+            &context,
+        )
+        .unwrap();
+
+        assert!(matcher.is_hidden(&VirtualPath::new("/workspace/secrets")));
+        assert!(matcher.is_hidden(&VirtualPath::new("/workspace/app/fixtures/key.pem")));
+        assert!(matcher.is_hidden(&VirtualPath::new(
+            "/workspace/app/fixtures/nested/key.pem/chain"
+        )));
+        assert!(matcher.is_hidden(&VirtualPath::new("/home/tester/certs/app.lock")));
+        assert!(matcher.is_hidden(&VirtualPath::new("/system/keys/root.pem")));
+        assert!(!matcher.is_hidden(&VirtualPath::new("/other/key.pem")));
+        assert!(!matcher.is_hidden(&VirtualPath::new("/system/keys/root.key")));
+        assert!(!matcher.is_hidden(&VirtualPath::new("/workspace/app/fixtures/key.key")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_unsupported_globs_and_paths_outside_source_root() {
+        let root = test_dir();
+        let source = root.join("source");
+        let cwd = source.join("workspace");
+        fs::create_dir_all(&cwd).unwrap();
+        let context = test_context(&source, &cwd, None);
+
+        assert!(HideMatcher::new(["../../secret"], Vec::new(), &context).is_err());
+        assert!(HideMatcher::new(["**/secret?.pem"], Vec::new(), &context).is_err());
+        assert!(HideMatcher::new(["*.pem"], Vec::new(), &context).is_err());
+        assert!(HideMatcher::new(["foo/*/bar.pem"], Vec::new(), &context).is_err());
+        assert!(HideMatcher::new(["~user/.ssh"], Vec::new(), &context).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -214,7 +276,8 @@ mod tests {
         let mount = source.join("mnt");
         fs::create_dir(&mount).unwrap();
         let prefix = mount_root_internal_prefix(source, &mount).unwrap();
-        let matcher = HideMatcher::new(std::iter::empty::<&str>(), vec![prefix]).unwrap();
+        let context = test_context(source, source, None);
+        let matcher = HideMatcher::new(std::iter::empty::<&str>(), vec![prefix], &context).unwrap();
         assert!(matcher.is_hidden(&VirtualPath::new("/mnt")));
         assert!(matcher.is_hidden(&VirtualPath::new("/mnt/child")));
         assert!(!matcher.is_hidden(&VirtualPath::new("/other")));
@@ -233,15 +296,31 @@ mod tests {
 
     #[test]
     fn matches_symlink_target_without_caching_target_decision() {
-        let matcher = HideMatcher::new(["/hidden", "**/*.pem"], Vec::new()).unwrap();
+        let root = test_dir();
+        let source = root.join("source");
+        let cwd = source.join("cwd");
+        fs::create_dir_all(&cwd).unwrap();
+        let context = test_context(&source, &cwd, None);
+        let matcher = HideMatcher::new(["/hidden", "**/*.pem"], Vec::new(), &context).unwrap();
         let exact_link = VirtualPath::new("/visible/link");
         let glob_link = VirtualPath::new("/visible/nested/link");
 
         assert!(matcher.matches_symlink_target(&exact_link, std::ffi::OsStr::new("../hidden")));
-        assert!(matcher.matches_symlink_target(
-            &glob_link,
-            std::ffi::OsStr::new("../../secret.pem/private")
-        ));
+        assert!(
+            matcher.matches_symlink_target(
+                &glob_link,
+                std::ffi::OsStr::new("../../secret.pem/private")
+            )
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn test_context(
+        source_root: &Path,
+        current_dir: &Path,
+        home_dir: Option<PathBuf>,
+    ) -> RuleNormalizationContext {
+        RuleNormalizationContext::new(source_root, current_dir, home_dir).unwrap()
     }
 
     fn test_dir() -> PathBuf {

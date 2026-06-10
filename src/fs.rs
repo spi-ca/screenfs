@@ -336,8 +336,20 @@ impl HoleFs {
     }
 
     fn guard_multi_path_mutation(&self, paths: &[(&VirtualPath, bool)]) -> Result<(), i32> {
+        for (path, _) in paths {
+            self.guard_hidden_path(path)?;
+        }
         for (path, follow_final_symlink) in paths {
-            self.guard_mutation_path(path, *follow_final_symlink)?;
+            let resolved = self.resolved_virtual_path(path, *follow_final_symlink)?;
+            if self.hidden(&resolved) {
+                return Err(ENOENT);
+            }
+        }
+        for (path, follow_final_symlink) in paths {
+            let resolved = self.resolved_virtual_path(path, *follow_final_symlink)?;
+            if self.readonly(path) || self.readonly(&resolved) {
+                return Err(libc::EROFS);
+            }
         }
         Ok(())
     }
@@ -386,7 +398,11 @@ impl HoleFs {
         })
     }
 
-    fn check_hidden_symlink_target(&self, path: &VirtualPath, raw_target: &OsStr) -> Result<(), i32> {
+    fn check_hidden_symlink_target(
+        &self,
+        path: &VirtualPath,
+        raw_target: &OsStr,
+    ) -> Result<(), i32> {
         if self.cfg.is_hidden_symlink_target(path, raw_target) {
             Err(ENOENT)
         } else {
@@ -758,12 +774,10 @@ impl Filesystem for HoleFs {
         link: &OsStr,
     ) -> FsResult<ReplyEntry> {
         let path = self.child_path(parent, name)?;
-        if self.hidden(&path) || self.cfg.matcher.is_hidden_symlink_target(&path, link) {
+        if self.cfg.matcher.is_hidden_symlink_target(&path, link) {
             return Err(ENOENT);
         }
-        if self.cfg.readonly {
-            return Err(libc::EROFS);
-        }
+        self.guard_mutation_path(&path, false)?;
         std::os::unix::fs::symlink(link, self.host_path(&path, false)?).map_err(errno_from_io)?;
         self.invalidate_after_mutation(
             &[Self::parent_path(&path)],
@@ -1365,7 +1379,12 @@ mod tests {
     use std::task::{Context, Poll, Wake, Waker};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn fs_for(source: &Path, hide_rules: Vec<String>, readonly: bool) -> HoleFs {
+    fn fs_for(
+        source: &Path,
+        hide_rules: Vec<String>,
+        readonly: bool,
+        readonly_rules: Vec<String>,
+    ) -> HoleFs {
         let mount = source.join("mount");
         std::fs::create_dir_all(&mount).unwrap();
         let cfg = RuntimeConfig::from_cli(CliArgs {
@@ -1373,6 +1392,7 @@ mod tests {
             mount_root: mount,
             readonly,
             hide_rules,
+            readonly_rules,
         })
         .unwrap();
         HoleFs::new(cfg)
@@ -1389,6 +1409,7 @@ mod tests {
             &dir,
             vec!["**/*.pem".to_string(), "/private".to_string()],
             true,
+            Vec::new(),
         );
 
         let hidden = VirtualPath::new("/hidden.pem");
@@ -1434,7 +1455,7 @@ mod tests {
         let dir = test_dir("visible-read-list");
         std::fs::create_dir_all(dir.join("a/b")).unwrap();
         std::fs::write(dir.join("a/b/hello.txt"), b"hello world").unwrap();
-        let fs = fs_for(&dir, Vec::new(), true);
+        let fs = fs_for(&dir, Vec::new(), true, Vec::new());
 
         let file_inode = fs
             .reply_entry_for_path(VirtualPath::new("/a/b/hello.txt"))
@@ -1488,7 +1509,7 @@ mod tests {
         std::fs::create_dir(dir.join("listing")).unwrap();
         std::fs::write(dir.join("listing/alpha"), b"a").unwrap();
         std::fs::write(dir.join("listing/gamma"), b"g").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false);
+        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
         let listing = fs
             .reply_entry_for_path(VirtualPath::new("/listing"))
             .unwrap()
@@ -1531,7 +1552,7 @@ mod tests {
         let dir = test_dir("releasedir-cleanup");
         std::fs::create_dir(dir.join("listing")).unwrap();
         std::fs::write(dir.join("listing/file"), b"ok").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false);
+        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
         let listing = fs
             .reply_entry_for_path(VirtualPath::new("/listing"))
             .unwrap()
@@ -1569,7 +1590,7 @@ mod tests {
         std::fs::write(dir.join("visible"), b"ok").unwrap();
         std::fs::create_dir(dir.join("docs")).unwrap();
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
 
         let visible = fs
             .reply_entry_for_path(VirtualPath::new("/visible"))
@@ -1596,7 +1617,7 @@ mod tests {
         let dir = test_dir("symlink-hidden-readonly-mutation");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
         let inode = fs
             .state
             .lock()
@@ -1619,7 +1640,7 @@ mod tests {
         let dir = test_dir("symlink-hidden");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
 
         let lookup_err = fs
             .reply_entry_for_path(VirtualPath::new("/link"))
@@ -1647,7 +1668,7 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
         std::os::unix::fs::symlink("../outside/secret.txt", source.join("escape")).unwrap();
-        let fs = fs_for(&source, Vec::new(), true);
+        let fs = fs_for(&source, Vec::new(), true, Vec::new());
 
         let inode = fs
             .reply_entry_for_path(VirtualPath::new("/escape"))
@@ -1676,7 +1697,7 @@ mod tests {
         std::fs::create_dir_all(&source).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
         std::os::unix::fs::symlink("../outside", source.join("escape-dir")).unwrap();
-        let fs = fs_for(&source, Vec::new(), false);
+        let fs = fs_for(&source, Vec::new(), false, Vec::new());
 
         let inode = fs
             .reply_entry_for_path(VirtualPath::new("/escape-dir"))
@@ -1712,7 +1733,7 @@ mod tests {
         let dir = test_dir("access");
         let file = dir.join("file");
         std::fs::write(&file, b"data").unwrap();
-        let fs = fs_for(&dir, Vec::new(), true);
+        let fs = fs_for(&dir, Vec::new(), true, Vec::new());
         let inode = fs
             .reply_entry_for_path(VirtualPath::new("/file"))
             .unwrap()
@@ -1734,7 +1755,7 @@ mod tests {
     fn hidden_access_returns_enoent_for_read_and_write_masks() {
         let dir = test_dir("hidden-access");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
         let hidden = fs
             .state
             .lock()
@@ -1755,7 +1776,7 @@ mod tests {
     #[test]
     fn readonly_create_returns_erofs_instead_of_enosys() {
         let dir = test_dir("readonly-create");
-        let fs = fs_for(&dir, Vec::new(), true);
+        let fs = fs_for(&dir, Vec::new(), true, Vec::new());
         let err = block_on(fs.create(
             dummy_req(),
             FUSE_ROOT_ID,
@@ -1774,7 +1795,7 @@ mod tests {
         std::fs::write(dir.join("visible"), b"ok").unwrap();
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::fs::create_dir(dir.join("nested")).unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
         let visible = fs
             .reply_entry_for_path(VirtualPath::new("/visible"))
             .unwrap()
@@ -1808,7 +1829,7 @@ mod tests {
         let dir = test_dir("open-host-flags");
         let file = dir.join("file");
         std::fs::write(&file, b"abc").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false);
+        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
         let inode = fs
             .reply_entry_for_path(VirtualPath::new("/file"))
             .unwrap()
@@ -1842,7 +1863,7 @@ mod tests {
     fn create_honors_host_exclusive_and_readonly_flags() {
         let dir = test_dir("create-host-flags");
         std::fs::write(dir.join("existing"), b"abc").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false);
+        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
 
         let err = block_on(fs.create(
             dummy_req(),
@@ -1883,7 +1904,7 @@ mod tests {
     #[test]
     fn hidden_create_returns_enoent_before_readonly() {
         let dir = test_dir("hidden-create");
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
 
         let err = block_on(fs.create(
             dummy_req(),
@@ -1898,10 +1919,213 @@ mod tests {
     }
 
     #[test]
+    fn selective_readonly_rules_are_scoped_to_matching_paths() {
+        let dir = test_dir("selective-readonly-scoped");
+        std::fs::create_dir(dir.join("locked")).unwrap();
+        std::fs::create_dir_all(dir.join("free/nested")).unwrap();
+        std::fs::write(dir.join("locked/file.txt"), b"locked").unwrap();
+        std::fs::write(dir.join("free/file.txt"), b"free").unwrap();
+        std::fs::write(dir.join("free/state.lock"), b"state").unwrap();
+        std::fs::write(dir.join("free/nested/app.lock"), b"nested").unwrap();
+        let fs = fs_for(
+            &dir,
+            Vec::new(),
+            false,
+            vec!["/locked".to_string(), "**/*.lock".to_string()],
+        );
+
+        let locked = fs
+            .reply_entry_for_path(VirtualPath::new("/locked/file.txt"))
+            .unwrap()
+            .attr
+            .ino;
+        let free = fs
+            .reply_entry_for_path(VirtualPath::new("/free/file.txt"))
+            .unwrap()
+            .attr
+            .ino;
+        let top_level_lock = fs
+            .reply_entry_for_path(VirtualPath::new("/free/state.lock"))
+            .unwrap()
+            .attr
+            .ino;
+        let nested_lock = fs
+            .reply_entry_for_path(VirtualPath::new("/free/nested/app.lock"))
+            .unwrap()
+            .attr
+            .ino;
+
+        assert_eq!(
+            block_on(fs.open(dummy_req(), locked, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS
+        );
+        assert_eq!(
+            block_on(fs.open(dummy_req(), top_level_lock, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS
+        );
+        assert_eq!(
+            block_on(fs.access(dummy_req(), nested_lock, libc::W_OK as u32)).unwrap_err(),
+            libc::EROFS
+        );
+
+        let free_handle =
+            block_on(fs.open(dummy_req(), free, (libc::O_WRONLY | libc::O_APPEND) as u32)).unwrap();
+        assert_eq!(
+            block_on(fs.write(dummy_req(), free, free_handle.fh, 0, b"!", 0, 0)).unwrap(),
+            1
+        );
+        block_on(fs.release(dummy_req(), free, free_handle.fh, 0, 0, false, false)).unwrap();
+
+        let err = block_on(
+            fs.create(
+                dummy_req(),
+                fs.reply_entry_for_path(VirtualPath::new("/locked"))
+                    .unwrap()
+                    .attr
+                    .ino,
+                OsStr::new("new.txt"),
+                0o644,
+                libc::O_CREAT as u32,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(err, libc::EROFS);
+
+        let err = block_on(
+            fs.create(
+                dummy_req(),
+                fs.reply_entry_for_path(VirtualPath::new("/free"))
+                    .unwrap()
+                    .attr
+                    .ino,
+                OsStr::new("new.lock"),
+                0o644,
+                libc::O_CREAT as u32,
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(err, libc::EROFS);
+        assert!(!dir.join("free/new.lock").exists());
+
+        let created = block_on(
+            fs.create(
+                dummy_req(),
+                fs.reply_entry_for_path(VirtualPath::new("/free"))
+                    .unwrap()
+                    .attr
+                    .ino,
+                OsStr::new("new.txt"),
+                0o644,
+                libc::O_CREAT as u32,
+            ),
+        )
+        .unwrap();
+        block_on(fs.release(
+            dummy_req(),
+            created.attr.ino,
+            created.fh,
+            0,
+            0,
+            false,
+            false,
+        ))
+        .unwrap();
+        assert!(dir.join("free/new.txt").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn selective_readonly_symlink_returns_erofs_and_hidden_precedence_remains_enoent() {
+        let dir = test_dir("selective-readonly-symlink");
+        std::fs::write(dir.join("locked.lock"), b"locked").unwrap();
+        std::fs::write(dir.join("hidden.lock"), b"hidden").unwrap();
+        std::fs::write(dir.join("free.txt"), b"free").unwrap();
+        std::os::unix::fs::symlink("locked.lock", dir.join("locked-link")).unwrap();
+        std::os::unix::fs::symlink("hidden.lock", dir.join("hidden-link")).unwrap();
+        let fs = fs_for(
+            &dir,
+            vec![
+                "/hidden.lock".to_string(),
+                "/hidden-link-create".to_string(),
+            ],
+            false,
+            vec!["**/*.lock".to_string(), "/locked-link-create".to_string()],
+        );
+
+        let locked = fs
+            .reply_entry_for_path(VirtualPath::new("/locked-link"))
+            .unwrap()
+            .attr
+            .ino;
+        let hidden = fs
+            .state
+            .lock()
+            .expect("state mutex poisoned")
+            .inode_for_path(VirtualPath::new("/hidden-link"));
+
+        assert_eq!(
+            block_on(fs.open(dummy_req(), locked, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS
+        );
+        assert_eq!(
+            block_on(fs.access(dummy_req(), locked, libc::W_OK as u32)).unwrap_err(),
+            libc::EROFS
+        );
+        assert_eq!(
+            block_on(fs.open(dummy_req(), hidden, libc::O_WRONLY as u32)).unwrap_err(),
+            ENOENT
+        );
+        assert_eq!(
+            block_on(fs.access(dummy_req(), hidden, libc::W_OK as u32)).unwrap_err(),
+            ENOENT
+        );
+
+        assert_eq!(
+            block_on(fs.symlink(
+                dummy_req(),
+                FUSE_ROOT_ID,
+                OsStr::new("locked-link-create"),
+                OsStr::new("free.txt"),
+            ))
+            .unwrap_err(),
+            libc::EROFS
+        );
+        assert_eq!(
+            block_on(fs.symlink(
+                dummy_req(),
+                FUSE_ROOT_ID,
+                OsStr::new("hidden-link-create"),
+                OsStr::new("free.txt"),
+            ))
+            .unwrap_err(),
+            ENOENT
+        );
+
+        block_on(fs.symlink(
+            dummy_req(),
+            FUSE_ROOT_ID,
+            OsStr::new("free-link-create"),
+            OsStr::new("free.txt"),
+        ))
+        .unwrap();
+        assert_eq!(
+            std::fs::read_link(dir.join("free-link-create")).unwrap(),
+            std::path::PathBuf::from("free.txt")
+        );
+        assert!(
+            std::fs::symlink_metadata(dir.join("free-link-create"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn hidden_xattr_queries_return_enoent() {
         let dir = test_dir("hidden-xattr");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
         let hidden = fs
             .state
             .lock()
@@ -1924,7 +2148,7 @@ mod tests {
         let dir = test_dir("readonly-mutators");
         std::fs::write(dir.join("a"), b"aaaa").unwrap();
         std::fs::write(dir.join("b"), b"bbbb").unwrap();
-        let fs = fs_for(&dir, Vec::new(), true);
+        let fs = fs_for(&dir, Vec::new(), true, Vec::new());
         let a = fs
             .reply_entry_for_path(VirtualPath::new("/a"))
             .unwrap()
@@ -1984,7 +2208,7 @@ mod tests {
         let dir = test_dir("copy-visible");
         std::fs::write(dir.join("a"), b"abcdef").unwrap();
         std::fs::write(dir.join("b"), b"------").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false);
+        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
         let a = fs
             .reply_entry_for_path(VirtualPath::new("/a"))
             .unwrap()
@@ -2018,7 +2242,7 @@ mod tests {
         let dir = test_dir("copy-hidden");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::fs::write(dir.join("visible"), b"------").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
         let hidden = fs
             .state
             .lock()
@@ -2084,7 +2308,7 @@ mod tests {
         let dir = test_dir("hidden-mutators");
         std::fs::write(dir.join("hidden"), b"secret").unwrap();
         std::fs::write(dir.join("visible"), b"ok").unwrap();
-        let fs = fs_for(&dir, vec!["/hidden".to_string()], true);
+        let fs = fs_for(&dir, vec!["/hidden".to_string()], true, Vec::new());
         let hidden = fs
             .state
             .lock()
@@ -2141,7 +2365,7 @@ mod tests {
     fn forget_evicts_non_root_mapping_after_lookup_refs_drop_and_handles_close() {
         let dir = test_dir("forget-eviction");
         std::fs::write(dir.join("file"), b"data").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false);
+        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
 
         let entry = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("file"))).unwrap();
         let inode = entry.attr.ino;
@@ -2185,7 +2409,7 @@ mod tests {
         std::fs::write(dir.join("node"), b"old").unwrap();
         std::os::unix::fs::symlink("source", dir.join("sym")).unwrap();
         std::fs::write(dir.join("target"), b"old").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false);
+        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
 
         let stale_old = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("stale")))
             .unwrap()
@@ -2287,7 +2511,7 @@ mod tests {
         let dir = test_dir("rename-invalidation");
         std::fs::create_dir(dir.join("rename-src")).unwrap();
         std::fs::write(dir.join("rename-src/child"), b"old").unwrap();
-        let fs = fs_for(&dir, Vec::new(), false);
+        let fs = fs_for(&dir, Vec::new(), false, Vec::new());
 
         let src_dir = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("rename-src")))
             .unwrap()
