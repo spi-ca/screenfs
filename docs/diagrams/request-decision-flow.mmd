@@ -1,0 +1,17 @@
+flowchart LR
+    req["Existing-entry request\nlookup/getattr/open/opendir/access/readlink"] --> classify["single-path read/stat/list\nor write-intent on existing entry"]
+    classify --> map["Map inode + name\nto VirtualPath"]
+    map --> hidden{"Hidden by internal rule\nor user matcher?"}
+    hidden -- yes --> hiddenResult["ENOENT\nor filtered listing"]
+    hidden -- no --> symlink{"Visible symlink target\nresolves hidden?"}
+    symlink -- yes --> hiddenTarget["ENOENT"]
+    symlink -- no --> op{"Write intent / mutation?"}
+    op -- yes --> readonly{"Readonly rule matched\nfor path/op?"}
+    readonly -- yes --> roResult["EROFS"]
+    readonly -- no --> delegate["Delegate to host FS\nwithin source_root confinement"]
+    op -- no --> delegate
+    delegate --> reply["Build FUSE reply"]
+
+    impl["Current implementation note\n--readonly => all visible mutation"] -.-> readonly
+    pathOnly["Path-only mutation note\ncreate/mkdir/mknod/unlink/rmdir\nprimarily use path hidden/readonly-rule guard"] -.-> op
+    multi["Multi-path mutation note\nrename/link/symlink/copy-like ops\nre-check source/target/parent each"] -.-> op

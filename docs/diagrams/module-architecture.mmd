@@ -1,0 +1,13 @@
+flowchart TD
+    main["src/main.rs\nCLI entry + Session::run"] --> cli["src/cli.rs\nparse <source-root> <mount-root>\n--hide / --readonly(global current impl)"]
+    main --> config["src/config.rs\nRuntimeConfig builder\ncurrent global readonly flag"]
+    config --> matcher["src/matcher.rs\nHideMatcher\nexact / prefix / glob\ninternal mount-root prefix"]
+    main --> fs["src/fs.rs\nHoleFs + Filesystem impl"]
+    fs --> path["src/path.rs\nVirtualPath\nlexical normalize\nsymlink target resolve"]
+    fs --> matcher
+    fs --> errors["src/errors.rs\nENOENT / EROFS guard classification"]
+    fs --> state["fs.rs internal state\ninode map + file handles"]
+    fs --> host["fs.rs host access helpers\nconfined backing access\nunder source_root"]
+    target["target policy contract\nselective readonly rules\nnot yet wired in current CLI/config"] -.-> config
+
+    host --> source["source_root backing tree\nexample: real /"]

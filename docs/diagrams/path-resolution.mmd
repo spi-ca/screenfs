@@ -1,0 +1,11 @@
+flowchart LR
+    parent["Parent virtual path\nor root inode"] --> child["Join child name"]
+    child --> lexical["VirtualPath\nremove . and duplicate /\nclamp .. at /"]
+    lexical --> link{"Visible symlink entry\nbeing accessed directly?"}
+    link -- no --> relative["to_source_relative_path()"]
+    link -- yes --> target["resolve_symlink_target()\nlexically from parent"]
+    target --> targetCheck{"Target hidden?"}
+    targetCheck -- yes --> enoent["ENOENT"]
+    targetCheck -- no --> relative
+    relative --> confined["resolve_host_path() / open_confined()\nnever escape source_root"]
+    confined --> host["Host path access"]
