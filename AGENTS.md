@@ -4,7 +4,7 @@
 
 ## 프로젝트 목적
 
-`ScreenFS`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 전체 `/`를 pass-through 하면서 민감 경로는 존재하지 않는 것처럼 숨기고, visible path에는 family-aware readonly/carve-out policy를 적용한다. `pi-bash-sandbox`는 대표 통합 예시지만 프로젝트 목적을 그 용도 하나로 한정하지 않는다.
+`ScreenFS`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 전체 `/`를 pass-through 하면서 visibility axis로 민감 경로를 존재하지 않는 것처럼 숨기고, visible path에는 mutability axis로 readonly/writable policy를 적용한다. `pi-bash-sandbox`는 대표 통합 예시지만 프로젝트 목적을 그 용도 하나로 한정하지 않는다.
 
 ## 필수 가드레일
 
@@ -15,7 +15,7 @@
 - chroot 사용을 전제로 하므로 프로젝트 디렉터리 전용 view가 아니라 전체 `/` view 요구사항을 유지한다.
 - `fractal-fuse = 0.4.0`, FUSE3, `FUSE_OVER_IO_URING` 목표를 임의로 바꾸지 않는다.
 - hidden path는 가능한 한 `ENOENT`로 처리하고 `Permission denied`로 존재를 노출하지 않는다.
-- `selective-readonly`와 `readonly-root-allowwrite` 두 family만 current contract로 취급하고, hidden `ENOENT` precedence와 one-family-per-mount 규칙을 유지한다.
+- current contract는 `visibility`/`mutability` 2축 모델만 취급하고, hidden `ENOENT` precedence와 axis별 most-specific rule wins 규칙을 유지한다.
 - 현재 CLI/config surface와 historical pre-removal evidence를 혼동하지 않는다. pre-removal transcript는 archival evidence로만 읽는다.
 - `docs/guidelines/**`는 명시적 요청 없이는 수정하지 않는다.
 - 사용자의 기존 변경사항을 덮어쓰지 말고 변경 전후 diff를 확인한다.
@@ -24,9 +24,11 @@
 
 - hidden entry는 `readdir`, `readdirplus` 결과에서 제외된다.
 - hidden path에 대한 `lookup`, `getattr`, `open`, `access`는 `ENOENT`다.
-- `selective-readonly`에서 readonly rule에 매치된 visible path의 read/stat/list는 허용하고 mutation은 `EROFS`다.
-- `readonly-root-allowwrite`에서는 allow-write carve-out이 없는 visible mutation이 `EROFS`다.
-- nested override를 포함한 어떤 family에서도 hidden `ENOENT`가 readonly/carve-out 판정보다 우선한다.
+- `visibility.hidden` path는 `readdir`/`readdirplus`에서 제외되고 직접 접근은 `ENOENT`다.
+- `visibility.visible` carve-out까지의 ancestor는 bridge-visible일 수 있으며 stat/traverse/list만 제한적으로 허용하고 mutation은 `EROFS`다.
+- `mutability.default=readonly`에서 `mutability.writable` carve-out이 없는 visible mutation은 `EROFS`다.
+- `mutability.default=writable`에서 `mutability.readonly` re-block에 매치된 visible mutation은 `EROFS`다.
+- nested override를 포함한 양 축 모두에서 hidden `ENOENT`가 mutability `EROFS`보다 우선한다.
 
 ## 추가 문서
 

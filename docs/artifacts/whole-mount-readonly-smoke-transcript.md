@@ -1,4 +1,6 @@
-# Whole-root whole-mount readonly smoke transcript
+# Whole-root legacy whole-mount-readonly smoke transcript
+
+Historical note: this transcript uses legacy family-era CLI/log vocabulary. Keep the command output as archival smoke evidence only; current whole-mount readonly semantics are represented by `mutability.default=readonly` with empty `mutability.writable` in the visibility/mutability two-axis model.
 
 - Captured: 2026-06-11T00:38:31+09:00
 - Working directory: /home/spi-ca/Codebase/screenfs

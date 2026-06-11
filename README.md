@@ -1,6 +1,6 @@
 # ScreenFS
 
-`ScreenFS`는 non-root FUSE 기반 whole-filesystem view layer다. 실제 `/`를 pass-through 하면서 민감 경로는 `ENOENT`처럼 숨기고, visible path에는 family-aware mutability policy를 적용한다. 대표 통합 예시는 `pi-bash-sandbox` 같은 sandbox/chroot consumer지만, 특정 supervisor 전용 컴포넌트로 제한하지 않는다.
+`ScreenFS`는 non-root FUSE 기반 whole-filesystem view layer다. 실제 `/`를 pass-through 하면서 민감 경로는 `ENOENT`처럼 숨기고, visible path에는 `visibility`/`mutability` 두 축 정책을 적용한다. 대표 통합 예시는 `pi-bash-sandbox` 같은 sandbox/chroot consumer지만, 특정 supervisor 전용 컴포넌트로 제한하지 않는다.
 
 ### 시스템 컨텍스트
 
@@ -14,6 +14,14 @@
 
 다이어그램 원본: [docs/diagrams/README.md](docs/diagrams/README.md)
 
+### 정책 축
+
+![ScreenFS visibility axis](docs/diagrams/visibility-axis.svg)
+
+![ScreenFS mutability axis](docs/diagrams/mutability-axis.svg)
+
+다이어그램 원본: [docs/diagrams/README.md](docs/diagrams/README.md)
+
 ## 목적
 
 ScreenFS의 기본 역할은 whole-root consumer가 읽을 수 있는 전체 `/` view를 만드는 것이다.
@@ -22,22 +30,24 @@ ScreenFS의 기본 역할은 whole-root consumer가 읽을 수 있는 전체 `/`
 real / -> screenfs mount root -> sandbox/chroot consumer
 ```
 
-핵심 요구와 구현/검증 문서는 분리해서 읽는다.
+핵심 요약은 이 README를 기준으로 읽고, linked 문서는 세부 구현/검증 이력을 제공하는 참고 자료로 읽는다.
 
-- 제품/의미론 계약: [`docs/requirements.md`](docs/requirements.md)
-- 설계와 current implementation snapshot: [`docs/design.md`](docs/design.md)
+- 세부 요구사항: [`docs/requirements.md`](docs/requirements.md)
+- 설계 계약: [`docs/design.md`](docs/design.md)
+- 아키텍처 요약: [`docs/architecture.md`](docs/architecture.md)
 - 운영/검증 evidence: [`docs/operations.md`](docs/operations.md)
-- nested override 배경: [`docs/nested-mutability-option-b.md`](docs/nested-mutability-option-b.md)
 
 ## CLI quick reference
 
 ```text
 screenfs <source-root> <mount-root> \
   [--config <path>] \
-  [--hide <pattern> ...] \
-  [--policy-family <selective-readonly|readonly-root-allowwrite>] \
-  [--readonly-rule <pattern> ...] \
-  [--allow-write <pattern> ...]
+  [--visibility-default <visible|hidden>] \
+  [--hidden <pattern> ...] \
+  [--visible <pattern> ...] \
+  [--mutability-default <writable|readonly>] \
+  [--readonly <pattern> ...] \
+  [--writable <pattern> ...]
 ```
 
 ### Arguments
@@ -47,58 +57,105 @@ screenfs <source-root> <mount-root> \
 
 ### Options
 
-- `--config <path>`: YAML config를 로드한다. CLI mutability option을 하나라도 주면 config의 `mutability` block 전체를 대체한다.
-- `--hide <pattern>`: exact path 또는 shared rule-input grammar의 지원 glob을 숨긴다. hidden path는 `ENOENT`처럼 보인다.
-- `--policy-family <selective-readonly|readonly-root-allowwrite>`: mount당 하나의 mutability family를 선택한다.
-- `--readonly-rule <pattern>`: `selective-readonly`의 primary readonly rule, 또는 `readonly-root-allowwrite`의 nested re-block rule.
-- `--allow-write <pattern>`: `readonly-root-allowwrite`의 primary carve-out rule, 또는 `selective-readonly`의 nested writable carve-out rule.
+- `--config <path>`: YAML config를 로드한다.
+- `--visibility-default <visible|hidden>`: visibility 축 기본값을 설정한다.
+- `--hidden <pattern>`: path/glob를 숨겨 `ENOENT`처럼 보이게 한다.
+- `--visible <pattern>`: hidden/default-hidden 영역 안쪽 path/glob를 다시 노출한다.
+- `--mutability-default <writable|readonly>`: visible path의 기본 mutability를 설정한다.
+- `--readonly <pattern>`: matching visible path mutation을 `EROFS`로 막는다.
+- `--writable <pattern>`: matching visible path mutation을 허용한다.
 
-`--hide`, `--readonly-rule`, `--allow-write`는 같은 rule-input grammar를 공유한다. 현재 소스와 mount-free tests는 exact path, 기존 recursive/direct-child limited glob, 그리고 one-or-more literal path component를 tail로 갖는 limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-tail>/**`)까지 검증한다. 현재 source-test example: `/home/<user>/project/**/.git/hooks/**`.
+CLI에서 한 축 옵션을 하나라도 주면 그 축의 config block 전체를 대체한다. visibility 축과 mutability 축은 서로 독립적으로 override된다. 제거된 family-era CLI option은 compatibility alias 없이 unknown option으로 거부한다.
 
-current 구현 snapshot과 남아 있는 live-smoke evidence gap, fail-fast 범위, nested override specificity/ancestor 규칙은 [`docs/requirements.md`](docs/requirements.md), [`docs/design.md`](docs/design.md), [`docs/nested-mutability-option-b.md`](docs/nested-mutability-option-b.md), [`docs/operations.md`](docs/operations.md)를 함께 읽는다. descendant-subtree glob의 current source/unit-test support와 live smoke pending 범위를 구분해서 읽는다.
+### Policy config quick reference
 
-### Mutability summary
+```yaml
+visibility:
+  default: visible | hidden
+  hidden:
+    - <pattern>
+  visible:
+    - <pattern>
 
-- hidden path는 mutability rule보다 먼저 판정되며 항상 `ENOENT`가 우선한다.
-- `selective-readonly`: 기본 writable, `--readonly-rule` 매치 path만 `EROFS`.
-- `readonly-root-allowwrite`: 기본 readonly, `--allow-write` 매치 path만 writable 후보.
-- opposite-polarity rule을 함께 쓰는 nested override는 explicit `--policy-family`와 valid ancestor 관계가 필요하고, 판정은 most-specific-match-wins를 따른다.
-- whole-mount readonly semantics는 `readonly-root-allowwrite` + empty `allow_write`로 표현한다.
+mutability:
+  default: writable | readonly
+  readonly:
+    - <pattern>
+  writable:
+    - <pattern>
+```
 
-세부 contract와 normalization/fail-fast 규칙은 [`docs/requirements.md`](docs/requirements.md), [`docs/design.md`](docs/design.md), [`docs/nested-mutability-option-b.md`](docs/nested-mutability-option-b.md)에 정리돼 있다.
+### Two-axis policy summary
+
+정책 축의 상세 흐름은 [visibility axis diagram](docs/diagrams/visibility-axis.svg)과 [mutability axis diagram](docs/diagrams/mutability-axis.svg)을 함께 읽는다.
+
+- `visibility.default`는 rule 미매치 path의 기본 가시성을 정한다.
+- `visibility.hidden`은 entry를 listing에서 제거하고 `lookup`/`getattr`/`open`/`access`/`readlink`를 `ENOENT`로 만든다.
+- `visibility.visible`은 hidden-by-default allowlist이거나 hidden 영역 내부 carve-out이다.
+- visible descendant에 도달시키기 위해 필요한 ancestor directory는 bridge-visible이 될 수 있으며, `**/.git/hooks/**` 같은 descendant-subtree carve-out도 경로상의 모든 existing ancestor directory를 bridge-visible로 합성해야 한다.
+- bridge-visible ancestor는 `stat`/`lookup`/`getattr`/읽기 의도 `access`/`opendir`/`readdir`/`readdirplus`/traversal만 허용하고 mutation은 `EROFS`다.
+- `mutability.default`는 visible path의 기본 쓰기 가능 여부를 정한다.
+- `mutability.readonly`와 `mutability.writable`은 같은 축 안에서 more-specific override를 만든다.
+- hidden path와 fully visible이 아닌 symlink target(숨겨졌거나 bridge-visible인 target)은 mutability보다 먼저 처리되며 항상 `ENOENT`가 우선한다.
+- bridge-visible reachability는 bounded/cacheable하게 유지해야 하며 hot path에서 unbounded whole-root recursive scan에 의존하지 않아야 한다.
+- 각 축에서는 가장 구체적인 매치가 이기고, 같은 축의 반대 rule이 같은 normalized anchor/specificity에서 충돌하면 invalid configuration이다.
+- 현재 계약에는 제거된 예전 family/flag surface를 위한 compatibility alias나 shim이 없다.
+
+### Integration mapping
+
+외부 sandbox나 chroot supervisor는 자체 read/write allow/deny 모델을 ScreenFS의 두 축으로 변환할 수 있다. 읽기/존재 노출 정책은 `visibility.*`로, mutation 정책은 `mutability.*`로 내린 뒤 ScreenFS에는 current two-axis config만 전달한다.
+
+`pi-bash-sandbox` 스타일 설정의 권장 매핑:
+
+- `denyRead` → `visibility.hidden`
+- `allowRead` → `visibility.visible` carve-out, 또는 `visibility.default=visible`에서 별도 rule 없음
+- `allowWrite` → `mutability.writable`
+- `denyWrite` → `mutability.readonly`
+
+이 매핑은 legacy ScreenFS CLI flag로 번역하지 않고, 아래 YAML 같은 two-axis config를 생성해야 한다.
 
 ### Examples
-
-Hide secrets in a whole-root view with current supported forms:
-
-```bash
-screenfs / /tmp/screenfs-root \
-  --hide /home/me/.ssh \
-  --hide '**/*.pem'
-```
-
-Current source/unit tests also cover descendant-subtree forms such as `--readonly-rule '/home/me/project/**/.git/hooks/**'`. Live mount smoke for those forms is still tracked separately in the docs.
-
-Make selected paths read-only:
-
-```bash
-screenfs / /tmp/screenfs-root \
-  --policy-family selective-readonly \
-  --readonly-rule /etc/ssh
-```
-
-Make the whole view read-only except selected paths:
-
-```bash
-screenfs / /tmp/screenfs-root \
-  --policy-family readonly-root-allowwrite \
-  --allow-write /tmp
-```
 
 Use a YAML config file:
 
 ```bash
 screenfs / /tmp/screenfs-root --config screenfs.yaml
+```
+
+Hide secrets while keeping the rest of `/` visible:
+
+```yaml
+visibility:
+  default: visible
+  hidden:
+    - /home/me/.ssh
+    - '**/*.pem'
+mutability:
+  default: writable
+```
+
+Hide most paths, then reopen one subtree through bridge-visible ancestors:
+
+```yaml
+visibility:
+  default: hidden
+  visible:
+    - /workspace
+mutability:
+  default: writable
+```
+
+Make the whole view read-only except selected writable carve-outs, then re-block a nested path:
+
+```yaml
+visibility:
+  default: visible
+mutability:
+  default: readonly
+  writable:
+    - /tmp
+  readonly:
+    - /tmp/locked
 ```
 
 ## 문서 안내
@@ -108,18 +165,19 @@ screenfs / /tmp/screenfs-root --config screenfs.yaml
 - 설계: [`docs/design.md`](docs/design.md)
 - 아키텍처 요약: [`docs/architecture.md`](docs/architecture.md)
 - 운영/검증: [`docs/operations.md`](docs/operations.md)
-- nested mutability option B: [`docs/nested-mutability-option-b.md`](docs/nested-mutability-option-b.md)
 - Pi workflow 문서: [`docs/pi-agents.md`](docs/pi-agents.md)
 - 다이어그램 렌더링 계약: [`docs/diagrams/README.md`](docs/diagrams/README.md)
 
 ## Evidence
 
-최신 recorded verification/evidence는 [`docs/operations.md`](docs/operations.md)와 아래 artifact를 기준으로 읽는다.
+recorded verification/evidence의 세부 상태는 [`docs/operations.md`](docs/operations.md)를 따른다. 현재 저장소의 transcript artifact는 모두 capture-time historical record이며, 새 two-axis CLI/config surface의 live smoke baseline으로 승격하지 않는다.
 
-- repo-local family-aware baseline: [`docs/artifacts/future-mutability-smoke-transcript.md`](docs/artifacts/future-mutability-smoke-transcript.md)
-- whole-root carve-out baseline: [`docs/artifacts/whole-root-family-smoke-transcript.md`](docs/artifacts/whole-root-family-smoke-transcript.md)
-- whole-mount readonly baseline: [`docs/artifacts/whole-mount-readonly-smoke-transcript.md`](docs/artifacts/whole-mount-readonly-smoke-transcript.md)
-- pre-removal archival transcript: [`docs/artifacts/fuse-smoke-transcript.md`](docs/artifacts/fuse-smoke-transcript.md)
+Archival-only transcripts:
+
+- whole-root smoke transcript: [`docs/artifacts/whole-root-family-smoke-transcript.md`](docs/artifacts/whole-root-family-smoke-transcript.md)
+- whole-mount readonly smoke transcript: [`docs/artifacts/whole-mount-readonly-smoke-transcript.md`](docs/artifacts/whole-mount-readonly-smoke-transcript.md)
+- repo-local smoke transcript: [`docs/artifacts/future-mutability-smoke-transcript.md`](docs/artifacts/future-mutability-smoke-transcript.md)
+- pre-removal smoke transcript: [`docs/artifacts/fuse-smoke-transcript.md`](docs/artifacts/fuse-smoke-transcript.md)
 
 ## 프로젝트 가드레일
 

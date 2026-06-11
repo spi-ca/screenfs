@@ -1,0 +1,17 @@
+flowchart TD
+    input["Mutation coordinate"] --> precheck{"Visibility already allowed?"}
+    precheck -- hidden --> enoent["ENOENT\nhidden-before-EROFS"]
+    precheck -- bridge-visible --> bridgeErofs["EROFS\nbridge-visible is traversal/listing only"]
+    precheck -- visible --> classify["Classify affected coordinates\nopen/write, path-only, multi-path, copy_file_range"]
+
+    classify --> axis["Evaluate mutability axis\ndefault + readonly + writable"]
+    axis --> decision{"Best match / default"}
+    decision -- readonly --> erofs["EROFS"]
+    decision -- writable --> host["Delegate to host FS\nsubject to uid/permissions/LSM"]
+
+    pathOnly["Path-only mutation\npath + parent must be writable"] -.-> classify
+    multi["rename/link/symlink\nall write-requiring coordinates\nmust be writable"] -.-> classify
+    copy["copy_file_range\nsource uses visibility\ndestination path + parent use mutability"] -.-> classify
+
+    specificity["Within mutability axis:\nmost-specific rule wins\nsame-specificity opposite conflict fails fast\nunprovable overlapping glob containment fails fast"] -.-> axis
+    defaults["Equivalence examples\nwritable default + readonly rules\nreadonly default + writable carve-outs"] -.-> axis

@@ -1,4 +1,6 @@
-# Whole-root family-aware smoke transcript
+# Whole-root legacy-family smoke transcript
+
+Historical note: this transcript uses legacy family-era CLI/log vocabulary. Keep the command output as archival smoke evidence only; current policy contract is the visibility/mutability two-axis model documented in `docs/requirements.md` and `docs/operations.md`.
 
 - Captured: 2026-06-11T00:25:00+09:00
 - Working directory: /home/spi-ca/Codebase/screenfs

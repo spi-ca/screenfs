@@ -2,7 +2,7 @@
 
 This artifact was regenerated from the root pi session, not from isolated subagents. It records runtime FUSE state, repo-local smoke, whole-root smoke, and `unshare -UrR` chroot execution using the renamed `screenfs` binary.
 
-Historical note: this transcript predates the removal of the legacy `--readonly` CLI surface. Keep it as whole-root/chroot archival evidence only; current whole-mount readonly usage should be expressed with `--policy-family readonly-root-allowwrite` and no `--allow-write` rules.
+Historical note: this transcript predates the visibility/mutability two-axis policy model and the removal of legacy CLI surfaces. Keep all legacy commands and logs below as archival whole-root/chroot evidence only; do not use them as current ScreenFS policy contract or current invocation guidance.
 
 - Captured: 2026-06-10T16:22:02+09:00
 - Working directory: /home/spi-ca/Codebase/screenfs

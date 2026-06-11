@@ -3,15 +3,16 @@ flowchart LR
     host["Host filesystem\nsource_root\nexample: /"] --> mount
 
     subgraph policy["Runtime policy"]
-        hide["hide rules\nexact / prefix / limited glob"]
-        family["mutability family\nselective-readonly | readonly-root-allowwrite\none family per mount"]
-        config["policy source\nCLI mutability options\nor config mutability block"]
-        internal["internal hide rule\nmount-root recursion exclusion"]
+        visibility["visibility axis\ndefault + hidden + visible\nbridge-visible ancestors"]
+        mutability["mutability axis\ndefault + readonly + writable\nvisible-path mutation control"]
+        config["policy source\nCLI axis options\nor config axis blocks"]
+        internal["internal hidden rule\nmount-root recursion exclusion"]
     end
 
-    hide --> mount
-    family --> mount
-    config --> family
+    visibility --> mount
+    mutability --> mount
+    config --> visibility
+    config --> mutability
     internal --> mount
 
     mount --> view["Mounted virtual root\nexample: /tmp/screenfs-root"]
@@ -19,4 +20,4 @@ flowchart LR
     sandbox -. supervisor boundary .-> sup["Upper supervisor responsibility\nchroot privilege + /proc,/sys,/dev,/run semantics"]
 
     mount -. hidden path access .-> enoent["ENOENT\nlooks absent"]
-    mount -. mutation blocked by family policy .-> erofs["EROFS"]
+    mount -. blocked mutation .-> erofs["EROFS"]

@@ -13,6 +13,15 @@
 - `puppeteer-config.json`: Mermaid CLI가 Chromium/Puppeteer를 띄울 때 사용할 launch args를 정의한다.
 - 주의: 이 두 JSON만으로는 PNG 2x scale이 자동 보장되지 않는다. PNG 해상도 규칙은 렌더 명령에서 Mermaid CLI `--scale 2`로 강제한다.
 
+## 다이어그램 목록
+
+- `system-context.mmd`: host / ScreenFS / whole-root consumer 경계
+- `module-architecture.mmd`: Rust module responsibility와 dependency 흐름
+- `request-decision-flow.mmd`: FUSE request의 visibility-before-mutability 처리 순서
+- `visibility-axis.mmd`: `visibility.default` / hidden / visible / bridge-visible decision flow
+- `mutability-axis.mmd`: visible mutation의 readonly/writable decision flow
+- `path-resolution.mmd`: virtual path normalization과 source-root confinement
+
 ## 저장소 기준 렌더링 규칙
 
 - SVG는 위 두 config를 함께 사용해 렌더링한다.

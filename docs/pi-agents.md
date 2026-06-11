@@ -101,9 +101,9 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
 사용 예:
 
 ```text
-/software-role-workflow design selective readonly rules for ScreenFS
-/software-developer-parallel split matcher and readonly-policy implementation work
-/goal-impl readonly mode 구현 및 숨김 경로 ENOENT 보장
+/software-role-workflow design visibility and mutability override rules for ScreenFS
+/software-developer-parallel split visibility matcher and mutability evaluator implementation work
+/goal-impl visibility/mutability axes 구현 및 hidden-before-EROFS 보장
 /goal-change subagent workflow에서 테스트 작성 책임을 더 명확히 반영해야 한다
 ```
 
@@ -120,7 +120,7 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
 
 `goal-impl` prompt는 구현 요구사항으로 `create_goal`을 먼저 만들고, 역할 분석 → 병렬 구현/테스트 → 통합 → QA/review → findings 해소 반복까지 진행하도록 안내한다. 또한 `token_budget`을 명시해 budget 부족으로 workflow가 조기 중단되지 않게 하고, 현재 goal이 `budgetLimited`면 `replace_existing: true`로 새 goal을 만들도록 안내한다.
 
-`goal-change` prompt는 요구사항 변경 이슈를 goal로 만들고, 영향 분석 → 문서/prompt/skill 수정 → QA/review → findings 해소 반복까지 진행하도록 안내한다. 이 prompt도 `token_budget`을 명시하고, 문서 중심 변경의 기본 예산을 넉넉히 잡으며, 기존 goal이 `budgetLimited`면 교체 후 계속 진행하도록 안내한다. 추가로 `docs/diagrams/*.mmd`나 Mermaid render config(`docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`)가 바뀌면 `docs/diagrams/README.md` 규칙, 대응 `*.svg`/`*.png` 산출물, PNG `--scale 2` 요구를 함께 확인하도록 안내한다. path-like rule grammar를 다루는 변경에서는 current implementation vs target behavior 분리, exact path normalization, supported prefixed-glob grammar, broader unsupported wildcard forms, `HOME`/`source_root` fail-fast 조건, future selective readonly 재사용 계약까지 함께 기록하도록 유도한다.
+`goal-change` prompt는 요구사항 변경 이슈를 goal로 만들고, 영향 분석 → 문서/prompt/skill 수정 → QA/review → findings 해소 반복까지 진행하도록 안내한다. 이 prompt도 `token_budget`을 명시하고, 문서 중심 변경의 기본 예산을 넉넉히 잡으며, 기존 goal이 `budgetLimited`면 교체 후 계속 진행하도록 안내한다. 추가로 `docs/diagrams/*.mmd`나 Mermaid render config(`docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`)가 바뀌면 `docs/diagrams/README.md` 규칙, 대응 `*.svg`/`*.png` 산출물, PNG `--scale 2` 요구를 함께 확인하도록 안내한다. path-like rule grammar를 다루는 변경에서는 current implementation vs target behavior 분리, exact path normalization, supported prefixed-glob grammar, broader unsupported wildcard forms, `HOME`/`source_root` fail-fast 조건, shared rule grammar reuse contract까지 함께 기록하도록 유도한다.
 
 ### 4. Extensions / Guardrails
 
@@ -162,11 +162,11 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
 - 모든 적용 대상 역할의 산출물이 있거나, 작은 작업에서는 root agent가 각 적용 대상 역할 관점 결과를 분리해 보고한다.
 - `software-developer`는 독립 work package가 있을 때 적용 대상이다. 사용한 경우 각 lane의 allowed files, changed files, validation, conflict 여부가 fresh evidence로 남아 있고, 사용하지 않은 경우 안전하게 분리할 package가 없다는 근거가 남아 있다.
 - 사용자 요구사항, 시스템 제약, 설계, 구현, QA, 리뷰가 fresh evidence로 연결된다.
-- 목표 계약과 현재 구현 evidence를 섞지 않는다. pre-removal global `--readonly` transcript는 archival evidence로만 분리 표기하고, 현재 구현/검증은 family-aware surface 기준으로 적는다.
-- mutability policy 문서를 갱신하면 one-family-per-mount, hidden `ENOENT` precedence, allowWrite union semantics, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, 제거된 `--readonly` historical 지위, family/rule/config surface와의 fail-fast를 함께 점검한다.
+- 목표 계약과 현재 구현 evidence를 섞지 않는다. pre-removal global `--readonly` transcript는 archival evidence로만 분리 표기하고, 현재 구현/검증은 `visibility`/`mutability` two-axis surface 기준으로 적는다.
+- mutability policy 문서를 갱신하면 visibility/mutability 축 구분, bridge-visible ancestor, hidden-before-`EROFS`, shared rule grammar, same-specificity conflict fail-fast, unprovable nested glob containment fail-fast, `copy_file_range` source/destination 분리, no legacy aliases/shims를 함께 점검한다.
 - path/input grammar 변경이면 supported exact path forms, supported prefixed-glob grammar, broader unsupported wildcard forms, `HOME`/`source_root`/`~user` fail-fast semantics가 문서와 prompt/skill에 일관되게 반영된다.
-- 현재 `--readonly-rule` surface와 그 향후 확장이 hide와 같은 normalization contract를 재사용해야 한다는 요구가 있으면 그 점도 current implementation evidence와 분리해서 기록한다.
-- future CLI/config contract를 다루면 `--readonly-rule`/`--allow-write` exclusivity, 제거된 `--readonly`의 archival-only 분리, config의 legacy bool 부재, CLI mutability option의 config block 대체 규칙과 no-CLI 시 config `mutability` block 우선 규칙까지 함께 반영한다.
+- policy rule surface를 다루면 visibility/mutability 네 rule list가 같은 normalization contract를 재사용한다는 점을 current implementation evidence와 함께 기록한다.
+- CLI/config contract를 다루면 축별 CLI option이 해당 config block을 대체하고, CLI option이 없는 축은 config block 또는 default가 source of truth라는 규칙을 함께 반영한다.
 - goal 기반 prompt를 사용할 때는 `create_goal`에 작업 규모에 맞는 `token_budget`을 명시하고, 이미 `budgetLimited`인 goal 위에서 그대로 실질 작업을 이어가지 않는다.
 - 변경 유형에 맞는 저장소 검증 명령을 실행한다. 문서/Pi resource 전용 변경은 `AGENTS.md`와 `docs/operations.md`의 문서 변경 검증을 따르고, Rust 코드 변경이 포함되면 fmt/clippy/test 같은 코드 검증을 추가한다.
 - 다이어그램 source/config 변경은 문서 검증 외에도 `docs/diagrams/README.md` 기준 render 명령과 PNG `--scale 2` 규칙이 인접 문서에 일관되게 반영됐는지 확인한다.

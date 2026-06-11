@@ -1,15 +1,17 @@
 flowchart LR
     req["Filesystem request\nread/stat/list/open/mutation"] --> classify["classify op\nread-only | write-intent | path-only mutation | multi-path mutation"]
     classify --> map["Map inode/name/paths\nto VirtualPath coordinates"]
-    map --> hidden{"Any coordinate hidden\nor symlink target hidden?"}
-    hidden -- yes --> hiddenResult["ENOENT\nor filtered listing"]
-    hidden -- no --> op{"Mutation or write intent?"}
+    map --> visibility{"Any coordinate hidden\nor symlink target not fully visible?"}
+    visibility -- yes --> hiddenResult["ENOENT\nor filtered listing"]
+    visibility -- no --> bridge{"Bridge-visible ancestor\nmutation involved?"}
+    bridge -- yes --> roResult["EROFS"]
+    bridge -- no --> op{"Mutation or write intent?"}
     op -- no --> delegate["Delegate to host FS\nwithin source_root confinement"]
-    op -- yes --> policy{"Mutability evaluator\nfamily + affected coordinates\nCLI/config resolved at startup"}
-    policy -- blocked --> roResult["EROFS"]
+    op -- yes --> policy{"Mutability evaluator\ndefault + readonly/writable rules\naffected coordinates"}
+    policy -- blocked --> roResult
     policy -- allowed --> delegate
     delegate --> reply["Build FUSE reply"]
 
-    family["Current family note\nselective-readonly | readonly-root-allowwrite\none family per mount"] -.-> policy
+    visibilityNote["Visibility axis\ndefault + hidden + visible\nbridge-visible for traversal/listing\nsymlink targets must be fully visible"] -.-> visibility
     pathOnly["Path-only mutation note\ncreate/mkdir/mknod/unlink/rmdir\ncheck path + mutated parent"] -.-> classify
     multi["Multi-path mutation note\nrename/link/symlink/copy-like ops\ncheck source/target/parent coordinates"] -.-> classify

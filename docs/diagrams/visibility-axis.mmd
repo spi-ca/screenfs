@@ -1,0 +1,22 @@
+flowchart TD
+    input["VirtualPath coordinate"] --> internal{"Internal mount-root\nrecursion exclusion?"}
+    internal -- yes --> hidden["Hidden\nENOENT / omit from listing"]
+    internal -- no --> rules["Evaluate visibility axis\ndefault + hidden + visible"]
+
+    rules --> hiddenRule{"Best match says hidden\nor default hidden with no visible match?"}
+    hiddenRule -- yes --> carve{"Visible descendant\nreachable below this directory?"}
+    hiddenRule -- no --> visible["Visible\nread/stat/list/traverse pass-through"]
+
+    carve -- no --> hidden
+    carve -- yes --> bridge["Bridge-visible ancestor\nexisting ancestor dirs only\nstat/traverse/list only"]
+
+    bridge --> bridgeList["Listing exposes only children\nthat lead to visible carve-outs"]
+    bridge --> bridgeWrite["Mutation on bridge-visible\nreturns EROFS"]
+
+    visible --> symlink{"Resolved virtual symlink\ntarget fully visible?"}
+    symlink -- no: hidden or bridge-visible --> targetBlocked["Symlink readlink/open blocked\nENOENT"]
+    symlink -- yes or n/a --> mutability["Continue to mutability axis\nonly if request may mutate"]
+
+    hiddenNote["Hidden always wins before mutability\nNo permission-denied existence leak"] -.-> hidden
+    symlinkNote["Bridge-visible is traversal/listing only\nIt never makes a symlink target readable"] -.-> targetBlocked
+    specificity["Within visibility axis:\nmost-specific rule wins\nsame-specificity opposite conflict fails fast\nunprovable overlapping glob containment fails fast"] -.-> rules

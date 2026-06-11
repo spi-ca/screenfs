@@ -1,14 +1,14 @@
 flowchart TD
-    main["src/main.rs\nLaunchArgs parse + Session::run"] --> cli["src/cli.rs\n--hide / --readonly-rule\n--policy-family / --allow-write / --config"]
-    cli --> config["src/config.rs\nRuntimeConfig builder\ntyped mutability resolution\nCLI-over-config"]
+    main["src/main.rs\nLaunchArgs parse + Session::run"] --> cli["src/cli.rs\n--visibility-default / --hidden / --visible\n--mutability-default / --readonly / --writable / --config"]
+    cli --> config["src/config.rs\nRuntimeConfig builder\nvisibility + mutability resolution\nCLI-over-config by axis"]
     main --> fs["src/fs.rs\nScreenFs module root\nFilesystem entrypoints"]
 
-    config --> matcher["src/matcher.rs\nPathRuleMatcher + MatcherScope\nshared hide/readonly/allow-write rules"]
-    config --> yaml["YAML mutability block\nfamily / readonly_rules / allow_write"]
+    config --> matcher["src/matcher.rs\nPathRuleMatcher + MatcherScope\nshared hidden/visible/readonly/writable rules"]
+    config --> yaml["YAML policy blocks\nvisibility.default/hidden/visible\nmutability.default/readonly/writable"]
     config --> fs
 
     fs --> state["src/fs/state.rs\ninode/path tables\nfile + dir handles"]
-    fs --> guards["src/fs/guards.rs\nhidden/readonly/symlink guards\naffected-coordinate checks"]
+    fs --> guards["src/fs/guards.rs\nhidden/bridge-visible/mutability/symlink guards\naffected-coordinate checks"]
     fs --> backing["src/fs/backing.rs\nconfined host access\nopen/statfs/xattr/setattr"]
     fs --> path["src/path.rs\nVirtualPath + rule normalization\nrelative/~ rebase\nsymlink target resolve"]
     fs --> errors["src/errors.rs\nENOENT / EROFS classification\nwrite-intent helpers"]

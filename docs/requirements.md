@@ -2,7 +2,12 @@
 
 ## 1. 목적
 
-`ScreenFS`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 실제 `/`를 pass-through 하면서 민감 경로는 존재하지 않는 것처럼 숨기고, visible path에는 별도 readonly policy를 적용할 수 있어야 한다. `pi-bash-sandbox`는 이 요구사항을 소비하는 대표 통합 예시지만, `ScreenFS`의 목적을 그 통합 하나로 한정하지 않는다.
+`ScreenFS`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 실제 `/`를 pass-through 하면서 민감 경로는 존재하지 않는 것처럼 숨기고, 노출된 경로에는 별도 mutability policy를 적용할 수 있어야 한다. `pi-bash-sandbox`는 대표 통합 예시지만 프로젝트 목적을 그 통합 하나로 한정하지 않는다.
+
+현재 계약은 **visibility / mutability 두 축**으로 정의한다.
+
+- **visibility 축**: 무엇이 보이는가
+- **mutability 축**: 보이는 것 중 무엇이 쓰기 가능한가
 
 ## 2. 핵심 전제
 
@@ -12,64 +17,40 @@
 - v1은 `FUSE_OVER_IO_URING` 협상 실패 시 fallback mount를 만들지 않고 명시적 오류로 fail-fast 한다.
 - mount는 `fusermount3`로 수행한다.
 - 대표 사용 시나리오에 chroot가 포함되므로 mount 결과는 전체 파일시스템 뷰를 제공해야 한다.
-- `chroot` 실행 권한, same-host-uid 접근 모델, `/proc`·`/sys`·`/dev`·`/run` native semantics는 `ScreenFS` 단독 책임이 아니라 상위 supervisor/namespace layer 책임이다. `pi-bash-sandbox`는 그 책임을 지는 대표 예시다.
+- `chroot` 실행 권한, same-host-uid 접근 모델, `/proc`·`/sys`·`/dev`·`/run` native semantics는 `ScreenFS` 단독 책임이 아니라 상위 supervisor/namespace layer 책임이다.
 
-## 3. Non-root 실행
+## 3. Non-root whole-root consumer 요구
 
-`ScreenFS`는 root 권한 없이 실행되어야 한다.
+`ScreenFS`는 root 권한 없이 전체 `/` view를 제공해야 한다.
 
 - 일반 사용자 권한으로 FUSE mount 가능해야 한다.
-- `fusermount3`를 사용한다.
-- root-only mount에 의존하지 않는다.
-- privileged bind mount에 의존하지 않는다.
-- system-wide mount namespace 조작에 의존하지 않는다.
-- `/dev/null` bind overlay 같은 root/mount namespace 기반 masking에 의존하지 않는다.
+- root-only mount, privileged bind mount, system-wide mount namespace 조작에 의존하지 않는다.
+- `/dev/null` bind overlay, 빈 파일 overlay, tmpfs masking처럼 이름을 남기는 masking 방식은 사용하지 않는다.
+- sandboxed consumer가 필요한 binary, shared library, config, runtime path를 정상적으로 볼 수 있어야 한다.
+- 차단 대상만 존재하지 않는 것처럼 처리해야 하며, hidden 대상은 가능한 한 `Permission denied` 대신 `ENOENT`를 사용한다.
 
-## 4. 상위 consumer 요구 충족
+## 4. Visibility 계약
 
-`ScreenFS`는 상위 sandbox/chroot/orchestrator가 요구하는 filesystem view를 제공해야 한다. `pi-bash-sandbox`는 그 요구를 대표하는 통합 예시다.
+![ScreenFS visibility axis](diagrams/visibility-axis.svg)
 
-- sandboxed bash가 필요한 시스템 경로를 볼 수 있어야 한다.
-- 실행에 필요한 binary, shared library, config, runtime path가 보존되어야 한다.
-- 권한 정책상 허용된 경로는 정상 접근 가능해야 한다.
-- 차단/숨김 경로만 존재하지 않는 것처럼 처리해야 한다.
-- 숨김 대상은 `Permission denied`로 존재를 드러내지 않고 가능한 한 `ENOENT`로 처리한다.
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
-## 5. Whole-root consumer용 전체 파일시스템 뷰
+### 4.1 축 정의
 
-대표 통합 시나리오에서 chroot를 사용하므로 `ScreenFS`는 단순 프로젝트 디렉터리 view가 아니라 전체 `/` filesystem view를 제공해야 한다. 이 whole-root view 요구는 `pi-bash-sandbox` 외의 다른 consumer에도 동일하게 적용된다.
-
-```text
-real / -> screenfs mount root -> chroot root
+```yaml
+visibility:
+  default: visible | hidden
+  hidden: []
+  visible: []
 ```
 
-chroot 내부에서는 다음 같은 경로 구조가 보여야 한다.
+- `visibility.default=visible`: 기본은 보이고, `visibility.hidden`이 숨기며, 더 구체적인 `visibility.visible`이 carve-out으로 다시 노출할 수 있다.
+- `visibility.default=hidden`: 기본은 숨겨지고, `visibility.visible`이 노출하며, 더 구체적인 `visibility.hidden`이 다시 re-block 할 수 있다.
+- 이 축은 다른 축과 독립적으로 평가되지만, mutability보다 먼저 적용된다.
 
-```text
-/
-/bin
-/usr
-/lib
-/lib64
-/etc
-/home
-/tmp
-/var
-...
-```
+### 4.2 Hidden 의미론
 
-상정 사용법:
-
-```bash
-screenfs / /tmp/screenfs-root ...
-chroot /tmp/screenfs-root /bin/bash
-```
-
-## 6. Hidden path 처리
-
-지정한 숨김 path는 실제로 없는 것처럼 보여야 한다.
-
-필수 동작:
+hidden으로 판정된 path는 실제로 없는 것처럼 보여야 한다.
 
 | Operation | 기대 동작 |
 | --- | --- |
@@ -79,6 +60,7 @@ chroot /tmp/screenfs-root /bin/bash
 | `getattr` | `ENOENT` |
 | `open` | `ENOENT` |
 | `access` | `ENOENT` |
+| `readlink` | `ENOENT` |
 
 일반 명령에서 기대 동작:
 
@@ -95,84 +77,66 @@ cat hidden-path
 - 목록에 보이지 않는다.
 - 직접 접근 시 `No such file or directory`로 실패한다.
 
-금지 방식:
+### 4.3 `visibility.visible`과 bridge-visible ancestor
 
-- `/dev/null` bind
-- 빈 파일 overlay
-- tmpfs로 덮어 이름만 남기는 방식
-- 단순 `Permission denied`로 존재를 노출하는 방식
+`visibility.visible`은 hidden-by-default allowlist이거나 더 넓은 hidden 영역 내부의 carve-out이다. 이때 visible descendant에 도달시키기 위해 필요한 ancestor directory는 **bridge-visible** 상태로 취급할 수 있다. descendant-subtree carve-out도 예외가 아니며, `**/.git/hooks/**` 같은 rule이 매치한 visible subtree에 도달하려면 그 경로상의 모든 existing ancestor directory가 bridge-visible로 합성되어 traversal/listing이 가능해야 한다.
 
-## 7. 전체 view + selective hiding
+bridge-visible ancestor 규칙:
 
-기본적으로 전체 파일시스템은 pass-through 하되, hide rule에 걸린 경로만 숨긴다.
+- bridge-visible은 ancestor directory에만 적용된다.
+- descendant-subtree carve-out(`**/.git/hooks/**` 등)은 실제 visible target까지의 모든 existing ancestor directory를 bridge-visible로 합성해야 한다.
+- bridge-visible directory는 `stat`/`lookup`/`getattr`/읽기 의도의 `access`/traverse/`opendir`/`readdir`/`readdirplus`만 허용한다.
+- bridge-visible directory에 대한 mutation(`create`, `mkdir`, `rename`, `unlink`, metadata mutation 등)은 항상 `EROFS`다.
+- bridge-visible directory는 hidden sibling을 노출하지 않으며, visible descendant로 이어지는 entry만 보여준다.
+- bridge-visible은 traversal/listing 전용 상태다. symlink entry의 resolved virtual target이 fully visible이 아니고 hidden이거나 bridge-visible/non-fully-visible이면 `readlink`와 symlink dereference `open`은 `ENOENT`다.
+- hidden path 자체는 계속 hidden이며 `ENOENT`다.
+- symlink entry는 resolved virtual target이 fully visible일 때만 export된다. target이 hidden 또는 bridge-visible이면 listing에서 제외하고 `lookup`/`getattr`/`open`/`readlink`/dereference는 `ENOENT`다.
 
-예상 숨김 후보:
+예시:
 
-```text
-/home/<user>/.ssh
-/home/<user>/.aws
-/home/<user>/.gnupg
-/home/<user>/.pi/agent/auth.json
-/home/<user>/.pi/agent/mcp-oauth
-**/.env
-**/.env.*
-**/.git/hooks/**
-**/*.pem
-**/*.key
+- `visibility.default=visible`, `visibility.hidden=/home`, `visibility.visible=/home/me/project`
+  - `/home`, `/home/me`는 bridge-visible ancestor가 될 수 있다.
+  - `/home/other`는 hidden이며 `ENOENT`다.
+- `visibility.default=hidden`, `visibility.visible=/workspace`
+  - `/`는 bridge-visible이 될 수 있고 `/workspace` subtree는 visible이다.
+- `visibility.default=hidden`, `visibility.visible=**/.git/hooks/**`
+  - 각 매치 인스턴스마다 visible hook subtree로 내려가는 기존 ancestor directory들이 bridge-visible이 된다.
+  - bridge-visible ancestor를 거쳐 도달한 symlink라도 resolved virtual target이 fully visible이 아니면 `readlink`/`open`은 `ENOENT`다.
+
+### 4.4 Listing 의미론
+
+- hidden entry는 `readdir`, `readdirplus` 결과에서 제외된다.
+- bridge-visible directory listing은 visible entry와 visible descendant로 이어지는 bridge-visible entry만 반환한다.
+- symlink child는 resolved virtual target이 fully visible일 때만 listing에 포함한다.
+- `readdirplus`는 반환되는 visible/bridge-visible entry에 대해서만 metadata를 준다.
+- listing에 보이는 symlink entry도 resolved virtual target이 fully visible일 때만 `readlink`/target dereference가 가능하다.
+- hidden directory 전체가 listing에서 빠질 때도 이름만 남기는 masking을 하지 않는다.
+
+## 5. Mutability 계약
+
+![ScreenFS mutability axis](diagrams/mutability-axis.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
+
+### 5.1 축 정의
+
+```yaml
+mutability:
+  default: writable | readonly
+  readonly: []
+  writable: []
 ```
 
-## 8. Selective readonly rule
+- `mutability.default=writable`: 기본은 쓰기 가능하고, `mutability.readonly`가 쓰기를 막으며, 더 구체적인 `mutability.writable`이 carve-out으로 다시 허용할 수 있다.
+- `mutability.default=readonly`: 기본은 읽기 전용이고, `mutability.writable`이 쓰기를 허용하며, 더 구체적인 `mutability.readonly`가 다시 re-block 할 수 있다.
 
-`ScreenFS`는 hide rule과 별개로 visible path의 mutability policy를 제어해야 한다. 현재 요구사항의 기본 target contract는 특정 path/pattern에만 쓰기 금지를 적용하는 selective readonly rule이다.
+### 5.2 Visible path에 대한 의미론
 
-### 8.1 Current target contract: path-scoped selective readonly
+visible path의 읽기/탐색은 visibility 축에서 허용되면 pass-through다. 쓰기성 operation은 mutability 축으로 별도 판정한다.
 
-현재 목표 계약(path-scoped selective readonly)에서:
-
-- readonly rule에 매치된 visible path는 read/stat/list 허용
-- hidden path는 selective readonly 여부와 관계없이 `ENOENT`
-- readonly rule에 매치된 path의 모든 쓰기성 operation은 `EROFS`
-- readonly rule에 매치되지 않은 visible path는 이 요구사항만으로 자동 readonly가 되지 않음
-- canonical CLI/config contract는 11절을 따른다. 현재 소스는 그 surface와 config `mutability` block을 구현했고, source/unit-test evidence가 있다. existing repo-local/whole-root FUSE smoke는 family baseline evidence로 분리해 읽으며, `docs/artifacts/whole-root-family-smoke-transcript.md`는 `readonly-root-allowwrite --allow-write /tmp` carve-out smoke다. selective-readonly whole-root/chroot live smoke와 option B nested live smoke는 아직 별도 fresh evidence가 필요하고, pre-removal historical transcript는 archival evidence로 분리해 읽는다.
-- family 내부 nested override(option B)는 현재 canonical mutability contract에 반영됐다. 설계 배경과 detailed validation rationale은 `docs/nested-mutability-option-b.md`에 남긴다.
-
-### 8.2 Shared invariants across policy families
-
-다음 invariants는 현재 target contract와 future carve-out family 모두에 공통으로 유지돼야 한다.
-
-- hidden path는 어떤 mutability policy family에서도 계속 `ENOENT`
-- hidden `ENOENT` 우선순위는 readonly/allowWrite 같은 후행 policy 판정보다 앞선다.
-- write-intent `open`, path-only mutation, multi-path mutation(`rename`, `link`, `symlink`, `copy_file_range`) 모두 operation별 affected coordinate 기준으로 판정돼야 한다. 단, `copy_file_range`는 source visibility와 destination writability를 분리해 본다.
-- hide rule, current `--readonly-rule`, `--allow-write` surface는 같은 normalization contract를 재사용해야 한다.
-
-### 8.3 Alternate family in current source: `readonly-root-allowwrite`
-
-이 문서는 `readonly-root-allowwrite`를 현재 소스와 source/unit-test evidence에 반영된 alternate policy family로 정의한다.
-
-- 이 alternate model은 `pi-bash-sandbox` 같은 integration use case에서 흔한 "기본은 readonly, 일부 path만 writable" 요구를 설명하는 대표 예시일 수 있다.
-- 하지만 이는 현재 target selective readonly contract를 대체하지 않으며, live FUSE smoke evidence를 그런 정책까지 이미 완료된 것으로 확장해서 읽으면 안 된다.
-
-이 family에 대해 이 문서에서 확정하는 semantics:
-
-- 한 mount는 정확히 하나의 mutability policy family만 선택한다. current path-scoped selective readonly family와 carve-out family를 같은 mount에서 동시에 활성화하지 않는다.
-- visible read/stat/list는 hidden이 아니면 pass-through다.
-- visible mutation은 기본적으로 `readonly-root-allowwrite` family의 default readonly 정책에 의해 `EROFS`다.
-- `allowWrite` rule들은 union semantics로 합쳐지며, 하나라도 매치되면 해당 mutation coordinate는 writable 후보가 된다.
-- hidden path나 hidden target이 하나라도 관여하면 `allowWrite`와 무관하게 결과는 `ENOENT`다.
-- mutation은 관련된 모든 write-requiring affected coordinate가 carve-out family 기준으로 writable이어야만 허용된다.
-- write-intent `open`, path-only mutation, multi-path mutation, destination mutation이 있는 `copy_file_range` 모두 같은 affected-path evaluation family를 공유한다.
-- `copy_file_range`에서는 source는 hidden/read visibility 대상이고, destination path와 destination parent는 writable이어야 한다.
-- current `allow_write`/`--allow-write` surface도 hide/current `--readonly-rule`와 같은 exact path + supported prefixed glob normalization contract를 재사용한다.
-- canonical contract는 legacy bool surface를 포함하지 않으며, config schema에도 별도 legacy bool을 두지 않는다.
-- allowWrite는 ScreenFS 차원의 `EROFS`를 제거할 뿐이며, 최종 성공 여부는 계속 host filesystem 권한/소유권/LSM에 의존한다.
-
-추가 경계 규칙:
-
-- mutability family 집합은 현재 spec에서 `selective-readonly`와 `readonly-root-allowwrite` 두 개로 닫는다.
-- future deny-like family와의 조합이나 제3 family 추가는 현재 spec 범위 밖이며, 별도 버전의 새 정책 family로만 도입할 수 있다.
-- whole-mount readonly semantics가 필요하면 `readonly-root-allowwrite` family를 empty `allow_write`와 함께 사용한다.
-- canonical contract는 제거된 bool shorthand를 복원하지 않는다.
-- family-preserving nested override는 one-family-per-mount를 유지한 채 primary rule 아래 더 구체적인 opposite-polarity secondary rule만 허용한다.
+- readonly로 판정된 visible path의 mutation은 `EROFS`
+- writable로 판정된 visible path의 mutation은 host filesystem 권한이 허용하면 pass-through
+- bridge-visible ancestor는 mutability 축과 무관하게 mutation 시 항상 `EROFS`
 
 쓰기성 operation 예:
 
@@ -187,39 +151,108 @@ rename
 link
 symlink
 setattr 중 mutation
+setxattr
+removexattr
 fallocate
 ```
 
-## 9. Rule input 정규화 계약
+### 5.3 Hidden precedence
 
-이 절은 hide rule과 현재 `--readonly-rule` surface 및 그 향후 확장이 공유해야 할 path-like rule normalization contract를 정의한다. exact path와 supported glob을 함께 다루되, current implementation snapshot과 target behavior를 분리해서 기록한다.
+- hidden path와 fully visible이 아닌 symlink target(숨겨졌거나 bridge-visible에만 도달하는 target)은 mutability보다 먼저 처리된다.
+- 따라서 hidden 또는 non-fully-visible symlink target이 관여하면 결과는 항상 `ENOENT`다.
+- readonly/writable rule은 hidden 결과를 뒤집지 못한다.
 
-현재 구현 snapshot(코드 + mount-free unit test 기준):
+## 6. Shared rule semantics
 
-- exact path와 supported prefixed glob 모두 같은 normalization contract를 공유한다.
-- 이미 absolute인 exact path와 absolute prefixed glob은 virtual-root anchored semantics를 유지한다.
+visibility와 mutability 축은 같은 rule semantics를 공유해야 한다.
+
+- exact path와 supported glob은 같은 normalization contract를 재사용한다.
+- `visibility.hidden`, `visibility.visible`, `mutability.readonly`, `mutability.writable`는 동일한 rule grammar를 사용한다.
+- 각 축에서는 **가장 구체적인 매치가 우선**한다.
+- 같은 축에서 반대 polarity rule이 같은 normalized anchor/specificity에서 충돌하면 fail-fast다.
+- 같은 축의 반대 polarity glob rule 조합이 overlap 가능하지만 normalized target-set containment를 증명할 수 없으면 fail-fast다.
+- duplicate same-polarity rule은 허용하지만 의미는 idempotent다.
+- write-intent `open`, path-only mutation, multi-path mutation(`rename`, `link`, `symlink`, `copy_file_range`)은 affected coordinate별로 visibility와 mutability를 판정한다.
+- `copy_file_range`는 source visibility와 destination mutability를 분리해 본다.
+
+## 7. Rule input 정규화 계약
+
+이 절은 visibility/mutability 모든 rule surface가 공유해야 하는 path-like rule normalization contract를 정의한다.
+
+현재 지원해야 하는 contract:
+
+- absolute exact path는 virtual-root anchored semantics를 가진다.
 - relative exact path와 relative prefixed glob prefix는 process cwd 기준 host path로 먼저 해석하고, 그 host path가 `source_root` 내부일 때만 source-root-relative virtual absolute path 또는 virtual glob prefix로 rebase한다.
 - `~`/`~/...` 입력은 `HOME` 기준 host path로 expand한 뒤 같은 rebasing 규칙을 적용한다.
-- current code/evidence가 검증한 supported pattern 입력은 recursive `**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*` tail, normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`), 그리고 limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`)까지다. 대표 예시는 `**/.env`, `**/.env.*`, `**/*.pem`, `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`, `**/.git/**`, `**/.git/hooks/**`, `/home/spi-ca/Codebase/the-onion/palgong/**/.git/hooks/**`이다.
-- descendant-subtree glob은 첫 literal component 앞에 recursive gap이 있고, literal tail subtree root 자체와 그 모든 descendants에 매치된다. 예를 들어 `**/.git/hooks/**`는 `.git/hooks`, `.git/hooks/pre-commit`, `.git/hooks/subdir/x`를 모두 포함한다.
-- source/test evidence는 `src/matcher.rs`의 `matches_recursive_literal_descendant_subtree_globs`, `recursive_literal_descendant_subtree_rules_preserve_specificity_and_containment`, `recursive_literal_descendant_subtree_specificity_prefers_longer_tail_over_longer_prefix`, `matches_requested_absolute_descendant_subtree_glob_pattern`, `src/config.rs`의 `descendant_subtree_globs_share_runtime_config_grammar_across_surfaces`, `selective_readonly_descendant_subtree_nested_allow_write_uses_literal_tail_specificity`, `runtime_config_accepts_requested_absolute_descendant_subtree_pattern`, `src/fs.rs`의 `selective_readonly_descendant_subtree_rule_only_locks_git_hooks_subtree`, `hidden_descendant_subtree_rules_keep_enoent_precedence_over_readonly`, 그리고 direct-child subset/fail-fast coverage를 포함한다.
-- fail-fast/unsupported 입력: `HOME` 없음, expanded path outside `source_root`, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, bare suffix `*.pem`)은 모두 fail-fast다. descendant-subtree 관련 broader forms(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`, trailing `/**` 없는 `**/.git/hooks`)도 부분 해석 없이 fail-fast 대상으로 유지한다.
+- exact path와 함께 다음 limited glob subset을 지원한다.
+  - recursive basename/suffix/basename-prefix tail: `**/.env`, `**/*.pem`, `**/.env.*`
+  - normalized-prefix direct-child basename-prefix/suffix form: `./fixtures/*.pem`, `~/.env.*`, `/home/<user>/*.pem`
+  - limited recursive literal descendant-subtree glob: `<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`
+- descendant-subtree glob 예: `**/.git/**`, `**/.git/hooks/**`, `./repo/**/.git/hooks/**`, `~/project/**/.git/hooks/**`
+- descendant-subtree glob은 literal tail subtree root 자체와 그 모든 descendants에 매치된다.
 
-현재 문서화된 current-vs-target contract:
+fail-fast 조건:
 
-- exact path와 supported prefixed glob 모두 같은 normalization contract를 공유한다.
-- 이미 absolute인 exact path와 absolute prefixed glob은 현재 virtual-root anchored 의미를 유지한다.
-- relative exact path와 relative prefixed glob prefix는 process cwd 기준 host path로 먼저 해석하고, 그 host path가 `source_root` 내부일 때만 source-root-relative virtual absolute path 또는 virtual glob prefix로 rebase한다.
-- `~`/`~/...` 입력은 `HOME` 기준 host path로 expand한 뒤 같은 rebasing 규칙을 적용한다.
-- supported prefixed glob grammar는 recursive basename/suffix/basename-prefix tail(`**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*`)과 normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`)을 유지하면서, shared extension으로 limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`)도 허용한다. canonical examples: `**/.git/**`, `**/.git/hooks/**`, `/home/<user>/project/**/.git/hooks/**`, `./repo/**/.git/hooks/**`, `~/project/**/.git/hooks/**`.
-- descendant-subtree glob은 첫 literal component 앞에 recursive gap이 있고, literal tail subtree root 자체와 그 모든 descendants에 매치된다. 예를 들어 `**/.git/hooks/**`는 `.git/hooks`, `.git/hooks/pre-commit`, `.git/hooks/subdir/x`를 모두 포함한다.
-- nested override/ancestor 판단은 raw input이 아니라 normalization 이후의 target set 기준으로 수행한다. descendant-subtree glob끼리는 literal tail component 수가 더 많을수록, 그다음으로 normalized prefix가 더 길수록 더 구체적이다. 따라서 `**/.git/hooks/**`는 `**/.git/**` 내부의 더 구체적인 target set이다.
-- `HOME`이 없으면 fail-fast 한다.
-- expanded host path가 `source_root` 밖이면 fail-fast 한다.
-- `~user`는 계속 unsupported이며 fail-fast 한다.
-- wildcard가 prefix 내부에 섞이는 더 넓은 glob(`foo/*/bar.pem`, `**/secret?.pem`, unprefixed bare suffix `*.pem`, brace/env/command expansion`)과 descendant-subtree literal tail 내부 wildcard(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`) 또는 trailing `/**` 없는 form(`**/.git/hooks`)은 이번 범위에서도 unsupported/fail-fast로 남긴다.
-- `--hide`, `--readonly-rule`, `--allow-write`는 같은 shared grammar를 사용해야 한다. hide/current mutability rules는 current source/unit-test 범위에서 exact, recursive, direct-child, descendant-subtree subset까지 같은 normalization contract와 hidden `ENOENT` precedence를 재사용한다.
-- descendant-subtree extension의 남은 evidence gap은 already-absolute/relative/`~` live mount smoke, broader unsupported wildcard fail-fast live smoke, option B nested override live smoke다.
+- `HOME` 없음
+- expanded host path가 `source_root` 밖
+- `~user`
+- wildcard가 prefix 내부에 섞이는 broader form(`foo/*/bar.pem`, `**/secret?.pem`)
+- bare suffix `*.pem`
+- descendant-subtree literal tail 내부 wildcard(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`)
+- trailing `/**` 없는 descendant-subtree form(`**/.git/hooks`)
+- brace/env/command expansion
+
+## 8. Operation 의미론 요약
+
+평가 순서:
+
+1. normalized virtual path를 만든다.
+2. mount-root exclusion과 visibility를 평가한다.
+3. hidden이면 즉시 `ENOENT`다.
+4. bridge-visible ancestor mutation이면 즉시 `EROFS`다.
+5. 그 외 visible path에 대해 mutability를 평가한다.
+6. readonly이면 `EROFS`, writable이면 host filesystem으로 위임한다.
+
+멀티패스 보충 규칙:
+
+- `rename`, `link`, `symlink`, `copy_file_range`는 관련 source/target/parent 전체를 visibility와 mutability 기준으로 본다.
+- 하나라도 hidden이면 결과는 `ENOENT`다.
+- hidden이 없고 write-requiring coordinate 중 하나라도 readonly 또는 bridge-visible ancestor mutation이면 `EROFS`다.
+- 그 외에는 host errno를 최대한 보존한다.
+
+## 9. Canonical CLI / config 계약
+
+```text
+screenfs <source-root> <mount-root> \
+  [--config <path>] \
+  [--visibility-default visible|hidden] \
+  [--hidden <rule> ...] \
+  [--visible <rule> ...] \
+  [--mutability-default writable|readonly] \
+  [--readonly <rule> ...] \
+  [--writable <rule> ...]
+```
+
+Canonical config shape:
+
+```yaml
+visibility:
+  default: visible | hidden
+  hidden: []
+  visible: []
+
+mutability:
+  default: writable | readonly
+  readonly: []
+  writable: []
+```
+
+CLI/config semantics:
+
+- CLI axis option이 하나라도 있으면 해당 축의 config block 전체를 대체한다.
+- explicit default가 없으면 visibility 기본값은 `visible`, mutability 기본값은 `writable`로 읽는다.
+- 같은 축의 more-specific override가 덜 구체적인 rule보다 우선한다.
+- 현재 계약에는 제거된 예전 family/flag surface를 위한 compatibility alias나 legacy shim이 없다.
 
 ## 10. 성능 및 메모리 요구사항
 
@@ -228,113 +261,16 @@ fallocate
 - `readdirplus` 구현
 - inode/path cache
 - file handle 재사용
-- hidden matcher 빠른 처리
-- glob rule 증가 시 성능 저하 최소화
+- visibility/mutability matcher 빠른 처리
+- rule 증가 시 성능 저하 최소화
 - visible file data path는 최대한 underlying filesystem으로 pass-through
+- bridge-visible reachability 판정은 startup에 구축한 bridge ancestor index 또는 동등한 bounded/cacheable 구조를 사용해야 하며 hot path에서 unbounded whole-root recursive scan을 요구해서는 안 됨
+- dynamic glob visible rule의 bridge-visible ancestor index는 mount-start snapshot이며, 외부 backing-tree 변경으로 새 visible descendant가 생겨도 remount 전에는 previously unreachable hidden ancestor를 새로 노출하지 않음
+- raw symlink target이 lexical virtual visibility 기준으로 fully visible하지만 host resolution에서 `source_root` 밖으로 escape하면 `readlink`는 raw target을 반환할 수 있고, dereference/open/access는 confinement 단계에서 `ENOENT`로 실패해야 함
+- live mount smoke와 performance smoke는 bridge-visible reachability/latency 계약의 계속된 증거여야 함
 - memory footprint는 장시간 실행에도 과도하게 증가하지 않아야 함
 
-## 11. CLI 예시
-
-기본 hide 예시:
-
-```bash
-screenfs / /tmp/screenfs-root \
-  --hide /home/spi-ca/.ssh \
-  --hide /home/spi-ca/.aws \
-  --hide /home/spi-ca/.pi/agent/auth.json \
-  --hide '/home/spi-ca/.pi/agent/mcp-oauth' \
-  --hide '**/.env' \
-  --hide '**/.env.*' \
-  --hide '**/*.pem' \
-  --hide '**/*.key'
-```
-
-Current canonical mutability CLI contract:
-
-```text
-screenfs <source-root> <mount-root> \
-  [--config <path>] \
-  [--hide <rule> ...] \
-  [--policy-family selective-readonly|readonly-root-allowwrite] \
-  [--readonly-rule <rule> ...] \
-  [--allow-write <rule> ...]
-```
-
-Current CLI semantics:
-
-- `--config <path>`는 current config contract의 `mutability` block source를 제공한다.
-- `--policy-family selective-readonly|readonly-root-allowwrite`는 mount당 하나의 mutability policy family를 명시한다.
-- `--readonly-rule`는 `selective-readonly` family의 primary readonly rule이고, `readonly-root-allowwrite` family에서는 더 구체적인 secondary re-block rule이다.
-- `--allow-write`는 `readonly-root-allowwrite` family의 primary writable carve-out rule이고, `selective-readonly` family에서는 더 구체적인 secondary carve-out rule이다.
-- canonical contract는 explicit family/rule surface만 사용한다. whole-mount readonly shorthand는 제공하지 않는다.
-- family 선택 추론 규칙:
-  - CLI mutability option이 하나라도 있으면 CLI가 family를 결정하고 config `mutability` block 전체를 대체한다.
-  - explicit `--policy-family`가 있으면 그 값을 사용한다.
-  - explicit family가 없고 `--allow-write`만 있으면 family=`readonly-root-allowwrite`로 본다.
-  - explicit family가 없고 `--readonly-rule`만 있거나 mutability rule이 없으면 family=`selective-readonly`로 본다.
-  - CLI mutability option이 없고 config `mutability.family`가 있으면 그 값을 사용한다.
-  - CLI mutability option도 없고 config `mutability.family`도 없으면 family=`selective-readonly`가 기본값이다.
-- conflict/fail-fast 규칙:
-  - `--readonly-rule`와 `--allow-write` 동시 사용은 explicit `--policy-family`가 없으면 fail-fast다.
-  - `selective-readonly`에서 secondary `--allow-write`는 less-specific ancestor `--readonly-rule` 아래에 있어야 한다.
-  - `readonly-root-allowwrite`에서 secondary `--readonly-rule`는 less-specific ancestor `--allow-write` 아래에 있어야 한다.
-  - same-specificity opposite-polarity conflict와 primary ancestor 없는 secondary rule은 fail-fast다.
-
-Current selective-readonly CLI example:
-
-```bash
-screenfs / /tmp/screenfs-root \
-  --policy-family selective-readonly \
-  --readonly-rule /etc/ssh \
-  --readonly-rule '~/.config/**/*.json' \
-  --hide /home/spi-ca/.ssh \
-  --hide '~/.env.*'
-```
-
-Current config contract:
-
-```yaml
-mutability:
-  family: selective-readonly | readonly-root-allowwrite
-  readonly_rules: []
-  allow_write: []
-```
-
-- `readonly_rules`와 `allow_write`가 모두 non-empty이면 `mutability.family`는 필수다.
-- `family=selective-readonly`이면 `allow_write`는 primary `readonly_rules` 아래 더 구체적인 carve-out rule일 때만 허용한다.
-- `family=readonly-root-allowwrite`이면 `readonly_rules`는 primary `allow_write` 아래 더 구체적인 re-block rule일 때만 허용한다.
-- config schema는 legacy `readonly: true|false` bool을 두지 않는다.
-- current config contract는 제거된 bool surface를 별도 key로 보존하지 않는다.
-- CLI mutability options가 하나라도 있으면 config의 mutability block 전체를 대체한다.
-- CLI mutability option이 없으면 config `mutability` block이 canonical source of truth다.
-- duplicate same-polarity rule은 허용하지만 semantics는 idempotent다; opposite-polarity same-specificity conflict는 fail-fast다.
-
-Current readonly-root-allowwrite CLI example:
-
-```bash
-screenfs / /tmp/screenfs-root \
-  --policy-family readonly-root-allowwrite \
-  --allow-write /tmp \
-  --allow-write /home/spi-ca/workspace \
-  --allow-write '~/.cache/**/*.lock' \
-  --hide /home/spi-ca/.ssh
-```
-
-현재 구현/검증 기준 whole-mount readonly 예시:
-
-```bash
-screenfs / /tmp/screenfs-root \
-  --policy-family readonly-root-allowwrite \
-  --hide /home/spi-ca/.ssh
-```
-
-이후:
-
-```bash
-chroot /tmp/screenfs-root /bin/bash
-```
-
-## 12. 현재 프로젝트 상태
+## 11. 현재 프로젝트 상태와 archival note
 
 프로젝트 경로:
 
@@ -342,19 +278,7 @@ chroot /tmp/screenfs-root /bin/bash
 /home/spi-ca/Codebase/screenfs
 ```
 
-현재 반영된 구현/검증 상태 요약:
-
-- Rust 모듈 구현: `cli`, `config`, `errors`, `path`, `matcher`, `fs`
-- CLI/config surface: `<source-root> <mount-root>`, 반복 `--hide`, 반복 `--readonly-rule`, `--policy-family`, 반복 `--allow-write`, `--config`, YAML `mutability` block이 구현돼 있다.
-- mutability family resolution: `selective-readonly`/`readonly-root-allowwrite`, one-family-per-mount, CLI-over-config precedence, CLI 부재 시 config source-of-truth, 둘 다 없을 때 `selective-readonly` 기본값이 구현돼 있다.
-- hide matcher: virtual root 기준 absolute exact rule, relative/`~` exact rule rebasing, directory prefix hiding, prefix 없는 limited glob, absolute/relative/`~` prefixed limited glob
-- hidden/readonly guard: hidden path는 `ENOENT`, rule-matched visible mutation은 `EROFS`, hidden precedence는 selective/carve-out family 모두에서 유지된다.
-- current `--readonly-rule`와 `--allow-write` surface는 hide와 같은 normalization contract를 재사용하고, nested override에서는 most-specific-match-wins와 primary/secondary ancestor validation을 적용한다. unit tests가 source-level option B evidence를 제공하며, existing repo-local family-aware live smoke transcript는 pre-option-B baseline으로 분리해 읽는다.
-- 기본 FUSE 조회 경로: `lookup`, `getattr`, `open`, `read`, `readdir`, `readdirplus`, `readlink`, `access`, `statfs`
-- mount-free unit test coverage includes relative/`~` exact·prefixed-glob normalization, direct-child basename-prefix/suffix glob normalization, descendant-subtree glob normalization/specificity regressions, hide/current mutability rule shared semantics, `selective_readonly_rules_are_scoped_to_matching_paths`, option B nested allow-write/re-block and fail-fast cases, `readonly_root_allowwrite_match_non_match_and_hidden_precedence`, `readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation`, `readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent`, config mutability load/override를 포함한다. latest recorded full-suite cargo pass evidence는 current descendant-subtree regression tree 기준 `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features`, `cargo test --all-targets --all-features`(88 tests 통과)다. repo-local family-aware live smoke transcript는 pre-option-B runtime baseline으로 분리한다.
-- live FUSE smoke: `/dev/fuse`가 있는 환경에서 repo-local family-aware fixture mount, current `source-root=/` whole-root carve-out mount, current `source-root=/` whole-mount readonly mount가 성공한 documented evidence가 있다. pre-removal whole-root/chroot transcript는 archival artifact로 유지한다. 현재 세션의 fresh 상태 표기는 `docs/operations.md`를 source of truth로 따른다.
-- user-namespace chroot smoke: current carve-out whole-root transcript와 current whole-mount readonly transcript에서 `unshare -UrR <mount> /bin/bash --noprofile --norc ...` allow/block smoke를 확인했다. pre-removal transcript의 `unshare -UrR` smoke는 archival evidence로 유지한다. 현재 세션의 fresh 상태 표기는 `docs/operations.md`를 source of truth로 따른다.
-- 아직 미주장 범위: selective-readonly family의 whole-root/chroot live FUSE smoke, production-ready 전체 FUSE 완성, privileged supervisor end-to-end 운영 검증, `/dev/null` 등 device-node namespace 구성
+현재 source of truth는 two-axis surface다. 일부 transcript filename과 historical note에는 예전 naming이 남아 있을 수 있지만, 그것들은 archival context로만 읽는다.
 
 확인된 환경:
 

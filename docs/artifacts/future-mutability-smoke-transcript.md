@@ -1,4 +1,6 @@
-# Future mutability smoke transcript
+# Legacy family-era mutability smoke transcript
+
+Historical note: this transcript uses legacy family-era CLI/log vocabulary. Keep the command output as archival smoke evidence only; current policy contract is the visibility/mutability two-axis model and does not support these legacy options as aliases.
 
 - Captured: 2026-06-10T23:15:44+09:00
 - Working directory: /home/spi-ca/Codebase/screenfs

@@ -4,8 +4,8 @@ flowchart LR
     lexical --> link{"Visible symlink entry\nbeing accessed directly?"}
     link -- no --> relative["to_source_relative_path()"]
     link -- yes --> target["resolve_symlink_target()\nlexically from parent"]
-    target --> targetCheck{"Target hidden?"}
-    targetCheck -- yes --> enoent["ENOENT"]
-    targetCheck -- no --> relative
+    target --> targetCheck{"Target fully visible?"}
+    targetCheck -- no --> enoent["ENOENT\nhidden or bridge-visible target"]
+    targetCheck -- yes --> relative
     relative --> confined["resolve_host_path() / open_confined()\nnever escape source_root"]
     confined --> host["Host path access"]
