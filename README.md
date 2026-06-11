@@ -37,6 +37,8 @@ real / -> screenfs mount root -> sandbox/chroot consumer
 - 아키텍처 요약: [`docs/architecture.md`](docs/architecture.md)
 - 운영/검증 evidence: [`docs/operations.md`](docs/operations.md)
 
+문서가 설명하는 two-axis surface와 bare slashless cwd-anchor semantics는 현재 구현 계약이다. bare slashless `./<pattern>` direct-child 해석의 최신 source/live evidence는 [`docs/operations.md`](docs/operations.md)와 [`docs/artifacts/current-bare-basename-glob-smoke-transcript.md`](docs/artifacts/current-bare-basename-glob-smoke-transcript.md)에 정리되어 있다.
+
 ## CLI quick reference
 
 ```text
@@ -99,7 +101,7 @@ mutability:
 - hidden path와 fully visible이 아닌 symlink target(숨겨졌거나 bridge-visible인 target)은 mutability보다 먼저 처리되며 항상 `ENOENT`가 우선한다.
 - bridge-visible reachability는 bounded/cacheable하게 유지해야 하며 hot path에서 unbounded whole-root recursive scan에 의존하지 않아야 한다.
 - 각 축에서는 가장 구체적인 매치가 이기고, 같은 축의 반대 rule이 같은 normalized anchor/specificity에서 충돌하면 invalid configuration이다.
-- 현재 계약에는 제거된 예전 family/flag surface를 위한 compatibility alias나 shim이 없다.
+- 이 목표 계약에는 제거된 예전 family/flag surface를 위한 compatibility alias나 shim이 없다.
 
 ### Integration mapping
 
@@ -112,6 +114,10 @@ mutability:
 - `allowWrite` → `mutability.writable`
 - `denyWrite` → `mutability.readonly`
 
+bare slashless pattern(`*.pem`, `*.key`, `.env.*`, `id_*`)은 ScreenFS가 macOS sandbox-runtime matcher 전체를 재현한다는 뜻이 아니라, 그런 supervisor가 내보내는 bare basename-oriented input shape를 보존하기 위해 launch process cwd를 `source_root` 기준으로 rebase한 `./<pattern>` direct-child rule로 컴파일하는 current ScreenFS contract다. 따라서 cwd가 `source_root` 밖이면 fail-fast 해야 하고, whole-root secret coverage가 목적이면 bare form 대신 `**/*.pem`, `**/*.key`, `**/.env.*`, `/home/me/**/*.pem` 같은 explicit recursive/anchored form을 내보내는 편이 안전하다.
+
+대표 4-family glob 비교(`**/*.pem`, `./fixtures/*.pem`, `/a/*.txt`, `/a/**/*.txt`)와 `visibility.visible` bridge-visible startup 영향의 current source/live evidence는 [`docs/requirements.md`](docs/requirements.md)의 canonical table, [`docs/operations.md`](docs/operations.md)의 evidence note, [`docs/artifacts/current-four-family-glob-smoke-transcript.md`](docs/artifacts/current-four-family-glob-smoke-transcript.md)에 정리되어 있다.
+
 이 매핑은 legacy ScreenFS CLI flag로 번역하지 않고, 아래 YAML 같은 two-axis config를 생성해야 한다.
 
 ### Examples
@@ -122,7 +128,7 @@ Use a YAML config file:
 screenfs / /tmp/screenfs-root --config screenfs.yaml
 ```
 
-Hide secrets while keeping the rest of `/` visible:
+Hide secrets while keeping the rest of `/` visible. Whole-root secret patterns should use explicit recursive or anchored rules such as `**/*.pem`; bare slashless supported globs are cwd-sensitive `./<pattern>` shorthands, not whole-tree aliases:
 
 ```yaml
 visibility:
@@ -170,9 +176,18 @@ mutability:
 
 ## Evidence
 
-recorded verification/evidence의 세부 상태는 [`docs/operations.md`](docs/operations.md)를 따른다. 현재 저장소의 transcript artifact는 모두 capture-time historical record이며, 새 two-axis CLI/config surface의 live smoke baseline으로 승격하지 않는다.
+recorded verification/evidence의 세부 상태는 [`docs/operations.md`](docs/operations.md)를 따른다. 문서상 목표 계약과 recorded artifact 상태를 구분해 읽는다.
 
-Archival-only transcripts:
+Current baseline artifacts:
+
+- repo-local two-axis smoke baseline: [`docs/artifacts/current-two-axis-smoke-transcript.md`](docs/artifacts/current-two-axis-smoke-transcript.md)
+- repo-local bare slashless cwd-anchor smoke baseline: [`docs/artifacts/current-bare-basename-glob-smoke-transcript.md`](docs/artifacts/current-bare-basename-glob-smoke-transcript.md)
+- whole-root/chroot smoke baseline: [`docs/artifacts/current-whole-root-chroot-smoke-transcript.md`](docs/artifacts/current-whole-root-chroot-smoke-transcript.md)
+- default-writable smoke baseline: [`docs/artifacts/current-default-writable-smoke-transcript.md`](docs/artifacts/current-default-writable-smoke-transcript.md)
+- anchored dynamic visible-glob whole-root startup baseline: [`docs/artifacts/current-dynamic-whole-root-smoke-transcript.md`](docs/artifacts/current-dynamic-whole-root-smoke-transcript.md)
+- canonical 4-family glob repo-local smoke baseline: [`docs/artifacts/current-four-family-glob-smoke-transcript.md`](docs/artifacts/current-four-family-glob-smoke-transcript.md)
+
+Historical legacy artifacts:
 
 - whole-root smoke transcript: [`docs/artifacts/whole-root-family-smoke-transcript.md`](docs/artifacts/whole-root-family-smoke-transcript.md)
 - whole-mount readonly smoke transcript: [`docs/artifacts/whole-mount-readonly-smoke-transcript.md`](docs/artifacts/whole-mount-readonly-smoke-transcript.md)

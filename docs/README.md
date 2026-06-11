@@ -1,6 +1,6 @@
 # Documentation
 
-이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 현재 정책 모델은 `visibility`/`mutability` 두 축이다. 빠른 진입점은 아래 순서를 권장한다.
+이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 현재 정책 모델은 `visibility`/`mutability` 두 축이며, bare slashless cwd-anchor/direct-child semantics의 최신 source/live evidence는 `operations.md`와 `artifacts/current-bare-basename-glob-smoke-transcript.md`에 정리되어 있다. 빠른 진입점은 아래 순서를 권장한다.
 
 ## Core documents
 
@@ -32,7 +32,7 @@ mutability:
 - `visibility.visible` descendant에 도달시키기 위해 필요한 ancestor directory는 bridge-visible이 될 수 있다.
 - `mutability.readonly`와 `mutability.writable`은 visible path mutation만 조절한다.
 - hidden 판정은 mutability보다 항상 먼저 적용된다.
-- 현재 계약에는 예전 family/flag surface를 위한 compatibility alias나 shim이 없다.
+- 이 목표 계약에는 예전 family/flag surface를 위한 compatibility alias나 shim이 없다.
 
 ## Integration mapping summary
 
@@ -45,9 +45,18 @@ mutability:
 
 ## Evidence artifacts
 
-아래 transcript artifact는 모두 capture-time historical record다. current contract reference는 루트 [README](../README.md), [requirements.md](requirements.md), [design.md](design.md), [operations.md](operations.md)를 따른다. 새 two-axis surface의 live smoke transcript는 아직 별도 current baseline으로 승격하지 않는다.
+Transcript artifact는 상태별로 나뉜다. 목표 계약 reference와 baseline 분류의 source of truth는 루트 [README](../README.md)와 [operations.md](operations.md)다.
 
-Archival-only:
+Current baseline:
+
+- [Current two-axis repo-local smoke](artifacts/current-two-axis-smoke-transcript.md)
+- [Current bare basename glob smoke](artifacts/current-bare-basename-glob-smoke-transcript.md)
+- [Current whole-root/chroot smoke](artifacts/current-whole-root-chroot-smoke-transcript.md)
+- [Current default-writable smoke](artifacts/current-default-writable-smoke-transcript.md)
+- [Current dynamic visible-glob whole-root startup smoke](artifacts/current-dynamic-whole-root-smoke-transcript.md)
+- [Current canonical 4-family glob smoke](artifacts/current-four-family-glob-smoke-transcript.md)
+
+Historical legacy:
 
 - [Whole-root smoke transcript](artifacts/whole-root-family-smoke-transcript.md) — historical whole-root carve-out baseline
 - [Whole-mount readonly smoke transcript](artifacts/whole-mount-readonly-smoke-transcript.md) — historical whole-mount readonly baseline

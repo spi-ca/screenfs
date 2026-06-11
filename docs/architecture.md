@@ -1,9 +1,9 @@
 # ScreenFS 아키텍처 개요
 
-이 문서는 현재 계획서(`README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`)와 현재 코드(`src/*.rs`)를 함께 기준으로 정리한 아키텍처 요약이다.
+이 문서는 현재 계획서(`README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`)와 현재 코드(`src/*.rs`)를 함께 기준으로 정리한 아키텍처 요약이다. bare slashless glob의 cwd-anchored `./<pattern>` direct-child semantics는 현재 Rust 구현·테스트·fresh smoke evidence가 갖춰진 contract이며, 최신 baseline은 `docs/artifacts/current-bare-basename-glob-smoke-transcript.md`에 기록돼 있다.
 
 - source of truth: 구현 코드는 `src/`, 계약과 목표는 `README.md`, `docs/requirements.md`, `docs/design.md`
-- 이 문서는 current contract를 `visibility.*` / `mutability.*` 축으로 설명한다.
+- 이 문서는 승인된 목표 계약을 `visibility.*` / `mutability.*` 축으로 설명한다.
 - transcript filename에 historical label이 남아 있더라도 current CLI/config reference는 두 축 문서를 따른다.
 - 런타임 전제: non-root + `fusermount3`, `FUSE_OVER_IO_URING` 필수, 협상 실패 시 fallback 없이 fail-fast
 - 통합 경계: mount owner와 동일 host uid 접근이 기본 전제이며, chroot 권한 모델과 `/proc`·`/sys`·`/dev`·`/run` native semantics는 상위 supervisor 책임이다
@@ -104,9 +104,10 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 - `.` 제거, 중복 `/` 정리, `..`는 virtual `/` 위로 못 올라감
 - 현재 구현의 shared rule grammar는 hidden/visible/readonly/writable 전체에서 같은 normalization contract를 재사용한다.
-- 현재 구현의 supported glob은 prefix 없는 `**/<basename>` / `**/*.<suffix>` / `**/<basename-prefix>*`, recursive optional normalized prefix가 붙은 limited glob, normalized-prefix direct-child basename-prefix/suffix form, recursive literal descendant-subtree form까지 포함한다.
+- current shared grammar의 supported glob은 prefix 없는 `**/<basename>` / `**/*.<suffix>` / `**/<basename-prefix>*`, 그 shorthand인 bare slashless glob(`*.pem`, `*.key`, `.env.*`, `id_*`), recursive optional normalized prefix가 붙은 limited glob, normalized-prefix direct-child basename-prefix/suffix form, recursive literal descendant-subtree form까지 포함한다. bare slashless glob `<pattern>`은 launch process cwd를 `source_root` relative normalized prefix로 rebase한 `./<pattern>` direct-child shorthand이며, 같은 cwd anchor 바로 아래 child basename과 matched child descendants에만 적용된다.
+- canonical 4-family 비교(`**/*.pem`, `./fixtures/*.pem`, `/a/*.txt`, `/a/**/*.txt`)는 `docs/requirements.md`의 table을 따른다. 아키텍처적으로 중요한 차이는 prefixless `**/*.pem`만 whole-tree recursive family라는 점이고, `./fixtures/*.pem`와 `/a/*.txt`는 direct-child anchored family지만 current bridge-index walk는 startup에서 anchor 아래를 재귀 탐색할 수 있다는 점이다. `/a/**/*.txt`는 같은 `/a` anchor라도 더 넓은 recursive discovery를 요구한다.
 - relative path와 leading `~`, `~/...` prefix는 host path로 해석된 뒤 `source_root` 내부일 때만 virtual absolute path 또는 virtual glob prefix로 rebase된다.
-- `HOME` 없음, `source_root` 밖으로 확장됨, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, bare suffix `*.pem`)은 fail-fast/unsupported로 남는다.
+- `HOME` 없음, relative/prefixless form의 launch cwd가 `source_root` 밖, `source_root` 밖으로 확장됨, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, one-sided subset 밖의 bare wildcard `*`, `a*b`, `*secret*`)은 fail-fast/unsupported로 남는다.
 - descendant-subtree broader forms(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`, trailing `/**` 없는 `**/.git/hooks`)도 부분 해석 없이 fail-fast다.
 - descendant-subtree carve-out(`**/.git/hooks/**` 등)이 visible subtree를 열면 그 경로상의 모든 existing ancestor directory가 bridge-visible이어야 traversal/listing이 성립한다.
 - symlink target은 lexical virtual target으로 재해석해 fully-visible 여부를 다시 검사하며, hidden 또는 bridge-visible target은 `readlink`/dereference에서 `ENOENT`다.
@@ -141,7 +142,7 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 - nested `mutability.readonly` re-block가 다시 `EROFS`를 만드는가
 - hidden-before-mutability precedence가 유지되는가
 - unsupported glob이 fail-fast 하는가
-- same-specificity conflict가 fail-fast 하는가
+- `*.pem`가 current launch cwd anchor에서 `./*.pem`과 동등하게 normalize되고, `**/*.pem`과는 same-specificity equivalent가 아니라 containment/nested-override 관계로 처리되는가
 - `source-root=/`에서 `/bin`, `/usr`, `/etc` 같은 whole-view 경로가 실제로 보이는가
 - mount-root recursion exclusion이 listing/lookup에 다시 나타나지 않는가
 - symlink entry가 resolved virtual target이 fully visible할 때만 읽히고 bridge-visible target이면 `ENOENT`인가

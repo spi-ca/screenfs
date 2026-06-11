@@ -93,6 +93,9 @@ exit_status=1
 ```
 
 ## Fail-fast checks
+
+Historical note: this transcript was captured before bare slashless glob support. The `--hidden '*.pem'` failure below is superseded for bare-slashless semantics; use the refreshed current baseline at `docs/artifacts/current-bare-basename-glob-smoke-transcript.md` instead. The earlier bare-basename capture previously stored under that filename has been overwritten with fresh current evidence. The `/same` same-specificity exact-path conflict and unprovable overlap checks below remain current evidence.
+
 ```text
 $ target/debug/screenfs /tmp/screenfs-axis-smoke-lAVClR/src /tmp/screenfs-axis-smoke-lAVClR/bad-mnt --hidden '*.pem'
 Error: Custom { kind: InvalidInput, error: "invalid hidden pattern: unsupported glob: *.pem" }
