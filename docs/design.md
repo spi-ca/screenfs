@@ -4,7 +4,7 @@
 
 아키텍처 시각화 요약은 [docs/architecture.md](architecture.md)에 정리되어 있다. 다이어그램 원본과 공용 렌더링 규칙은 [docs/diagrams/README.md](diagrams/README.md)를 따른다. `docs/diagrams/*.png`는 `docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`을 함께 사용하고 Mermaid CLI `--scale 2`로 렌더링하는 것을 기준으로 읽는다.
 
-> Implementation status note (2026-06): v1 core modules `cli`, `config`, `errors`, `path`, `matcher`, and `fs` now include the family-aware mutability surface. Current source implements `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` loading, one-family-per-mount validation, CLI-over-config precedence, shared hide/readonly/allow-write normalization, hidden-before-`EROFS` precedence, and affected-coordinate-wide writability checks for path-only and multi-path mutation. Fresh mount-free verification also covers visible-path `access` pass-through, symlink-target guards on `lookup`/`open`/`readlink`, whole-mount readonly via `readonly-root-allowwrite` empty carve-out, xattr/fallocate guards, source-root symlink escape rejection, mount-root recursion exclusion, and `copy_file_range` source/destination handling. Fresh current-session verification includes `cargo test --all-targets --all-features` passing 73 tests plus repo-local real-FUSE family-aware smoke for `selective-readonly`, `readonly-root-allowwrite`, config-backed family selection, relative hide exact path, relative/`~` prefixed-glob rules, and conflict fail-fast stderr (`docs/artifacts/future-mutability-smoke-transcript.md`). Fresh current-session whole-root/chroot smoke also exists for the current CLI surface via `readonly-root-allowwrite --allow-write /tmp` (`docs/artifacts/whole-root-family-smoke-transcript.md`) and `readonly-root-allowwrite` with empty `allow_write` (`docs/artifacts/whole-mount-readonly-smoke-transcript.md`). Pre-removal whole-root/chroot smoke remains a separate archival artifact (`docs/artifacts/fuse-smoke-transcript.md`). This remains partial implementation progress only; the design requirements below still define the remaining v1 contract and any remaining family-by-family whole-root/chroot matrix gap.
+> Implementation status note (2026-06): v1 core modules `cli`, `config`, `errors`, `path`, `matcher`, and `fs` now include the family-aware mutability surface plus option B nested override logic. Current source implements `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` loading, one-family-per-mount validation, CLI-over-config precedence, shared hide/readonly/allow-write normalization, hidden-before-`EROFS` precedence, most-specific nested mutability, and affected-coordinate-wide writability checks for path-only and multi-path mutation. Existing mount-free coverage targets visible-path `access` pass-through, symlink-target guards on `lookup`/`open`/`readlink`, whole-mount readonly via `readonly-root-allowwrite` empty carve-out, xattr/fallocate guards, source-root symlink escape rejection, mount-root recursion exclusion, `copy_file_range` source/destination handling, and option B nested allow-write/re-block validation. Current-session cargo verification includes `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features`, and `cargo test --all-targets --all-features` passing with 78 tests. Existing repo-local real-FUSE family-aware smoke (`docs/artifacts/future-mutability-smoke-transcript.md`) is pre-option-B baseline evidence; option B nested override live smoke still needs a fresh artifact. Whole-root/chroot baseline smoke exists for `readonly-root-allowwrite --allow-write /tmp` (`docs/artifacts/whole-root-family-smoke-transcript.md`) and `readonly-root-allowwrite` with empty `allow_write` (`docs/artifacts/whole-mount-readonly-smoke-transcript.md`). Pre-removal whole-root/chroot smoke remains a separate archival artifact (`docs/artifacts/fuse-smoke-transcript.md`). This remains partial implementation progress only; the design requirements below still define the remaining v1 contract and any remaining family-by-family whole-root/chroot matrix gap.
 
 ## 한눈에 보기
 
@@ -318,7 +318,7 @@ Directory iteration:
 
 이 표는 구현자가 가장 자주 참고해야 하는 의미론 요약이다.
 
-아래 표의 **목표 계약**은 hide와 별개인 family-aware selective readonly semantics를 기준으로 읽는다. 현재 소스는 `selective-readonly`와 `readonly-root-allowwrite` evaluator를 mount-free code/tests로 구현했다. whole-mount readonly semantics가 필요하면 `readonly-root-allowwrite` family를 empty `allow_write`와 함께 사용한다. repo-local family-aware live smoke, current whole-root/chroot family-aware smoke, archival pre-removal transcript는 서로 다른 artifact로 관리한다.
+아래 표의 **목표 계약**은 hide와 별개인 family-aware selective readonly semantics를 기준으로 읽는다. 현재 소스는 `selective-readonly`와 `readonly-root-allowwrite` evaluator를 mount-free code/tests로 구현했다. whole-mount readonly semantics가 필요하면 `readonly-root-allowwrite` family를 empty `allow_write`와 함께 사용한다. pre-option-B repo-local family-aware live smoke, readonly-root-allowwrite whole-root/chroot carve-out baseline smoke, archival pre-removal transcript는 서로 다른 artifact로 관리한다.
 
 ### 9.1 조회 / 탐색 연산
 
@@ -390,7 +390,7 @@ Directory iteration:
 **현재 목표 계약과 live evidence를 구분해서 읽을 점**
 
 - 현재 목표 계약은 writable-by-default + path-scoped selective readonly deny rules다.
-- `readonly-root-allowwrite`는 현재 소스/마운트-프리 테스트와 fresh repo-local/whole-root FUSE smoke transcript에 반영된 alternate family다. pre-removal historical transcript는 archival evidence로만 분리해 읽는다.
+- `readonly-root-allowwrite`는 현재 소스/마운트-프리 테스트와 existing repo-local/whole-root FUSE smoke transcript에 반영된 alternate family다. repo-local transcript는 option B 도입 전 baseline이고, pre-removal historical transcript는 archival evidence로만 분리해 읽는다.
 - 따라서 현재 문서의 selective readonly 표와 checklist를 family별 live smoke 완료로 확장 해석하면 안 된다.
 
 ### 10.1 Current family-aware implementation hotspots
@@ -590,7 +590,7 @@ Implementation priorities:
 
 이 절은 사용자에게 노출되는 인터페이스를 문서와 구현 사이에서 일치시키기 위한 기준이다.
 
-목표 계약에서 mutability policy는 hide와 별도의 surface여야 하며, current canonical family contract는 아래처럼 정리된다. family-preserving nested override를 검토하는 future option B proposal과 candidate canonical wording은 `docs/nested-mutability-option-b.md`에 따로 정리하고, 이 절의 current canonical contract와는 분리해서 읽는다.
+목표 계약에서 mutability policy는 hide와 별도의 surface여야 하며, current canonical family contract는 아래처럼 정리된다. family-preserving nested override(option B)는 one-family-per-mount를 유지한 채 현재 canonical contract에 반영됐고, 설계 배경과 rationale은 `docs/nested-mutability-option-b.md`에 따로 남긴다.
 
 Current canonical CLI shape:
 
@@ -606,21 +606,21 @@ screenfs <source-root> <mount-root> \
 Current CLI contract:
 
 - mount당 하나의 mutability policy family만 선택한다.
-- `--readonly-rule`는 `selective-readonly` family 전용이다.
-- `--allow-write`는 `readonly-root-allowwrite` family 전용이다.
+- `--readonly-rule`는 `selective-readonly` family의 primary readonly rule이고, `readonly-root-allowwrite` family에서는 더 구체적인 secondary re-block rule이다.
+- `--allow-write`는 `readonly-root-allowwrite` family의 primary writable carve-out rule이고, `selective-readonly` family에서는 더 구체적인 secondary carve-out rule이다.
 - canonical contract는 explicit family/rule surface만 사용한다. whole-mount readonly shorthand는 제공하지 않는다.
 - family inference rules:
-  - CLI mutability option이 하나라도 있으면 CLI가 family를 결정한다.
+  - CLI mutability option이 하나라도 있으면 CLI가 family를 결정하고 config `mutability` block 전체를 대체한다.
   - explicit `--policy-family`가 있으면 그 값을 사용한다.
-  - explicit family가 없고 `--allow-write`가 있으면 family=`readonly-root-allowwrite`로 본다.
-  - explicit family가 없고 `--readonly-rule`가 있으면 family=`selective-readonly`로 본다.
+  - explicit family가 없고 `--allow-write`만 있으면 family=`readonly-root-allowwrite`로 본다.
+  - explicit family가 없고 `--readonly-rule`만 있거나 mutability rule이 없으면 family=`selective-readonly`로 본다.
   - CLI mutability option이 없고 config `mutability.family`가 있으면 그 값을 사용한다.
   - CLI mutability option도 없고 config `mutability.family`도 없으면 family=`selective-readonly`가 기본값이다.
 - conflict/fail-fast rules:
-  - `--readonly-rule`와 `--allow-write` 동시 사용 금지
-  - `--policy-family selective-readonly`와 `--allow-write` 조합 금지
-  - `--policy-family readonly-root-allowwrite`와 `--readonly-rule` 조합 금지
-  - explicit family와 그 family 전용이 아닌 mutability rule 조합은 fail-fast다.
+  - `--readonly-rule`와 `--allow-write` 동시 사용은 explicit `--policy-family`가 없으면 fail-fast다.
+  - `selective-readonly`에서 secondary `--allow-write`는 less-specific ancestor `--readonly-rule` 아래에 있어야 한다.
+  - `readonly-root-allowwrite`에서 secondary `--readonly-rule`는 less-specific ancestor `--allow-write` 아래에 있어야 한다.
+  - same-specificity opposite-polarity conflict와 primary ancestor 없는 secondary rule은 fail-fast다.
 - exact path inputs now accept absolute paths plus relative paths and leading `~` / `~/...` under the documented source-root rebasing contract.
 - current implementation/source-test evidence covers recursive basename/suffix/basename-prefix tails plus normalized-prefix direct-child basename-prefix/suffix forms such as `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, and `/home/<user>/*.pem`.
 - unprefixed bare suffix `*.pem` remains unsupported even after the direct-child suffix expansion.
@@ -638,12 +638,13 @@ mutability:
   allow_write: []
 ```
 
-- `family=selective-readonly`이면 `allow_write`는 비어 있어야 한다.
-- `family=readonly-root-allowwrite`이면 `readonly_rules`는 비어 있어야 한다.
+- `readonly_rules`와 `allow_write`가 모두 non-empty이면 `mutability.family`는 필수다.
+- `family=selective-readonly`이면 `allow_write`는 primary `readonly_rules` 아래 더 구체적인 carve-out rule일 때만 허용한다.
+- `family=readonly-root-allowwrite`이면 `readonly_rules`는 primary `allow_write` 아래 더 구체적인 re-block rule일 때만 허용한다.
 - config schema는 legacy `readonly: true|false` bool을 두지 않는다.
 - CLI mutability options가 하나라도 있으면 config의 mutability block 전체를 대체한다.
 - CLI mutability option이 없으면 config `mutability` block이 canonical source of truth다.
-- duplicate rule은 허용하지만 semantics는 idempotent다.
+- duplicate same-polarity rule은 허용하지만 semantics는 idempotent다; opposite-polarity same-specificity conflict는 fail-fast다.
 
 Current implementation snapshot:
 
@@ -742,8 +743,8 @@ Validation is split into unit, integration, mount smoke, and system smoke levels
 - `chroot` smoke only when the required privilege/user namespace model is available
 - bash startup and dynamic linker/shared library access through mounted view
 - `/proc`, `/sys`, `/dev`, `/run` policy smoke confirms ordinary path-only behavior and documents supervisor-owned native semantics
-- once selective readonly CLI/config is defined, add exact path/pattern smoke cases and document current fallback coverage separately
-- when exact-path normalization lands, add explicit system smoke for `HOME`-unset fail-fast, `source_root`-outside fail-fast, and `~user` unsupported errors
+- current selective-readonly CLI/config and option B nested override are implemented in source; smoke exact path/pattern cases and nested carve-out/re-block cases as separate current-surface evidence.
+- exact-path and supported glob normalization is implemented; add explicit system smoke for remaining live-evidence gaps such as already-absolute cases, `HOME`-unset fail-fast, `source_root`-outside fail-fast, `~user` unsupported errors, and option B nested override success/fail-fast cases.
 - large traversal with many hide rules while checking the v1 latency, RSS, and fd-count targets
 - daemon shutdown and `fusermount3 -u` cleanup behavior
 

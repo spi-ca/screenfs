@@ -61,8 +61,8 @@ screenfs <source-root> <mount-root> \
 - `--config <path>`: YAML config를 로드한다. CLI mutability option을 하나라도 주면 config의 `mutability` block 전체를 대체한다.
 - `--hide <pattern>`: 경로나 지원되는 glob을 숨긴다. 반복 가능하다. hidden path는 `ENOENT`처럼 보인다.
 - `--policy-family <selective-readonly|readonly-root-allowwrite>`: mount당 하나의 mutability family를 선택한다.
-- `--readonly-rule <pattern>`: `selective-readonly` family에서 매치된 visible path를 `EROFS`로 만든다. 반복 가능하다.
-- `--allow-write <pattern>`: `readonly-root-allowwrite` family에서 매치된 path에만 쓰기를 허용한다. 반복 가능하다.
+- `--readonly-rule <pattern>`: `selective-readonly` family에서는 primary read-only rule이고, `readonly-root-allowwrite` family에서는 더 구체적인 nested re-block rule이다. 반복 가능하다.
+- `--allow-write <pattern>`: `readonly-root-allowwrite` family에서는 primary write carve-out rule이고, `selective-readonly` family에서는 더 구체적인 nested carve-out rule이다. 반복 가능하다.
 
 ### Mutability families
 
@@ -72,8 +72,8 @@ screenfs <source-root> <mount-root> \
 ### Rules and precedence
 
 - hidden path는 mutability rule보다 먼저 적용되며 계속 `ENOENT`가 우선한다.
-- `--readonly-rule`와 `--allow-write`는 같은 mount에서 함께 쓸 수 없다.
-- `--policy-family`를 생략하면 `--allow-write`가 있을 때만 `readonly-root-allowwrite`로 추론하고, 그 외에는 `selective-readonly`가 기본이다.
+- `--readonly-rule`와 `--allow-write`를 함께 쓰는 nested override 입력은 explicit `--policy-family`와 valid primary/secondary ancestor 관계가 필요하다.
+- `--policy-family`를 생략하면 `--allow-write`만 있을 때 `readonly-root-allowwrite`로 추론하고, 그 외에는 `selective-readonly`가 기본이다.
 - CLI mutability option이 없으면 config `mutability.family`가 family source of truth다.
 
 ### Examples
@@ -112,17 +112,18 @@ screenfs / /tmp/screenfs-root --config screenfs.yaml
 
 짧게 보면 현재 canonical mutability contract는 다음과 같다.
 
-- `selective-readonly`: 기본 writable, `--readonly-rule` 매치 path/pattern만 `EROFS`
-- `readonly-root-allowwrite`: 기본 readonly, `--allow-write` 매치 coordinate만 ScreenFS 차원의 `EROFS` 해제
+- `selective-readonly`: 기본 writable, `--readonly-rule` 매치 path/pattern은 `EROFS`; 더 구체적인 descendant `--allow-write` rule은 해당 subtree를 다시 writable로 carve out할 수 있다.
+- `readonly-root-allowwrite`: 기본 readonly, `--allow-write` 매치 coordinate는 ScreenFS 차원의 `EROFS` 해제; 더 구체적인 descendant `--readonly-rule` rule은 해당 subtree를 다시 `EROFS`로 re-block할 수 있다.
 - 한 mount는 정확히 하나의 family만 선택한다.
-- CLI/config contract는 explicit family surface만 사용한다.
+- hidden `ENOENT`가 항상 mutability보다 우선하고, visible mutability는 most-specific-match-wins로 판정한다.
+- opposite-polarity rule을 함께 쓰려면 explicit family, less-specific primary ancestor, no same-specificity conflict 조건을 만족해야 한다.
 - config는 `mutability.family`, `mutability.readonly_rules`, `mutability.allow_write`를 사용한다.
 - CLI mutability option이 하나라도 있으면 config `mutability` block 전체를 대체한다.
 - whole-mount readonly semantics는 `readonly-root-allowwrite` + empty `allow_write`로 표현한다.
 
 검증/증거 문서는 역할별로 나뉘어 있다.
 
-- repo-local family-aware smoke: `docs/artifacts/future-mutability-smoke-transcript.md`
+- pre-option-B repo-local family-aware smoke: `docs/artifacts/future-mutability-smoke-transcript.md`
 - current whole-root carve-out smoke: `docs/artifacts/whole-root-family-smoke-transcript.md`
 - current whole-mount readonly smoke: `docs/artifacts/whole-mount-readonly-smoke-transcript.md`
 - pre-removal archival transcript: `docs/artifacts/fuse-smoke-transcript.md`
@@ -199,7 +200,7 @@ cat hidden-path
 
 ### Selective readonly rule
 
-hide rule과 별개로 visible path의 mutability policy를 제어하는 selective readonly rule을 지원한다. 현재 소스, mount-free unit test, family-aware FUSE smoke transcript가 `selective-readonly` family의 `--readonly-rule` 동작, hidden `ENOENT` precedence, symlink/write-intent handling, non-match visible path writable behavior를 함께 검증한다. nested override 검토안은 [docs/nested-mutability-option-b.md](docs/nested-mutability-option-b.md)에 별도로 두고, 현재 canonical contract와는 분리해서 읽는다.
+hide rule과 별개로 visible path의 mutability policy를 제어하는 selective readonly rule을 지원한다. 현재 소스와 mount-free unit test가 `selective-readonly` family의 `--readonly-rule` 동작, nested `--allow-write` carve-out, hidden `ENOENT` precedence, symlink/write-intent handling, non-match visible path writable behavior를 함께 검증한다. nested override 설계 배경은 [docs/nested-mutability-option-b.md](docs/nested-mutability-option-b.md)에 남겨 둔다.
 
 현재 목표 계약(path-scoped selective readonly):
 
@@ -217,14 +218,14 @@ hide rule과 별개로 visible path의 mutability policy를 제어하는 selecti
 현재 소스와 mount-free test에 반영된 `readonly-root-allowwrite` family는 다음 계약을 따른다.
 
 - 이 family는 `pi-bash-sandbox` 같은 integration use case가 기대하는 "기본은 readonly, 일부 path만 writable" 요구를 설명하는 대표 예시일 수 있지만, `ScreenFS`의 범용성을 제한하는 전용 모드는 아니다.
-- `allowWrite` rule들은 union semantics로 합쳐지며, 하나라도 매치되면 해당 mutation coordinate는 carve-out 후보가 된다.
-- hidden path나 hidden target이 하나라도 관여하면 `allowWrite`보다 hidden `ENOENT`가 우선한다.
+- primary `allowWrite` rule들은 union semantics로 합쳐지며, 하나라도 매치되면 해당 mutation coordinate는 carve-out 후보가 된다. 더 구체적인 nested `readonly` rule은 그 후보 subtree를 다시 `EROFS`로 re-block할 수 있다.
+- hidden path나 hidden target이 하나라도 관여하면 `allowWrite`/nested `readonly`보다 hidden `ENOENT`가 우선한다.
 - mutation은 관련된 모든 write-requiring affected coordinate가 현재 family 기준으로 writable이어야만 허용된다. 예를 들어 `copy_file_range`는 destination path/parent는 writable이어야 하지만 source는 hidden/read visibility 대상이다.
 - current `allow_write`/`--allow-write` surface도 hide/current readonly와 같은 exact path + supported prefixed glob normalization contract를 재사용한다.
 - canonical contract는 legacy bool surface를 포함하지 않으며, config schema에도 별도 legacy bool을 두지 않는다.
 - 현재 소스는 정책 family 선택, shared normalization, operation-aware affected-path evaluation까지 반영한다.
 - mutability family 집합은 현재 spec에서 `selective-readonly`와 `readonly-root-allowwrite` 두 개로 닫고, future deny-like family와의 조합은 현재 spec 범위 밖으로 둔다.
-- family별 repo-local live smoke evidence는 `docs/artifacts/future-mutability-smoke-transcript.md`에 있고, current whole-root carve-out smoke는 `docs/artifacts/whole-root-family-smoke-transcript.md`, current whole-mount readonly smoke는 `docs/artifacts/whole-mount-readonly-smoke-transcript.md`, pre-removal historical smoke는 `docs/artifacts/fuse-smoke-transcript.md`로 분리되어 있다.
+- family별 repo-local live smoke baseline은 `docs/artifacts/future-mutability-smoke-transcript.md`에 있고, current whole-root carve-out smoke는 `docs/artifacts/whole-root-family-smoke-transcript.md`, current whole-mount readonly smoke는 `docs/artifacts/whole-mount-readonly-smoke-transcript.md`, pre-removal historical smoke는 `docs/artifacts/fuse-smoke-transcript.md`로 분리되어 있다. option B nested override live smoke는 별도 fresh artifact가 필요하다.
 
 쓰기성 operation 범위:
 
@@ -303,11 +304,11 @@ hide rule, `--readonly-rule`, `--allow-write`는 같은 rule-input normalization
 - mutability family resolution이 구현되어 있다: `selective-readonly`/`readonly-root-allowwrite`, one-family-per-mount, CLI-over-config precedence, CLI 부재 시 config source-of-truth, 둘 다 없을 때 `selective-readonly` 기본값
 - lexical virtual path normalization과 symlink target 해석이 구현되어 있다.
 - hide/readonly/allow-write matcher가 구현되어 있다: virtual root 기준 absolute exact rule, relative/`~` exact rule rebasing, directory prefix hiding, prefix 없는 limited basename/suffix/prefix glob, recursive absolute/relative/`~` prefixed limited glob, normalized-prefix direct-child basename-prefix/suffix form(`~/.env.*`, `~/*.pem`, `./fixtures/*.pem`, `/prefix/*.pem` 등), shared normalization contract. bare suffix `*.pem`, wildcard-in-prefix, broader unsupported glob은 계속 fail-fast다.
-- hidden/readonly guard 분류가 구현되어 있다: hidden path는 `ENOENT`, rule-matched mutation은 `EROFS`, hidden precedence는 selective/carve-out family 모두에서 유지된다.
+- hidden/readonly guard 분류가 구현되어 있다: hidden path는 `ENOENT`, final mutability가 readonly인 mutation은 `EROFS`, hidden precedence는 selective/carve-out family와 nested override 모두에서 유지된다.
 - affected-coordinate evaluator가 구현되어 있다: `create`/`mkdir`/`unlink`/`rename`/`link`/`symlink`/`copy_file_range`/xattr/`fallocate`에서 source/target/parent별 hidden/readonly 판정을 수행한다.
 - 기본 FUSE 조회 경로가 구현되어 있다: `lookup`, `getattr`, `open`, `read`, `readdir`, `readdirplus`, `readlink`, `access`, `statfs`
 - mount-free regression coverage가 구현되어 있다: host permission 기반 `access` pass-through, hidden target symlink에 대한 `lookup`/`open`/`readlink` guard, `readonly-root-allowwrite` empty-carve-out mount의 `create` `EROFS` 반환
-- 현재 mount-free unit test는 `cargo test --all-targets --all-features` 기준 parser/path/matcher/guard/FUSE baseline 동작, relative/`~` exact·prefixed-glob normalization, direct-child basename-prefix/suffix glob normalization, hide/current family rule shared semantics, selective readonly scoped-path coverage, readonly-root-allowwrite union/precedence/affected-coordinate-wide writable requirement, config mutability load/override, access/symlink/create regression, hidden multi-path mutation·xattr guard, symlink target hiding, `copy_file_range` visible/hidden 경로를 검증한다. repo-local family-aware live smoke transcript도 별도로 존재한다.
+- mount-free unit test coverage는 parser/path/matcher/guard/FUSE baseline 동작, relative/`~` exact·prefixed-glob normalization, direct-child basename-prefix/suffix glob normalization, hide/current family rule shared semantics, selective readonly scoped-path coverage, option B nested allow-write/re-block precedence와 fail-fast validation, readonly-root-allowwrite union/precedence/affected-coordinate-wide writable requirement, config mutability load/override, access/symlink/create regression, hidden multi-path mutation·xattr guard, symlink target hiding, `copy_file_range` visible/hidden 경로를 대상으로 한다. 현재 세션에서 `cargo test --all-targets --all-features` 기준 78 tests가 통과했으며 fresh pass evidence는 `docs/operations.md`의 검증 표를 따른다. repo-local family-aware live smoke baseline transcript도 별도로 존재한다.
 
 아직 완료로 주장하지 않는 범위:
 
@@ -316,7 +317,7 @@ hide rule, `--readonly-rule`, `--allow-write`는 같은 rule-input normalization
 - chroot 통합 완료
 - privileged end-to-end 운영 검증 완료
 
-최신 documented live FUSE smoke evidence(2026-06-11 기준): `/dev/fuse`가 존재하는 환경에서 repo-local family-aware fixture mount, current `source-root=/` whole-root carve-out mount, current `source-root=/` whole-mount readonly mount가 확인됐다. fresh repo-local transcript(`docs/artifacts/future-mutability-smoke-transcript.md`)는 `selective-readonly` mount에서 relative hide exact path `ENOENT`, relative/`~` prefixed glob readonly rule `EROFS`, non-match visible mutation 성공을 기록하고, `readonly-root-allowwrite` mount에서 allow-write carve-out 성공, non-match `EROFS`, hidden `ENOENT`, config-backed source-of-truth, 현재 CLI conflict fail-fast stderr를 남긴다. fresh whole-root carve-out transcript(`docs/artifacts/whole-root-family-smoke-transcript.md`)는 `readonly-root-allowwrite --allow-write /tmp` 기준으로 `stat /bin/bash`, `ls /usr`, hidden `/home/spi-ca/.ssh`의 `ENOENT`, `/tmp` write 성공, `/var/tmp` mutation `EROFS`, `unshare -UrR` 기반 chroot allow/block smoke를 담는다. fresh whole-mount readonly transcript(`docs/artifacts/whole-mount-readonly-smoke-transcript.md`)는 `readonly-root-allowwrite` with empty `allow_write` 기준으로 `touch`/`mkdir` `EROFS`, hidden `ENOENT`, `unshare -UrR` chroot 내부 `/tmp` mutation `EROFS`를 담는다. pre-removal transcript(`docs/artifacts/fuse-smoke-transcript.md`)는 제거 이전 CLI surface의 archival evidence로만 남긴다. FUSE mount는 `nodev`이므로 `/dev/null` 같은 device-node 동작은 상위 supervisor/namespace layer에서 별도 제공해야 한다 (`docs/operations.md` 참고).
+최신 documented live FUSE smoke evidence(2026-06-11 기준): `/dev/fuse`가 존재하는 환경에서 repo-local family-aware fixture mount, current `source-root=/` whole-root carve-out mount, current `source-root=/` whole-mount readonly mount가 확인됐다. repo-local transcript(`docs/artifacts/future-mutability-smoke-transcript.md`)는 option B 도입 전 baseline으로 `selective-readonly` mount에서 relative hide exact path `ENOENT`, relative/`~` prefixed glob readonly rule `EROFS`, non-match visible mutation 성공을 기록하고, `readonly-root-allowwrite` mount에서 allow-write carve-out 성공, non-match `EROFS`, hidden `ENOENT`, config-backed source-of-truth, pre-option-B CLI conflict fail-fast stderr를 남긴다. whole-root carve-out transcript(`docs/artifacts/whole-root-family-smoke-transcript.md`)는 `readonly-root-allowwrite --allow-write /tmp` 기준으로 `stat /bin/bash`, `ls /usr`, hidden `/home/spi-ca/.ssh`의 `ENOENT`, `/tmp` write 성공, `/var/tmp` mutation `EROFS`, `unshare -UrR` 기반 chroot allow/block smoke를 담는다. whole-mount readonly transcript(`docs/artifacts/whole-mount-readonly-smoke-transcript.md`)는 `readonly-root-allowwrite` with empty `allow_write` 기준으로 `touch`/`mkdir` `EROFS`, hidden `ENOENT`, `unshare -UrR` chroot 내부 `/tmp` mutation `EROFS`를 담는다. option B nested override live smoke는 새 artifact가 필요하다. pre-removal transcript(`docs/artifacts/fuse-smoke-transcript.md`)는 제거 이전 CLI surface의 archival evidence로만 남긴다. FUSE mount는 `nodev`이므로 `/dev/null` 같은 device-node 동작은 상위 supervisor/namespace layer에서 별도 제공해야 한다 (`docs/operations.md` 참고).
 
 추가로 확인된 환경:
 
@@ -334,6 +335,6 @@ hide rule, `--readonly-rule`, `--allow-write`는 같은 rule-input normalization
 - [아키텍처 개요](docs/architecture.md)
 - [요구사항](docs/requirements.md)
 - [설계 노트](docs/design.md)
-- [Nested mutability option B proposal](docs/nested-mutability-option-b.md)
+- [Nested mutability option B adopted design](docs/nested-mutability-option-b.md)
 - [운영 및 검증](docs/operations.md)
 - [Pi role agents](docs/pi-agents.md)
