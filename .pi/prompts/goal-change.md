@@ -31,9 +31,9 @@ $ARGUMENTS
 - project-local subagent 확인이 필요하면 우회하지 말고 확인을 요청한다.
 - 요구사항 분석, 영향 분석, 문서 수정, QA, 리뷰 결과를 분리해서 남긴다.
 - 용어, workflow, 예시, acceptance criteria가 바뀌면 인접 문서도 함께 갱신한다.
-- mutability policy 문서를 다루면 one-family-per-mount, hidden `ENOENT` precedence, allowWrite union semantics, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, 제거된 `--readonly` historical 지위, family/rule/config surface와의 fail-fast를 함께 점검한다.
+- policy 문서를 다루면 `visibility`/`mutability` 2축 계약, bridge-visible ancestor, hidden `ENOENT` precedence, mutability `EROFS`, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, same-specificity conflict fail-fast, unprovable nested glob containment fail-fast를 함께 점검한다.
 - path-like rule 입력을 다루면 exact path 입력과 glob grammar를 분리하고, supported prefixed glob 예시와 broader unsupported wildcard forms, `HOME`/`source_root`/`~user` fail-fast 조건을 문서 간 일관되게 맞춘다.
-- 현재 `--readonly-rule` surface와 그 향후 확장이 같은 normalization contract를 재사용하는지, `--allow-write`와 config mutability block 규칙이 그 계약을 공유하는지, CLI mutability option이 없을 때 config `mutability` block이 우선하는지, 제거된 `--readonly`는 archival-only evidence로만 남는지 분리해서 적는다.
+- `visibility.hidden`/`visibility.visible`/`mutability.readonly`/`mutability.writable`가 같은 normalization contract를 재사용하는지, legacy CLI/config aliases와 compatibility shims가 current contract로 남지 않는지, historical artifacts는 archival-only evidence로 분리되는지 확인한다.
 - 다이어그램 관련 변경이면 `README.md`, `docs/architecture.md`, `docs/design.md`, `docs/operations.md`, `docs/diagrams/README.md` 사이의 렌더링 규칙 문구가 일치하는지 확인한다.
 - 문서, 리뷰, 검증이 모두 정리될 때까지 반복한다.
 
