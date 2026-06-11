@@ -1,0 +1,17 @@
+use super::*;
+
+#[test]
+fn detects_write_intent_open_flags() {
+    assert!(!open_has_write_intent(libc::O_RDONLY as u32));
+    assert!(!open_has_write_intent(
+        (libc::O_RDONLY | libc::O_EXCL) as u32
+    ));
+    assert!(open_has_write_intent(libc::O_WRONLY as u32));
+    assert!(open_has_write_intent(libc::O_RDWR as u32));
+    assert!(open_has_write_intent(
+        (libc::O_RDONLY | libc::O_TRUNC) as u32
+    ));
+    assert!(open_has_write_intent(
+        (libc::O_RDONLY | libc::O_CREAT) as u32
+    ));
+}

@@ -5,6 +5,6 @@ pub mod fs;
 pub mod matcher;
 pub mod path;
 
-pub use cli::{LaunchArgs, MutabilityFamily};
-pub use config::{MutabilitySource, RuntimeConfig};
+pub use cli::{LaunchArgs, MutabilityDefault, VisibilityDefault};
+pub use config::{PolicySource, RuntimeConfig, VisibilityDecision};
 pub use fs::ScreenFs;

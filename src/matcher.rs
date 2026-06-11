@@ -7,9 +7,6 @@ use crate::path::{
 
 #[derive(Debug, Clone)]
 pub struct PathRuleMatcher {
-    exact: Vec<VirtualPath>,
-    prefixes: Vec<VirtualPath>,
-    glob_rules: Vec<CompiledGlob>,
     descriptors: Vec<RuleDescriptor>,
 }
 
@@ -226,6 +223,10 @@ impl LiteralPathTail {
         let tail = self.0.as_slice();
         other.0.len() >= tail.len() && other.0.windows(tail.len()).any(|window| window == tail)
     }
+
+    fn could_match_descendant_under(&self, path: &VirtualPath, anchor: &VirtualPath) -> bool {
+        path.starts_with(anchor) || anchor.starts_with(path)
+    }
 }
 
 impl GlobPattern {
@@ -277,7 +278,7 @@ impl RuleDescriptor {
         self.specificity < other.specificity && self.contains_target_set(other)
     }
 
-    fn contains_target_set(&self, other: &Self) -> bool {
+    pub fn contains_target_set(&self, other: &Self) -> bool {
         match (&self.target, &other.target) {
             (RuleTarget::Subtree, _) => other.anchor.starts_with(&self.anchor),
             (RuleTarget::Glob { recursive, pattern }, RuleTarget::Subtree) => {
@@ -319,21 +320,122 @@ impl RuleDescriptor {
             (RuleTarget::RecursiveLiteralSubtree { .. }, RuleTarget::Glob { .. }) => false,
         }
     }
+
+    pub fn may_match_descendant_of(&self, path: &VirtualPath) -> bool {
+        match &self.target {
+            RuleTarget::Subtree => self.anchor.starts_with(path),
+            RuleTarget::Glob { recursive, pattern } => {
+                if self.anchor.starts_with(path) {
+                    return true;
+                }
+                let Ok(relative) = path.as_path().strip_prefix(self.anchor.as_path()) else {
+                    return false;
+                };
+                if *recursive {
+                    true
+                } else {
+                    relative
+                        .components()
+                        .next()
+                        .is_none_or(|component| pattern.matches_component(component))
+                }
+            }
+            RuleTarget::RecursiveLiteralSubtree { tail } => {
+                if self.anchor.starts_with(path) {
+                    return true;
+                }
+                path.starts_with(&self.anchor)
+                    && tail.could_match_descendant_under(path, &self.anchor)
+            }
+        }
+    }
+
+    pub fn is_static_subtree_bridge_ancestor(&self, path: &VirtualPath) -> bool {
+        matches!(self.target, RuleTarget::Subtree) && self.anchor.starts_with(path)
+    }
+
+    pub fn needs_dynamic_bridge_index(&self) -> bool {
+        !matches!(self.target, RuleTarget::Subtree)
+    }
+
+    pub fn dynamic_bridge_scan_root(&self) -> Option<&VirtualPath> {
+        self.needs_dynamic_bridge_index().then_some(&self.anchor)
+    }
+
+    pub fn has_unproven_overlap_with(&self, other: &Self) -> bool {
+        !self.contains_target_set(other)
+            && !other.contains_target_set(self)
+            && self.may_overlap_target_set(other)
+    }
+
+    fn may_overlap_target_set(&self, other: &Self) -> bool {
+        match (&self.target, &other.target) {
+            (RuleTarget::Subtree, RuleTarget::Subtree) => {
+                self.anchor.starts_with(&other.anchor) || other.anchor.starts_with(&self.anchor)
+            }
+            (RuleTarget::Subtree, _) => other.may_match_descendant_of(&self.anchor),
+            (_, RuleTarget::Subtree) => self.may_match_descendant_of(&other.anchor),
+            (
+                RuleTarget::Glob { recursive, .. },
+                RuleTarget::Glob {
+                    recursive: other_recursive,
+                    ..
+                },
+            ) => anchors_may_overlap(*recursive, &self.anchor, *other_recursive, &other.anchor),
+            (RuleTarget::Glob { recursive, .. }, RuleTarget::RecursiveLiteralSubtree { .. }) => {
+                anchors_may_overlap(*recursive, &self.anchor, true, &other.anchor)
+            }
+            (RuleTarget::RecursiveLiteralSubtree { .. }, RuleTarget::Glob { recursive, .. }) => {
+                anchors_may_overlap(true, &self.anchor, *recursive, &other.anchor)
+            }
+            (
+                RuleTarget::RecursiveLiteralSubtree { .. },
+                RuleTarget::RecursiveLiteralSubtree { .. },
+            ) => anchors_may_overlap(true, &self.anchor, true, &other.anchor),
+        }
+    }
+
+    fn matches_path(&self, path: &VirtualPath) -> bool {
+        match &self.target {
+            RuleTarget::Subtree => path.starts_with(&self.anchor),
+            RuleTarget::Glob { recursive, pattern } => {
+                let Ok(candidate) = path.as_path().strip_prefix(self.anchor.as_path()) else {
+                    return false;
+                };
+                let mut components = candidate.components();
+                if *recursive {
+                    components.any(|component| pattern.matches_component(component))
+                } else {
+                    components
+                        .next()
+                        .is_some_and(|component| pattern.matches_component(component))
+                }
+            }
+            RuleTarget::RecursiveLiteralSubtree { tail } => {
+                let Ok(candidate) = path.as_path().strip_prefix(self.anchor.as_path()) else {
+                    return false;
+                };
+                tail.matches_path(candidate)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatcherScope {
-    Hide,
+    Hidden,
+    Visible,
     Readonly,
-    AllowWrite,
+    Writable,
 }
 
 impl MatcherScope {
     fn label(self) -> &'static str {
         match self {
-            Self::Hide => "hide",
+            Self::Hidden => "hidden",
+            Self::Visible => "visible",
             Self::Readonly => "readonly",
-            Self::AllowWrite => "allow-write",
+            Self::Writable => "writable",
         }
     }
 }
@@ -443,53 +545,6 @@ impl CompiledGlob {
         }
     }
 
-    fn match_specificity(&self, path: &VirtualPath) -> Option<RuleSpecificity> {
-        match self {
-            Self::Basename {
-                prefix, recursive, ..
-            }
-            | Self::Prefix {
-                prefix, recursive, ..
-            }
-            | Self::Suffix {
-                prefix, recursive, ..
-            } => {
-                let candidate = match prefix.as_ref() {
-                    Some(prefix) => match path.as_path().strip_prefix(prefix.as_path()) {
-                        Ok(relative) => relative,
-                        Err(_) => return None,
-                    },
-                    None => path.as_path(),
-                };
-                let mut components = candidate.components();
-                let matched = if *recursive {
-                    components.any(|component| self.matches_component(component))
-                } else {
-                    components
-                        .next()
-                        .is_some_and(|component| self.matches_component(component))
-                };
-                matched.then(|| self.descriptor().specificity)
-            }
-            Self::RecursiveLiteralSubtree { prefix, tail } => {
-                let candidate = match prefix.as_ref() {
-                    Some(prefix) => match path.as_path().strip_prefix(prefix.as_path()) {
-                        Ok(relative) => relative,
-                        Err(_) => return None,
-                    },
-                    None => path.as_path(),
-                };
-                tail.matches_path(candidate)
-                    .then(|| RuleSpecificity::recursive_literal_subtree(prefix.as_ref(), tail))
-            }
-        }
-    }
-
-    fn matches_component(&self, component: Component<'_>) -> bool {
-        self.pattern()
-            .is_some_and(|pattern| pattern.matches_component(component))
-    }
-
     fn pattern(&self) -> Option<GlobPattern> {
         match self {
             Self::Basename { name, .. } => Some(GlobPattern::Basename(name.clone())),
@@ -510,12 +565,9 @@ impl PathRuleMatcher {
         I: IntoIterator<Item = P>,
         P: AsRef<str>,
     {
-        let mut exact = Vec::new();
-        let mut prefixes = internal_prefixes;
-        let mut glob_rules = Vec::new();
         let mut descriptors = Vec::new();
 
-        for prefix in &prefixes {
+        for prefix in &internal_prefixes {
             descriptors.push(RuleDescriptor {
                 anchor: prefix.clone(),
                 specificity: RuleSpecificity::exact_or_prefix(prefix, false),
@@ -528,7 +580,6 @@ impl PathRuleMatcher {
             if looks_like_glob(rule) {
                 let glob = CompiledGlob::compile(rule, context)?;
                 descriptors.push(glob.descriptor());
-                glob_rules.push(glob);
             } else {
                 let path = normalize_rule_path(rule, context)?;
                 descriptors.push(RuleDescriptor {
@@ -536,17 +587,10 @@ impl PathRuleMatcher {
                     specificity: RuleSpecificity::exact_or_prefix(&path, false),
                     target: RuleTarget::Subtree,
                 });
-                exact.push(path.clone());
-                prefixes.push(path);
             }
         }
 
-        Ok(Self {
-            exact,
-            prefixes,
-            glob_rules,
-            descriptors,
-        })
+        Ok(Self { descriptors })
     }
 
     pub fn compile<I, P>(
@@ -563,34 +607,16 @@ impl PathRuleMatcher {
             .map_err(|err| format!("invalid {} pattern: {err}", scope.label()))
     }
 
-    pub fn empty() -> Self {
-        Self {
-            exact: Vec::new(),
-            prefixes: Vec::new(),
-            glob_rules: Vec::new(),
-            descriptors: Vec::new(),
-        }
+    pub fn best_specificity(&self, path: &VirtualPath) -> Option<RuleSpecificity> {
+        self.best_descriptor(path)
+            .map(|descriptor| descriptor.specificity)
     }
 
-    pub fn best_specificity(&self, path: &VirtualPath) -> Option<RuleSpecificity> {
-        let exact_matches = self
-            .exact
+    pub fn best_descriptor(&self, path: &VirtualPath) -> Option<&RuleDescriptor> {
+        self.descriptors
             .iter()
-            .filter(|p| *p == path)
-            .map(|p| RuleSpecificity::exact_or_prefix(p, true));
-        let prefix_matches = self
-            .prefixes
-            .iter()
-            .filter(|prefix| path.starts_with(prefix))
-            .map(|prefix| RuleSpecificity::exact_or_prefix(prefix, false));
-        let glob_matches = self
-            .glob_rules
-            .iter()
-            .filter_map(|rule| rule.match_specificity(path));
-        exact_matches
-            .chain(prefix_matches)
-            .chain(glob_matches)
-            .max()
+            .filter(|descriptor| descriptor.matches_path(path))
+            .max_by_key(|descriptor| descriptor.specificity)
     }
 
     pub fn descriptors(&self) -> &[RuleDescriptor] {
@@ -599,6 +625,35 @@ impl PathRuleMatcher {
 
     pub fn matches_path(&self, path: &VirtualPath) -> bool {
         self.best_specificity(path).is_some()
+    }
+
+    pub fn may_match_descendant_of(&self, path: &VirtualPath) -> bool {
+        self.descriptors
+            .iter()
+            .any(|descriptor| descriptor.may_match_descendant_of(path))
+    }
+
+    pub fn has_static_subtree_bridge_ancestor(&self, path: &VirtualPath) -> bool {
+        self.descriptors
+            .iter()
+            .any(|descriptor| descriptor.is_static_subtree_bridge_ancestor(path))
+    }
+
+    pub fn dynamic_bridge_scan_roots(&self) -> Vec<VirtualPath> {
+        let mut roots = self
+            .descriptors
+            .iter()
+            .filter_map(|descriptor| descriptor.dynamic_bridge_scan_root().cloned())
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
+        roots
+    }
+
+    pub fn needs_dynamic_bridge_index(&self) -> bool {
+        self.descriptors
+            .iter()
+            .any(RuleDescriptor::needs_dynamic_bridge_index)
     }
 
     pub fn matches_symlink_target(
@@ -716,6 +771,24 @@ fn recursive_literal_subtree_contains_recursive_literal_subtree(
         || parent_tail.is_contiguous_subsequence_of(child_tail)
 }
 
+fn anchors_may_overlap(
+    left_recursive: bool,
+    left_anchor: &VirtualPath,
+    right_recursive: bool,
+    right_anchor: &VirtualPath,
+) -> bool {
+    if left_anchor == right_anchor {
+        return true;
+    }
+    if right_anchor.as_path().starts_with(left_anchor.as_path()) {
+        return left_recursive;
+    }
+    if left_anchor.as_path().starts_with(right_anchor.as_path()) {
+        return right_recursive;
+    }
+    false
+}
+
 fn looks_like_glob(rule: &str) -> bool {
     rule.contains('*') || rule.contains('?')
 }
@@ -790,321 +863,5 @@ fn is_supported_direct_child_suffix_glob(pattern: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn matches_exact_rules_directory_prefixes_and_simple_globs() {
-        let root = test_dir();
-        let source = root.join("source");
-        fs::create_dir_all(source.join("cwd")).unwrap();
-        let context = test_context(&source, &source.join("cwd"), Some(source.join("home")));
-        let matcher = PathRuleMatcher::new(
-            [
-                "/secret",
-                "/config/auth.json",
-                "**/.env",
-                "**/.env.*",
-                "**/*.pem",
-                "**/*.key",
-            ],
-            Vec::new(),
-            &context,
-        )
-        .unwrap();
-
-        assert!(matcher.matches_path(&VirtualPath::new("/secret")));
-        assert!(matcher.matches_path(&VirtualPath::new("/secret/file")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/secretish")));
-
-        assert!(matcher.matches_path(&VirtualPath::new("/config/auth.json")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/config/auth.json.bak")));
-
-        assert!(matcher.matches_path(&VirtualPath::new("/app/.env")));
-        assert!(matcher.matches_path(&VirtualPath::new("/app/.env/local")));
-        assert!(matcher.matches_path(&VirtualPath::new("/app/.env.local")));
-        assert!(matcher.matches_path(&VirtualPath::new("/app/.env.production/secrets")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/app/.environment")));
-        assert!(matcher.matches_path(&VirtualPath::new("/certs/a.pem")));
-        assert!(matcher.matches_path(&VirtualPath::new("/certs/a.pem/chain")));
-        assert!(matcher.matches_path(&VirtualPath::new("/keys/id.key")));
-        assert!(matcher.matches_path(&VirtualPath::new("/keys/id.key/public")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/public/a.txt")));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn normalizes_relative_exact_and_prefixed_glob_rules() {
-        let root = test_dir();
-        let source = root.join("source");
-        let cwd = source.join("workspace/app");
-        let home = source.join("home/tester");
-        fs::create_dir_all(&cwd).unwrap();
-        fs::create_dir_all(home.join("certs")).unwrap();
-        let context = test_context(&source, &cwd, Some(home));
-        let matcher = PathRuleMatcher::new(
-            [
-                "../secrets",
-                "./fixtures/**/*.pem",
-                "~/certs/**/*.lock",
-                "/system/**/*.pem",
-                "~/.env.*",
-            ],
-            Vec::new(),
-            &context,
-        )
-        .unwrap();
-
-        assert!(matcher.matches_path(&VirtualPath::new("/workspace/secrets")));
-        assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/fixtures/key.pem")));
-        assert!(matcher.matches_path(&VirtualPath::new(
-            "/workspace/app/fixtures/nested/key.pem/chain"
-        )));
-        assert!(matcher.matches_path(&VirtualPath::new("/home/tester/certs/app.lock")));
-        assert!(matcher.matches_path(&VirtualPath::new("/system/keys/root.pem")));
-        assert!(matcher.matches_path(&VirtualPath::new("/home/tester/.env.local")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/home/tester/nested/.env.local")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/other/key.pem")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/system/keys/root.key")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/workspace/app/fixtures/key.key")));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn normalizes_direct_child_suffix_glob_rules() {
-        let root = test_dir();
-        let source = root.join("source");
-        let cwd = source.join("workspace/app");
-        let home = source.join("home/tester");
-        fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
-        fs::create_dir_all(&home).unwrap();
-        let context = test_context(&source, &cwd, Some(home));
-        let matcher = PathRuleMatcher::new(
-            ["~/*.pem", "./fixtures/*.pem", "/home/tester/*.pem"],
-            Vec::new(),
-            &context,
-        )
-        .unwrap();
-
-        assert!(matcher.matches_path(&VirtualPath::new("/home/tester/user.pem")));
-        assert!(matcher.matches_path(&VirtualPath::new("/home/tester/user.pem/chain")));
-        assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/fixtures/local.pem")));
-        assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/fixtures/local.pem/chain")));
-        assert!(!matcher.matches_path(&VirtualPath::new(
-            "/workspace/app/fixtures/nested/local.pem"
-        )));
-        assert!(!matcher.matches_path(&VirtualPath::new("/home/tester/nested/user.pem")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/workspace/app/fixtures/local.key")));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn matches_recursive_literal_descendant_subtree_globs() {
-        let root = test_dir();
-        let source = root.join("source");
-        let cwd = source.join("workspace/app");
-        let home = source.join("home/tester");
-        fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
-        fs::create_dir_all(home.join("project/nested")).unwrap();
-        let context = test_context(&source, &cwd, Some(home));
-
-        let broad = PathRuleMatcher::new(["**/.git/**"], Vec::new(), &context).unwrap();
-        assert!(broad.matches_path(&VirtualPath::new("/repo/.git")));
-        assert!(broad.matches_path(&VirtualPath::new("/repo/.git/config")));
-        assert!(!broad.matches_path(&VirtualPath::new("/repo/.gitignore")));
-
-        let hooks = PathRuleMatcher::new(["**/.git/hooks/**"], Vec::new(), &context).unwrap();
-        let prefixed = PathRuleMatcher::new(
-            [
-                "/home/tester/project/**/.git/hooks/**",
-                "./fixtures/**/.git/hooks/**",
-                "~/project/**/.git/hooks/**",
-            ],
-            Vec::new(),
-            &context,
-        )
-        .unwrap();
-
-        assert!(hooks.matches_path(&VirtualPath::new("/repo/.git/hooks/pre-commit")));
-        assert!(!hooks.matches_path(&VirtualPath::new("/repo/.git/x/hooks/pre-commit")));
-        assert!(prefixed.matches_path(&VirtualPath::new(
-            "/home/tester/project/.git/hooks/pre-commit"
-        )));
-        assert!(prefixed.matches_path(&VirtualPath::new(
-            "/home/tester/project/nested/.git/hooks/pre-commit"
-        )));
-        assert!(!prefixed.matches_path(&VirtualPath::new(
-            "/home/tester/other/.git/hooks/pre-commit"
-        )));
-        assert!(prefixed.matches_path(&VirtualPath::new(
-            "/workspace/app/fixtures/.git/hooks/pre-commit"
-        )));
-        assert!(prefixed.matches_path(&VirtualPath::new(
-            "/workspace/app/fixtures/nested/.git/hooks/pre-commit"
-        )));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn recursive_literal_descendant_subtree_rules_preserve_specificity_and_containment() {
-        let root = test_dir();
-        let source = root.join("source");
-        let cwd = source.join("workspace/app");
-        fs::create_dir_all(source.join("workspace/app")).unwrap();
-        let context = test_context(&source, &cwd, Some(source.join("home/tester")));
-
-        let broad = PathRuleMatcher::new(["**/.git/**"], Vec::new(), &context).unwrap();
-        let narrow = PathRuleMatcher::new(["**/.git/hooks/**"], Vec::new(), &context).unwrap();
-        let anchored =
-            PathRuleMatcher::new(["./fixtures/**/.git/hooks/**"], Vec::new(), &context).unwrap();
-        let hooks = PathRuleMatcher::new(["**/hooks"], Vec::new(), &context).unwrap();
-
-        let broad_desc = &broad.descriptors()[0];
-        let narrow_desc = &narrow.descriptors()[0];
-        let anchored_desc = &anchored.descriptors()[0];
-        let hooks_desc = &hooks.descriptors()[0];
-
-        assert!(broad_desc.has_less_specific_ancestor_of(narrow_desc));
-        assert!(hooks_desc.has_less_specific_ancestor_of(narrow_desc));
-        assert!(narrow_desc.has_less_specific_ancestor_of(anchored_desc));
-
-        let sample = VirtualPath::new("/workspace/app/fixtures/nested/.git/hooks/pre-commit");
-        assert!(
-            broad.best_specificity(&sample).unwrap() < narrow.best_specificity(&sample).unwrap()
-        );
-        assert!(
-            narrow.best_specificity(&sample).unwrap() < anchored.best_specificity(&sample).unwrap()
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn recursive_literal_descendant_subtree_specificity_prefers_longer_tail_over_longer_prefix() {
-        let root = test_dir();
-        let source = root.join("source");
-        let cwd = source.join("workspace/app");
-        fs::create_dir_all(&cwd).unwrap();
-        let context = test_context(&source, &cwd, None);
-
-        let broader_prefix =
-            PathRuleMatcher::new(["/workspace/**/.git/**"], Vec::new(), &context).unwrap();
-        let longer_tail = PathRuleMatcher::new(["**/.git/hooks/**"], Vec::new(), &context).unwrap();
-        let sample = VirtualPath::new("/workspace/repo/.git/hooks/pre-commit");
-
-        assert!(broader_prefix.matches_path(&sample));
-        assert!(longer_tail.matches_path(&sample));
-        assert!(
-            broader_prefix.best_specificity(&sample).unwrap()
-                < longer_tail.best_specificity(&sample).unwrap()
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn matches_requested_absolute_descendant_subtree_glob_pattern() {
-        let context = test_context(Path::new("/"), Path::new("/"), None);
-        let matcher = PathRuleMatcher::new(
-            ["/home/spi-ca/Codebase/the-onion/palgong/**/.git/hooks/**"],
-            Vec::new(),
-            &context,
-        )
-        .unwrap();
-
-        assert!(matcher.matches_path(&VirtualPath::new(
-            "/home/spi-ca/Codebase/the-onion/palgong/repo/.git/hooks/pre-commit"
-        )));
-        assert!(!matcher.matches_path(&VirtualPath::new(
-            "/home/spi-ca/Codebase/the-onion/other/.git/hooks/pre-commit"
-        )));
-    }
-
-    #[test]
-    fn rejects_unsupported_globs_and_paths_outside_source_root() {
-        let root = test_dir();
-        let source = root.join("source");
-        let cwd = source.join("workspace");
-        fs::create_dir_all(&cwd).unwrap();
-        let context = test_context(&source, &cwd, None);
-
-        assert!(PathRuleMatcher::new(["../../secret"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["**/secret?.pem"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["*.pem"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["foo*"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["/pre*fix/*.pem"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["foo/*/bar.pem"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["~user/.ssh"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["**/.git/**/hooks/**"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["**/*/.git/**"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["**/./hooks/**"], Vec::new(), &context).is_err());
-        assert!(PathRuleMatcher::new(["foo/**"], Vec::new(), &context).is_err());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn hides_mount_root_subtree_as_internal_prefix() {
-        let tmp = test_dir();
-        let source = tmp.as_path();
-        let mount = source.join("mnt");
-        fs::create_dir(&mount).unwrap();
-        let prefix = mount_root_internal_prefix(source, &mount).unwrap();
-        let context = test_context(source, source, None);
-        let matcher =
-            PathRuleMatcher::new(std::iter::empty::<&str>(), vec![prefix], &context).unwrap();
-        assert!(matcher.matches_path(&VirtualPath::new("/mnt")));
-        assert!(matcher.matches_path(&VirtualPath::new("/mnt/child")));
-        assert!(!matcher.matches_path(&VirtualPath::new("/other")));
-        fs::remove_dir_all(tmp).unwrap();
-    }
-
-    #[test]
-    fn computes_mount_root_internal_prefix_before_mount_exists() {
-        let tmp = test_dir();
-        let source = tmp.as_path();
-        let mount = source.join("nested/../mnt/child");
-        let prefix = mount_root_internal_prefix(source, &mount).unwrap();
-        assert_eq!(prefix.as_path(), Path::new("/mnt/child"));
-        fs::remove_dir_all(tmp).unwrap();
-    }
-
-    #[test]
-    fn matches_symlink_target_without_caching_target_decision() {
-        let root = test_dir();
-        let source = root.join("source");
-        let cwd = source.join("cwd");
-        fs::create_dir_all(&cwd).unwrap();
-        let context = test_context(&source, &cwd, None);
-        let matcher = PathRuleMatcher::new(["/hidden", "**/*.pem"], Vec::new(), &context).unwrap();
-        let exact_link = VirtualPath::new("/visible/link");
-        let glob_link = VirtualPath::new("/visible/nested/link");
-
-        assert!(matcher.matches_symlink_target(&exact_link, std::ffi::OsStr::new("../hidden")));
-        assert!(
-            matcher.matches_symlink_target(
-                &glob_link,
-                std::ffi::OsStr::new("../../secret.pem/private")
-            )
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    fn test_context(
-        source_root: &Path,
-        current_dir: &Path,
-        home_dir: Option<PathBuf>,
-    ) -> RuleNormalizationContext {
-        RuleNormalizationContext::new(source_root, current_dir, home_dir).unwrap()
-    }
-
-    fn test_dir() -> PathBuf {
-        let mut dir = std::env::temp_dir();
-        let id = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        dir.push(format!("screenfs-test-{id}"));
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-}
+#[path = "matcher_tests.rs"]
+mod tests;

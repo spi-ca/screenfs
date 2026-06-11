@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use fractal_fuse::{ENOENT, FileAttr, ReplyEntry};
 
+use crate::config::VisibilityDecision;
 use crate::errors::{errno_from_io, open_has_write_intent};
 use crate::path::VirtualPath;
 
@@ -15,15 +16,31 @@ impl ScreenFs {
         self.cfg.is_hidden(path)
     }
 
+    pub(super) fn visible_for_entry(&self, path: &VirtualPath) -> bool {
+        match self.cfg.visibility_decision(path) {
+            VisibilityDecision::Visible => true,
+            VisibilityDecision::BridgeVisible => self
+                .host_path(path, false)
+                .ok()
+                .and_then(|source| fs::symlink_metadata(source).ok())
+                .is_some_and(|metadata| {
+                    metadata.is_dir()
+                        && (self.cfg.has_static_visible_subtree_bridge_ancestor(path)
+                            || self.bridge_visible_dirs.contains(path))
+                }),
+            VisibilityDecision::Hidden => false,
+        }
+    }
+
     pub(super) fn readonly(&self, path: &VirtualPath) -> bool {
         self.cfg.is_readonly(path)
     }
 
     pub(super) fn guard_hidden_path(&self, path: &VirtualPath) -> Result<(), i32> {
-        if self.hidden(path) {
-            Err(ENOENT)
-        } else {
+        if self.visible_for_entry(path) {
             Ok(())
+        } else {
+            Err(ENOENT)
         }
     }
 
@@ -55,7 +72,11 @@ impl ScreenFs {
         follow_final_symlink: bool,
     ) -> Result<(), i32> {
         self.guard_hidden_path(path)?;
-        let resolved = self.resolved_virtual_path(path, follow_final_symlink)?;
+        let resolved = match self.resolved_virtual_path(path, follow_final_symlink) {
+            Ok(resolved) => resolved,
+            Err(ENOENT) if !follow_final_symlink => path.clone(),
+            Err(err) => return Err(err),
+        };
         if self.hidden(&resolved) {
             Err(ENOENT)
         } else {
@@ -68,8 +89,20 @@ impl ScreenFs {
         path: &VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<(), i32> {
-        let resolved = self.resolved_virtual_path(path, follow_final_symlink)?;
-        if self.readonly(path) || self.readonly(&resolved) {
+        let resolved = match self.resolved_virtual_path(path, follow_final_symlink) {
+            Ok(resolved) => resolved,
+            Err(ENOENT) if !follow_final_symlink => path.clone(),
+            Err(err) => return Err(err),
+        };
+        if matches!(
+            self.cfg.visibility_decision(path),
+            VisibilityDecision::BridgeVisible
+        ) || matches!(
+            self.cfg.visibility_decision(&resolved),
+            VisibilityDecision::BridgeVisible
+        ) || self.readonly(path)
+            || self.readonly(&resolved)
+        {
             Err(libc::EROFS)
         } else {
             Ok(())
@@ -169,15 +202,21 @@ impl ScreenFs {
             let entry = entry.map_err(errno_from_io)?;
             let name = entry.file_name();
             let child = dir.join_child(&name);
-            if self.hidden(&child) {
+            let metadata = fs::symlink_metadata(entry.path()).map_err(errno_from_io)?;
+            if !(self.cfg.is_fully_visible(&child)
+                || matches!(
+                    self.cfg.visibility_decision(&child),
+                    VisibilityDecision::BridgeVisible
+                ) && metadata.is_dir()
+                    && (self.cfg.has_static_visible_subtree_bridge_ancestor(&child)
+                        || self.bridge_visible_dirs.contains(&child)))
+            {
                 continue;
             }
-            let metadata = fs::symlink_metadata(entry.path()).map_err(errno_from_io)?;
             if metadata.file_type().is_symlink() {
                 let target = fs::read_link(entry.path()).map_err(errno_from_io)?;
                 if self
                     .cfg
-                    .matcher
                     .is_hidden_symlink_target(&child, target.as_os_str())
                 {
                     continue;

@@ -6,6 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use fractal_fuse::abi::FUSE_ROOT_ID;
 use fractal_fuse::{ENOENT, FileAttr, FileType};
 
+use crate::errors::errno_from_io;
 use crate::path::VirtualPath;
 
 use super::ScreenFs;
@@ -101,12 +102,22 @@ impl State {
 
     pub(super) fn lookup_path(&mut self, path: VirtualPath) -> u64 {
         let inode = self.inode_for_path(path);
+        self.add_lookup_ref(inode);
+        inode
+    }
+
+    pub(super) fn add_lookup_ref(&mut self, inode: u64) {
         if inode != FUSE_ROOT_ID
             && let Some(record) = self.inodes.get_mut(&inode)
         {
             record.lookup_refs += 1;
         }
-        inode
+    }
+
+    pub(super) fn add_lookup_refs(&mut self, inodes: impl IntoIterator<Item = u64>) {
+        for inode in inodes {
+            self.add_lookup_ref(inode);
+        }
     }
 
     fn next_handle(&mut self) -> u64 {
@@ -281,32 +292,18 @@ impl ScreenFs {
             .remove_directory(fh);
     }
 
-    pub(super) fn with_file_handle<R>(
+    pub(super) fn file_handle_snapshot(
         &self,
         inode: u64,
         fh: u64,
-        f: impl FnOnce(&FileHandle) -> Result<R, i32>,
-    ) -> Result<R, i32> {
+    ) -> Result<(VirtualPath, File), i32> {
         let state = self.state.lock().expect("state mutex poisoned");
         let handle = state.files.get(&fh).ok_or(ENOENT)?;
         if handle.inode != inode {
             return Err(ENOENT);
         }
-        f(handle)
-    }
-
-    pub(super) fn with_file_handle_mut<R>(
-        &self,
-        inode: u64,
-        fh: u64,
-        f: impl FnOnce(&mut FileHandle) -> Result<R, i32>,
-    ) -> Result<R, i32> {
-        let mut state = self.state.lock().expect("state mutex poisoned");
-        let handle = state.files.get_mut(&fh).ok_or(ENOENT)?;
-        if handle.inode != inode {
-            return Err(ENOENT);
-        }
-        f(handle)
+        let file = handle.file.try_clone().map_err(errno_from_io)?;
+        Ok((handle.path.clone(), file))
     }
 
     pub(super) fn directory_snapshot(
@@ -364,6 +361,13 @@ impl ScreenFs {
             return Err(ENOENT);
         }
         Ok(handle.entries.clone())
+    }
+
+    pub(super) fn add_lookup_refs_for_readdirplus(&self, inodes: impl IntoIterator<Item = u64>) {
+        self.state
+            .lock()
+            .expect("state mutex poisoned")
+            .add_lookup_refs(inodes);
     }
 
     pub(super) fn finalize_created_file(

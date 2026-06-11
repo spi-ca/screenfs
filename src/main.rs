@@ -35,13 +35,17 @@ fn main() -> std::io::Result<()> {
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
 
     eprintln!(
-        "mounting screenfs: source={} mount={} mutability-family={} mutability-source={} readonly-rules={} allow-write-rules={} hide-policy=compiled io_uring=required",
+        "mounting screenfs: source={} mount={} visibility-default={} visibility-source={} hidden-rules={} visible-rules={} mutability-default={} mutability-source={} readonly-rules={} writable-rules={} io_uring=required",
         cfg.source_root.display(),
         cfg.mount_root.display(),
-        cfg.mutability_family().as_str(),
+        cfg.visibility_default().as_str(),
+        cfg.visibility_source().as_str(),
+        cfg.hidden_rule_count(),
+        cfg.visible_rule_count(),
+        cfg.mutability_default().as_str(),
         cfg.mutability_source().as_str(),
         cfg.readonly_rule_count(),
-        cfg.allow_write_rule_count()
+        cfg.writable_rule_count()
     );
 
     let opts = MountOptions::new()
