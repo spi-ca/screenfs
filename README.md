@@ -48,10 +48,14 @@ screenfs <source-root> <mount-root> \
 ### Options
 
 - `--config <path>`: YAML config를 로드한다. CLI mutability option을 하나라도 주면 config의 `mutability` block 전체를 대체한다.
-- `--hide <pattern>`: exact path 또는 지원되는 prefixed glob을 숨긴다. hidden path는 `ENOENT`처럼 보인다.
+- `--hide <pattern>`: exact path 또는 shared rule-input grammar의 지원 glob을 숨긴다. hidden path는 `ENOENT`처럼 보인다.
 - `--policy-family <selective-readonly|readonly-root-allowwrite>`: mount당 하나의 mutability family를 선택한다.
 - `--readonly-rule <pattern>`: `selective-readonly`의 primary readonly rule, 또는 `readonly-root-allowwrite`의 nested re-block rule.
 - `--allow-write <pattern>`: `readonly-root-allowwrite`의 primary carve-out rule, 또는 `selective-readonly`의 nested writable carve-out rule.
+
+`--hide`, `--readonly-rule`, `--allow-write`는 같은 rule-input grammar를 공유한다. 현재 소스와 mount-free tests는 exact path, 기존 recursive/direct-child limited glob, 그리고 one-or-more literal path component를 tail로 갖는 limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-tail>/**`)까지 검증한다. 현재 source-test example: `/home/<user>/project/**/.git/hooks/**`.
+
+current 구현 snapshot과 남아 있는 live-smoke evidence gap, fail-fast 범위, nested override specificity/ancestor 규칙은 [`docs/requirements.md`](docs/requirements.md), [`docs/design.md`](docs/design.md), [`docs/nested-mutability-option-b.md`](docs/nested-mutability-option-b.md), [`docs/operations.md`](docs/operations.md)를 함께 읽는다. descendant-subtree glob의 current source/unit-test support와 live smoke pending 범위를 구분해서 읽는다.
 
 ### Mutability summary
 
@@ -65,13 +69,15 @@ screenfs <source-root> <mount-root> \
 
 ### Examples
 
-Hide secrets in a whole-root view:
+Hide secrets in a whole-root view with current supported forms:
 
 ```bash
 screenfs / /tmp/screenfs-root \
   --hide /home/me/.ssh \
   --hide '**/*.pem'
 ```
+
+Current source/unit tests also cover descendant-subtree forms such as `--readonly-rule '/home/me/project/**/.git/hooks/**'`. Live mount smoke for those forms is still tracked separately in the docs.
 
 Make selected paths read-only:
 

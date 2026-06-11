@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::path::{Component, Path, PathBuf};
 
 use crate::path::{
@@ -12,10 +13,35 @@ pub struct PathRuleMatcher {
     descriptors: Vec<RuleDescriptor>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuleSpecificity {
     prefix_components: usize,
-    kind_rank: u8,
+    kind: RuleSpecificityKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuleSpecificityKind {
+    Exact,
+    PrefixSubtree,
+    DirectChildGlob {
+        tail_rank: u8,
+        tail_len: usize,
+    },
+    RecursiveGlob {
+        tail_rank: u8,
+        tail_len: usize,
+    },
+    RecursiveLiteralSubtree {
+        tail_components: usize,
+        tail_len: usize,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct RuleSpecificitySortKey {
+    category_rank: u8,
+    primary_components: usize,
+    secondary_components: usize,
     tail_rank: u8,
     tail_len: usize,
 }
@@ -24,9 +50,11 @@ impl RuleSpecificity {
     fn exact_or_prefix(path: &VirtualPath, exact: bool) -> Self {
         Self {
             prefix_components: component_count(path),
-            kind_rank: if exact { 3 } else { 2 },
-            tail_rank: 0,
-            tail_len: 0,
+            kind: if exact {
+                RuleSpecificityKind::Exact
+            } else {
+                RuleSpecificityKind::PrefixSubtree
+            },
         }
     }
 
@@ -34,10 +62,91 @@ impl RuleSpecificity {
         let (tail_rank, tail_len) = pattern.specificity_tail();
         Self {
             prefix_components: prefix.map(component_count).unwrap_or(0),
-            kind_rank: if recursive { 0 } else { 1 },
-            tail_rank,
-            tail_len,
+            kind: if recursive {
+                RuleSpecificityKind::RecursiveGlob {
+                    tail_rank,
+                    tail_len,
+                }
+            } else {
+                RuleSpecificityKind::DirectChildGlob {
+                    tail_rank,
+                    tail_len,
+                }
+            },
         }
+    }
+
+    fn recursive_literal_subtree(prefix: Option<&VirtualPath>, tail: &LiteralPathTail) -> Self {
+        Self {
+            prefix_components: prefix.map(component_count).unwrap_or(0),
+            kind: RuleSpecificityKind::RecursiveLiteralSubtree {
+                tail_components: tail.component_count(),
+                tail_len: tail.total_len(),
+            },
+        }
+    }
+
+    fn sort_key(self) -> RuleSpecificitySortKey {
+        // Descendant-subtree globs compare by literal-tail depth before normalized prefix length
+        // so `**/.git/hooks/**` outranks `/workspace/**/.git/**` for paths that match both.
+        match self.kind {
+            RuleSpecificityKind::Exact => RuleSpecificitySortKey {
+                category_rank: 4,
+                primary_components: self.prefix_components,
+                secondary_components: 0,
+                tail_rank: 0,
+                tail_len: 0,
+            },
+            RuleSpecificityKind::PrefixSubtree => RuleSpecificitySortKey {
+                category_rank: 3,
+                primary_components: self.prefix_components,
+                secondary_components: 0,
+                tail_rank: 0,
+                tail_len: 0,
+            },
+            RuleSpecificityKind::DirectChildGlob {
+                tail_rank,
+                tail_len,
+            } => RuleSpecificitySortKey {
+                category_rank: 2,
+                primary_components: self.prefix_components,
+                secondary_components: 0,
+                tail_rank,
+                tail_len,
+            },
+            RuleSpecificityKind::RecursiveGlob {
+                tail_rank,
+                tail_len,
+            } => RuleSpecificitySortKey {
+                category_rank: 1,
+                primary_components: 1,
+                secondary_components: self.prefix_components,
+                tail_rank,
+                tail_len,
+            },
+            RuleSpecificityKind::RecursiveLiteralSubtree {
+                tail_components,
+                tail_len,
+            } => RuleSpecificitySortKey {
+                category_rank: 1,
+                primary_components: tail_components,
+                secondary_components: self.prefix_components,
+                tail_rank: 3,
+                tail_len,
+            },
+        }
+    }
+}
+
+impl Ord for RuleSpecificity {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.sort_key().cmp(&other.sort_key())
+    }
+}
+
+impl PartialOrd for RuleSpecificity {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -55,6 +164,9 @@ enum RuleTarget {
         recursive: bool,
         pattern: GlobPattern,
     },
+    RecursiveLiteralSubtree {
+        tail: LiteralPathTail,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +174,58 @@ enum GlobPattern {
     Basename(String),
     Prefix(String),
     Suffix(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LiteralPathTail(Vec<String>);
+
+impl LiteralPathTail {
+    fn parse(rule: &str, raw_tail: &str) -> Result<Self, String> {
+        let mut components = Vec::new();
+        for component in raw_tail.split('/') {
+            if component.is_empty()
+                || component == "."
+                || component == ".."
+                || component.contains('*')
+                || component.contains('?')
+            {
+                return Err(format!("unsupported glob: {rule}"));
+            }
+            components.push(component.to_string());
+        }
+        if components.is_empty() {
+            return Err(format!("unsupported glob: {rule}"));
+        }
+        Ok(Self(components))
+    }
+
+    fn component_count(&self) -> usize {
+        self.0.len()
+    }
+
+    fn total_len(&self) -> usize {
+        self.0.iter().map(String::len).sum()
+    }
+
+    fn first(&self) -> Option<&str> {
+        self.0.first().map(String::as_str)
+    }
+
+    fn contains_name_matching(&self, pattern: &GlobPattern) -> bool {
+        self.0.iter().any(|name| pattern.matches_name(name))
+    }
+
+    fn matches_path(&self, path: &Path) -> bool {
+        let components = path_component_names(path);
+        let tail = self.0.as_slice();
+        components.len() >= tail.len()
+            && components.windows(tail.len()).any(|window| window == tail)
+    }
+
+    fn is_contiguous_subsequence_of(&self, other: &Self) -> bool {
+        let tail = self.0.as_slice();
+        other.0.len() >= tail.len() && other.0.windows(tail.len()).any(|window| window == tail)
+    }
 }
 
 impl GlobPattern {
@@ -130,6 +294,29 @@ impl RuleDescriptor {
                     && other.anchor.starts_with(&self.anchor)
                     && (*recursive || (!other_recursive && other.anchor == self.anchor))
             }
+            (
+                RuleTarget::Glob { recursive, pattern },
+                RuleTarget::RecursiveLiteralSubtree { tail },
+            ) => glob_contains_recursive_literal_subtree(
+                &self.anchor,
+                *recursive,
+                pattern,
+                &other.anchor,
+                tail,
+            ),
+            (RuleTarget::RecursiveLiteralSubtree { tail }, RuleTarget::Subtree) => {
+                subtree_is_inside_recursive_literal_subtree(&self.anchor, tail, &other.anchor)
+            }
+            (
+                RuleTarget::RecursiveLiteralSubtree { tail },
+                RuleTarget::RecursiveLiteralSubtree { tail: other_tail },
+            ) => recursive_literal_subtree_contains_recursive_literal_subtree(
+                &self.anchor,
+                tail,
+                &other.anchor,
+                other_tail,
+            ),
+            (RuleTarget::RecursiveLiteralSubtree { .. }, RuleTarget::Glob { .. }) => false,
         }
     }
 }
@@ -168,10 +355,28 @@ enum CompiledGlob {
         recursive: bool,
         suffix: String,
     },
+    RecursiveLiteralSubtree {
+        prefix: Option<VirtualPath>,
+        tail: LiteralPathTail,
+    },
 }
 
 impl CompiledGlob {
     fn compile(rule: &str, context: &RuleNormalizationContext) -> Result<Self, String> {
+        if let Some((prefix, tail)) = split_supported_recursive_literal_subtree_glob(rule)? {
+            let prefix = prefix
+                .map(|raw| normalize_rule_path(raw, context))
+                .transpose()?;
+            if let Some(name) = tail.first().filter(|_| tail.component_count() == 1) {
+                return Ok(Self::Basename {
+                    prefix,
+                    recursive: true,
+                    name: name.to_string(),
+                });
+            }
+            return Ok(Self::RecursiveLiteralSubtree { prefix, tail });
+        }
+
         let (prefix, pattern, recursive) = split_supported_glob(rule)?;
         let prefix = prefix
             .map(|raw| normalize_rule_path(raw, context))
@@ -210,7 +415,7 @@ impl CompiledGlob {
     }
 
     fn descriptor(&self) -> RuleDescriptor {
-        let (prefix, recursive) = match self {
+        match self {
             Self::Basename {
                 prefix, recursive, ..
             }
@@ -219,18 +424,27 @@ impl CompiledGlob {
             }
             | Self::Suffix {
                 prefix, recursive, ..
-            } => (prefix.as_ref(), *recursive),
-        };
-        let pattern = self.pattern();
-        RuleDescriptor {
-            anchor: prefix.cloned().unwrap_or_else(VirtualPath::root),
-            specificity: RuleSpecificity::glob(prefix, recursive, &pattern),
-            target: RuleTarget::Glob { recursive, pattern },
+            } => {
+                let pattern = self.pattern().expect("pattern-backed glob");
+                RuleDescriptor {
+                    anchor: prefix.clone().unwrap_or_else(VirtualPath::root),
+                    specificity: RuleSpecificity::glob(prefix.as_ref(), *recursive, &pattern),
+                    target: RuleTarget::Glob {
+                        recursive: *recursive,
+                        pattern,
+                    },
+                }
+            }
+            Self::RecursiveLiteralSubtree { prefix, tail } => RuleDescriptor {
+                anchor: prefix.clone().unwrap_or_else(VirtualPath::root),
+                specificity: RuleSpecificity::recursive_literal_subtree(prefix.as_ref(), tail),
+                target: RuleTarget::RecursiveLiteralSubtree { tail: tail.clone() },
+            },
         }
     }
 
     fn match_specificity(&self, path: &VirtualPath) -> Option<RuleSpecificity> {
-        let (candidate, recursive) = match self {
+        match self {
             Self::Basename {
                 prefix, recursive, ..
             }
@@ -239,35 +453,49 @@ impl CompiledGlob {
             }
             | Self::Suffix {
                 prefix, recursive, ..
-            } => match prefix.as_ref() {
-                Some(prefix) => match path.as_path().strip_prefix(prefix.as_path()) {
-                    Ok(relative) => (relative, *recursive),
-                    Err(_) => return None,
-                },
-                None => (path.as_path(), *recursive),
-            },
-        };
-
-        let mut components = candidate.components();
-        let matched = if recursive {
-            components.any(|component| self.matches_component(component))
-        } else {
-            components
-                .next()
-                .is_some_and(|component| self.matches_component(component))
-        };
-        matched.then(|| self.descriptor().specificity)
+            } => {
+                let candidate = match prefix.as_ref() {
+                    Some(prefix) => match path.as_path().strip_prefix(prefix.as_path()) {
+                        Ok(relative) => relative,
+                        Err(_) => return None,
+                    },
+                    None => path.as_path(),
+                };
+                let mut components = candidate.components();
+                let matched = if *recursive {
+                    components.any(|component| self.matches_component(component))
+                } else {
+                    components
+                        .next()
+                        .is_some_and(|component| self.matches_component(component))
+                };
+                matched.then(|| self.descriptor().specificity)
+            }
+            Self::RecursiveLiteralSubtree { prefix, tail } => {
+                let candidate = match prefix.as_ref() {
+                    Some(prefix) => match path.as_path().strip_prefix(prefix.as_path()) {
+                        Ok(relative) => relative,
+                        Err(_) => return None,
+                    },
+                    None => path.as_path(),
+                };
+                tail.matches_path(candidate)
+                    .then(|| RuleSpecificity::recursive_literal_subtree(prefix.as_ref(), tail))
+            }
+        }
     }
 
     fn matches_component(&self, component: Component<'_>) -> bool {
-        self.pattern().matches_component(component)
+        self.pattern()
+            .is_some_and(|pattern| pattern.matches_component(component))
     }
 
-    fn pattern(&self) -> GlobPattern {
+    fn pattern(&self) -> Option<GlobPattern> {
         match self {
-            Self::Basename { name, .. } => GlobPattern::Basename(name.clone()),
-            Self::Prefix { name_prefix, .. } => GlobPattern::Prefix(name_prefix.clone()),
-            Self::Suffix { suffix, .. } => GlobPattern::Suffix(suffix.clone()),
+            Self::Basename { name, .. } => Some(GlobPattern::Basename(name.clone())),
+            Self::Prefix { name_prefix, .. } => Some(GlobPattern::Prefix(name_prefix.clone())),
+            Self::Suffix { suffix, .. } => Some(GlobPattern::Suffix(suffix.clone())),
+            Self::RecursiveLiteralSubtree { .. } => None,
         }
     }
 }
@@ -415,6 +643,15 @@ fn component_count(path: &VirtualPath) -> usize {
         .count()
 }
 
+fn path_component_names(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn subtree_is_inside_glob(
     glob_anchor: &VirtualPath,
     recursive: bool,
@@ -434,8 +671,79 @@ fn subtree_is_inside_glob(
     }
 }
 
+fn glob_contains_recursive_literal_subtree(
+    glob_anchor: &VirtualPath,
+    recursive: bool,
+    pattern: &GlobPattern,
+    other_anchor: &VirtualPath,
+    other_tail: &LiteralPathTail,
+) -> bool {
+    let Ok(relative_anchor) = other_anchor.as_path().strip_prefix(glob_anchor.as_path()) else {
+        return false;
+    };
+    let mut relative_components = relative_anchor.components();
+    if recursive {
+        relative_components.any(|component| pattern.matches_component(component))
+            || other_tail.contains_name_matching(pattern)
+    } else {
+        relative_components
+            .next()
+            .is_some_and(|component| pattern.matches_component(component))
+    }
+}
+
+fn subtree_is_inside_recursive_literal_subtree(
+    glob_anchor: &VirtualPath,
+    tail: &LiteralPathTail,
+    subtree_anchor: &VirtualPath,
+) -> bool {
+    let Ok(relative) = subtree_anchor.as_path().strip_prefix(glob_anchor.as_path()) else {
+        return false;
+    };
+    tail.matches_path(relative)
+}
+
+fn recursive_literal_subtree_contains_recursive_literal_subtree(
+    parent_anchor: &VirtualPath,
+    parent_tail: &LiteralPathTail,
+    child_anchor: &VirtualPath,
+    child_tail: &LiteralPathTail,
+) -> bool {
+    let Ok(relative_anchor) = child_anchor.as_path().strip_prefix(parent_anchor.as_path()) else {
+        return false;
+    };
+    parent_tail.matches_path(relative_anchor)
+        || parent_tail.is_contiguous_subsequence_of(child_tail)
+}
+
 fn looks_like_glob(rule: &str) -> bool {
     rule.contains('*') || rule.contains('?')
+}
+
+fn split_supported_recursive_literal_subtree_glob(
+    rule: &str,
+) -> Result<Option<(Option<&str>, LiteralPathTail)>, String> {
+    let Some(without_descendants) = rule.strip_suffix("/**") else {
+        return Ok(None);
+    };
+
+    let (prefix, raw_tail) = if let Some(tail) = without_descendants.strip_prefix("**/") {
+        (None, tail)
+    } else if let Some(index) = without_descendants.find("/**/") {
+        let prefix = if index == 0 {
+            "/"
+        } else {
+            &without_descendants[..index]
+        };
+        if prefix.contains('*') || prefix.contains('?') {
+            return Err(format!("unsupported glob: {rule}"));
+        }
+        (Some(prefix), &without_descendants[index + 4..])
+    } else {
+        return Err(format!("unsupported glob: {rule}"));
+    };
+
+    Ok(Some((prefix, LiteralPathTail::parse(rule, raw_tail)?)))
 }
 
 fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str, bool), String> {
@@ -443,8 +751,8 @@ fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str, bool), String
         return Ok((None, pattern, true));
     }
     if let Some(index) = rule.find("/**/") {
-        let prefix = &rule[..index];
-        if prefix.is_empty() || prefix.contains('*') || prefix.contains('?') {
+        let prefix = if index == 0 { "/" } else { &rule[..index] };
+        if prefix.contains('*') || prefix.contains('?') {
             return Err(format!("unsupported glob: {rule}"));
         }
         let pattern = &rule[index + 4..];
@@ -593,6 +901,126 @@ mod tests {
     }
 
     #[test]
+    fn matches_recursive_literal_descendant_subtree_globs() {
+        let root = test_dir();
+        let source = root.join("source");
+        let cwd = source.join("workspace/app");
+        let home = source.join("home/tester");
+        fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+        fs::create_dir_all(home.join("project/nested")).unwrap();
+        let context = test_context(&source, &cwd, Some(home));
+
+        let broad = PathRuleMatcher::new(["**/.git/**"], Vec::new(), &context).unwrap();
+        assert!(broad.matches_path(&VirtualPath::new("/repo/.git")));
+        assert!(broad.matches_path(&VirtualPath::new("/repo/.git/config")));
+        assert!(!broad.matches_path(&VirtualPath::new("/repo/.gitignore")));
+
+        let hooks = PathRuleMatcher::new(["**/.git/hooks/**"], Vec::new(), &context).unwrap();
+        let prefixed = PathRuleMatcher::new(
+            [
+                "/home/tester/project/**/.git/hooks/**",
+                "./fixtures/**/.git/hooks/**",
+                "~/project/**/.git/hooks/**",
+            ],
+            Vec::new(),
+            &context,
+        )
+        .unwrap();
+
+        assert!(hooks.matches_path(&VirtualPath::new("/repo/.git/hooks/pre-commit")));
+        assert!(!hooks.matches_path(&VirtualPath::new("/repo/.git/x/hooks/pre-commit")));
+        assert!(prefixed.matches_path(&VirtualPath::new(
+            "/home/tester/project/.git/hooks/pre-commit"
+        )));
+        assert!(prefixed.matches_path(&VirtualPath::new(
+            "/home/tester/project/nested/.git/hooks/pre-commit"
+        )));
+        assert!(!prefixed.matches_path(&VirtualPath::new(
+            "/home/tester/other/.git/hooks/pre-commit"
+        )));
+        assert!(prefixed.matches_path(&VirtualPath::new(
+            "/workspace/app/fixtures/.git/hooks/pre-commit"
+        )));
+        assert!(prefixed.matches_path(&VirtualPath::new(
+            "/workspace/app/fixtures/nested/.git/hooks/pre-commit"
+        )));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recursive_literal_descendant_subtree_rules_preserve_specificity_and_containment() {
+        let root = test_dir();
+        let source = root.join("source");
+        let cwd = source.join("workspace/app");
+        fs::create_dir_all(source.join("workspace/app")).unwrap();
+        let context = test_context(&source, &cwd, Some(source.join("home/tester")));
+
+        let broad = PathRuleMatcher::new(["**/.git/**"], Vec::new(), &context).unwrap();
+        let narrow = PathRuleMatcher::new(["**/.git/hooks/**"], Vec::new(), &context).unwrap();
+        let anchored =
+            PathRuleMatcher::new(["./fixtures/**/.git/hooks/**"], Vec::new(), &context).unwrap();
+        let hooks = PathRuleMatcher::new(["**/hooks"], Vec::new(), &context).unwrap();
+
+        let broad_desc = &broad.descriptors()[0];
+        let narrow_desc = &narrow.descriptors()[0];
+        let anchored_desc = &anchored.descriptors()[0];
+        let hooks_desc = &hooks.descriptors()[0];
+
+        assert!(broad_desc.has_less_specific_ancestor_of(narrow_desc));
+        assert!(hooks_desc.has_less_specific_ancestor_of(narrow_desc));
+        assert!(narrow_desc.has_less_specific_ancestor_of(anchored_desc));
+
+        let sample = VirtualPath::new("/workspace/app/fixtures/nested/.git/hooks/pre-commit");
+        assert!(
+            broad.best_specificity(&sample).unwrap() < narrow.best_specificity(&sample).unwrap()
+        );
+        assert!(
+            narrow.best_specificity(&sample).unwrap() < anchored.best_specificity(&sample).unwrap()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recursive_literal_descendant_subtree_specificity_prefers_longer_tail_over_longer_prefix() {
+        let root = test_dir();
+        let source = root.join("source");
+        let cwd = source.join("workspace/app");
+        fs::create_dir_all(&cwd).unwrap();
+        let context = test_context(&source, &cwd, None);
+
+        let broader_prefix =
+            PathRuleMatcher::new(["/workspace/**/.git/**"], Vec::new(), &context).unwrap();
+        let longer_tail = PathRuleMatcher::new(["**/.git/hooks/**"], Vec::new(), &context).unwrap();
+        let sample = VirtualPath::new("/workspace/repo/.git/hooks/pre-commit");
+
+        assert!(broader_prefix.matches_path(&sample));
+        assert!(longer_tail.matches_path(&sample));
+        assert!(
+            broader_prefix.best_specificity(&sample).unwrap()
+                < longer_tail.best_specificity(&sample).unwrap()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn matches_requested_absolute_descendant_subtree_glob_pattern() {
+        let context = test_context(Path::new("/"), Path::new("/"), None);
+        let matcher = PathRuleMatcher::new(
+            ["/home/spi-ca/Codebase/the-onion/palgong/**/.git/hooks/**"],
+            Vec::new(),
+            &context,
+        )
+        .unwrap();
+
+        assert!(matcher.matches_path(&VirtualPath::new(
+            "/home/spi-ca/Codebase/the-onion/palgong/repo/.git/hooks/pre-commit"
+        )));
+        assert!(!matcher.matches_path(&VirtualPath::new(
+            "/home/spi-ca/Codebase/the-onion/other/.git/hooks/pre-commit"
+        )));
+    }
+
+    #[test]
     fn rejects_unsupported_globs_and_paths_outside_source_root() {
         let root = test_dir();
         let source = root.join("source");
@@ -607,6 +1035,10 @@ mod tests {
         assert!(PathRuleMatcher::new(["/pre*fix/*.pem"], Vec::new(), &context).is_err());
         assert!(PathRuleMatcher::new(["foo/*/bar.pem"], Vec::new(), &context).is_err());
         assert!(PathRuleMatcher::new(["~user/.ssh"], Vec::new(), &context).is_err());
+        assert!(PathRuleMatcher::new(["**/.git/**/hooks/**"], Vec::new(), &context).is_err());
+        assert!(PathRuleMatcher::new(["**/*/.git/**"], Vec::new(), &context).is_err());
+        assert!(PathRuleMatcher::new(["**/./hooks/**"], Vec::new(), &context).is_err());
+        assert!(PathRuleMatcher::new(["foo/**"], Vec::new(), &context).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

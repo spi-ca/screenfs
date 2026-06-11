@@ -41,8 +41,8 @@ cargo clippy --all-targets --all-features
 - 최신 recorded evidence는 option B nested mutability override를 current source/docs에 반영한 상태를 기준으로 정리됐다.
 - fresh evidence 확보를 위해 `cargo fmt --check`를 재실행해 통과했다.
 - `cargo check`, `cargo clippy --all-targets --all-features`, `cargo test --all-targets --all-features`를 재실행했고 모두 통과했다.
-- 최신 recorded `cargo test --all-targets --all-features` 결과는 총 78 tests 통과다.
-- 현재 mount-free test coverage에는 relative/`~` exact·prefixed-glob normalization, hide/current mutability rule shared semantics, option B nested allow-write/re-block precedence와 fail-fast validation, `readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation`, `readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent`, config mutability load/override가 포함된다. 다만 이는 family별 live smoke 완료를 의미하지 않는다.
+- latest recorded full-suite `cargo test --all-targets --all-features` 결과는 descendant-subtree regression tests 포함 현재 tree 기준 총 88 tests 통과다.
+- 현재 mount-free test coverage에는 relative/`~` exact·prefixed-glob normalization, hide/current mutability rule shared semantics, limited recursive literal descendant-subtree glob normalization/matching, descendant-subtree nested specificity regression, option B nested allow-write/re-block precedence와 fail-fast validation, `readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation`, `readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent`, config mutability load/override가 포함된다. 다만 이는 family별 live smoke 완료를 의미하지 않는다.
 - 문서 정합성 확인으로 변경된 문서 구간은 상호 일관성을 위해 다시 읽어 확인한다.
 
 ## Mermaid 다이어그램 산출물 재생성
@@ -115,7 +115,7 @@ file docs/diagrams/*.png
 - startup log 문자열이 바뀌면 transcript의 기존 log line은 historical artifact로 남기고, current startup-string evidence는 해당 세션의 fresh stderr/stdout 발췌나 현재 소스(`src/main.rs`) 기준으로 별도 구분해 적는다.
 - repo-local fixture mount evidence는 hidden semantics와 family-aware policy 재확인에 유용하지만, whole-view와 chroot 관련 결론은 `source-root=/` 또는 동등한 전체 view 환경의 별도 증거로 보강해야 한다.
 - selective readonly rule을 주장하려면 rule-match path와 non-match path를 모두 포함한 별도 smoke evidence가 필요하다. whole-mount readonly smoke만으로는 selective rule 검증으로 승격하지 않는다.
-- rule-input normalization 변화를 주장하려면 already-absolute input과 relative/`~` exact input, relative/`~` prefixed glob input을 분리해 기록하고, broader unsupported wildcard forms와 fail-fast stderr도 함께 남긴다.
+- rule-input normalization 변화를 주장하려면 already-absolute input과 relative/`~` exact input, relative/`~` prefixed glob input을 분리해 기록하고, descendant-subtree success/fail-fast cases도 별도로 남긴다. broader unsupported wildcard forms와 fail-fast stderr도 함께 기록한다.
 - current source surface와 current verified evidence를 구분한다. pre-option-B repo-local family-aware smoke는 `docs/artifacts/future-mutability-smoke-transcript.md`, readonly-root-allowwrite whole-root/chroot carve-out baseline smoke는 `docs/artifacts/whole-root-family-smoke-transcript.md`, pre-removal archival smoke는 `docs/artifacts/fuse-smoke-transcript.md`로 분리 관리한다. option B nested override live smoke는 새 transcript로 캡처하기 전까지 existing smoke로 승격하지 않는다.
 - family-aware mutability smoke는 family 선택 근거(explicit `--policy-family`, inferred rule option, config file)와 CLI mutability option이 config mutability block을 대체했는지, CLI mutability option이 없을 때 config `mutability` block이 실제 source of truth였는지, nested override의 most-specific result와 conflict/fail-fast stderr가 무엇이었는지도 함께 기록한다.
 - mount 전에 실패했으면 상태는 `차단됨` 또는 `실패`로 적고, hidden/whole-view/read-only smoke를 `완료`로 승격하지 않는다.
@@ -210,27 +210,31 @@ mkdir /tmp/screenfs-root/tmp/screenfs-mkdir-check
 
 현재 구현/증거 상태:
 
-- current code와 mount-free unit test는 hide/current `--readonly-rule`/`--allow-write` shared normalization contract를 recursive prefixed glob과 direct-child basename-prefix/suffix subset까지 구현·검증한다.
+- current code와 mount-free unit test는 hide/current `--readonly-rule`/`--allow-write` shared normalization contract를 recursive prefixed glob, direct-child basename-prefix/suffix subset, limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`)까지 구현·검증한다.
+- descendant-subtree glob source evidence에는 matcher-level absolute/relative/`~` matching, runtime-config shared-surface matching, selective-readonly nested specificity regression, hidden `ENOENT` precedence가 포함된다. live smoke evidence는 아직 별도 artifact가 필요하다.
 - absolute exact path와 absolute prefixed glob은 virtual-root anchored semantics를 유지한다.
 - basename-prefix glob(`**/.env.*`, `/home/<user>/.env.*`, literal example `~/.env.*`)은 `.env.local`처럼 같은 basename prefix를 가진 entry와 그 descendants에 매치된다.
 - direct-child suffix glob(`./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`)은 normalized prefix 바로 아래 child와 그 descendants에만 매치된다.
 - relative exact path와 relative prefixed glob prefix는 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 rebase된다.
 - `~`/`~/...` exact path와 prefixed glob은 `HOME` 기준으로 expand된 뒤 같은 rebasing 규칙을 따른다.
-- focused source evidence는 `src/matcher.rs`의 `normalizes_direct_child_suffix_glob_rules`, `src/config.rs`의 `hide_and_readonly_rules_accept_direct_child_suffix_forms_through_runtime_config`/`allow_write_rules_accept_direct_child_suffix_forms_through_runtime_config`, `src/config.rs`의 `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`, `src/fs.rs`의 `hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`다.
-- broader unsupported wildcard forms, prefix 내부 wildcard, unprefixed bare suffix `*.pem`, `HOME` 없음, outside-`source_root`, `~user`는 계속 fail-fast다.
-- existing pre-option-B family-aware smoke transcript(`docs/artifacts/future-mutability-smoke-transcript.md`)는 relative hide exact path, relative prefixed glob readonly rule, `~/...` prefixed glob readonly rule의 live mount baseline evidence를 포함한다. historical whole-root transcript는 여전히 이미 절대화된 exact hide rule과 prefix 없는 limited glob 위주다. direct-child suffix subset과 option B nested override는 현재 source/unit-test evidence로 확인되며, option B live smoke는 별도 fresh artifact가 필요하다.
+- focused source evidence는 `src/matcher.rs`의 `matches_recursive_literal_descendant_subtree_globs`, `recursive_literal_descendant_subtree_rules_preserve_specificity_and_containment`, `recursive_literal_descendant_subtree_specificity_prefers_longer_tail_over_longer_prefix`, `matches_requested_absolute_descendant_subtree_glob_pattern`, `normalizes_direct_child_suffix_glob_rules`, `src/config.rs`의 `descendant_subtree_globs_share_runtime_config_grammar_across_surfaces`, `selective_readonly_descendant_subtree_nested_allow_write_uses_literal_tail_specificity`, `runtime_config_accepts_requested_absolute_descendant_subtree_pattern`, direct-child shared-surface tests, `src/config.rs`의 `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`, `src/fs.rs`의 `selective_readonly_descendant_subtree_rule_only_locks_git_hooks_subtree`, `hidden_descendant_subtree_rules_keep_enoent_precedence_over_readonly`, `hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`다.
+- broader unsupported wildcard forms, prefix 내부 wildcard, unprefixed bare suffix `*.pem`, `HOME` 없음, outside-`source_root`, `~user`는 계속 fail-fast다. descendant-subtree broader forms(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`, trailing `/**` 없는 `**/.git/hooks`)도 부분 해석 없이 fail-fast 대상으로 유지한다.
+- existing pre-option-B family-aware smoke transcript(`docs/artifacts/future-mutability-smoke-transcript.md`)는 relative hide exact path, relative prefixed glob readonly rule, `~/...` prefixed glob readonly rule의 live mount baseline evidence를 포함한다. historical whole-root transcript는 여전히 이미 절대화된 exact hide rule과 prefix 없는 limited glob 위주다. direct-child suffix subset, descendant-subtree subset, option B nested override는 현재 source/unit-test evidence로 확인되며, descendant-subtree live smoke와 option B live smoke는 별도 fresh artifact가 필요하다.
 
-문서화된 current contract checklist:
+문서화된 current-vs-target contract checklist:
 
 - relative exact path는 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 virtual absolute path로 rebase된다.
 - relative prefixed glob도 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 virtual glob prefix로 rebase된다.
 - `~`/`~/...` exact path와 prefixed glob은 `HOME` 기준으로 expand된 뒤 같은 rebasing 규칙을 따른다.
-- supported glob 확장 범위는 recursive basename/suffix/basename-prefix tail(`**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*`)과 normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`)까지다. canonical examples: `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`.
+- current source/evidence가 검증한 glob 범위는 recursive basename/suffix/basename-prefix tail(`**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*`), normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`), limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`)까지다. canonical examples: `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`, `**/.git/**`, `**/.git/hooks/**`, `/home/<user>/project/**/.git/hooks/**`, `./repo/**/.git/hooks/**`, `~/project/**/.git/hooks/**`.
+- descendant-subtree glob은 첫 literal component 앞에 recursive gap이 있고, literal tail subtree root 자체와 그 descendants 전체에 매치된다. 예를 들어 `**/.git/hooks/**`는 `.git/hooks`, `.git/hooks/pre-commit`, `.git/hooks/subdir/x`를 모두 포함한다.
+- nested override와 ancestor/specificity 검증은 normalized target set 기준으로 수행한다. descendant-subtree glob끼리는 literal tail component 수가 더 많을수록, 그다음으로 normalized prefix가 더 길수록 더 구체적이다. 따라서 `**/.git/hooks/**`는 `**/.git/**` 내부의 더 구체적인 target set이다.
 - `HOME`이 없으면 fail-fast 한다.
 - expanded host path가 `source_root` 밖이면 fail-fast 한다.
 - `~user`는 unsupported fail-fast다.
-- broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, unprefixed bare suffix `*.pem`, brace/env/command expansion)은 부분 expansion 없이 fail-fast 한다.
-- 현재 소스의 `--readonly-rule`/`--allow-write` surface는 같은 normalization contract를 재사용하고, direct-child suffix subset에서도 hidden `ENOENT` precedence를 유지한다.
+- broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, unprefixed bare suffix `*.pem`, brace/env/command expansion`)과 descendant-subtree literal tail 내부 wildcard(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`) 또는 trailing `/**` 없는 form(`**/.git/hooks`)은 부분 expansion 없이 fail-fast 한다.
+- `--hide`, `--readonly-rule`, `--allow-write`는 같은 normalization contract를 재사용해야 한다. current source의 `--readonly-rule`/`--allow-write` surface는 direct-child suffix subset과 descendant-subtree subset에서도 hidden `ENOENT` precedence를 유지한다.
+- validation expectation: future live smoke/artifact는 already-absolute/relative/`~` descendant-subtree success cases, ancestor/specificity success cases(`**/.git/**` vs `**/.git/hooks/**`, `/workspace/**/.git/**` vs `**/.git/hooks/**`), 그리고 broader unsupported descendant-subtree fail-fast stderr를 분리해 남겨야 한다.
 
 ## Selective readonly target checklist
 
@@ -284,12 +288,12 @@ fusermount3 -u /tmp/screenfs-root
 | Rust formatting | 통과 | 최신 recorded evidence 기준 `cargo fmt --check` 재실행 완료 |
 | Rust compile check | 통과 | 최신 recorded evidence 기준 `cargo check` 재실행 완료 |
 | Rust lint | 통과 | 최신 recorded evidence 기준 `cargo clippy --all-targets --all-features` 재실행 완료 |
-| Mount-free unit tests | 통과 | 최신 recorded evidence 기준 `cargo test --all-targets --all-features` 재실행 완료, 총 78 tests 통과 |
+| Mount-free unit tests | 통과 | latest recorded evidence 기준 `cargo test --all-targets --all-features` 재실행 완료, descendant-subtree regression tests 포함 총 88 tests 통과 |
 | FUSE mount smoke | 부분 통과 / option B pending | 기존 repo-local family-aware transcript(`docs/artifacts/future-mutability-smoke-transcript.md`)는 option B 도입 전 evidence로 유지한다. current whole-root carve-out transcript(`docs/artifacts/whole-root-family-smoke-transcript.md`)와 whole-mount readonly transcript(`docs/artifacts/whole-mount-readonly-smoke-transcript.md`)는 baseline family evidence이며, option B nested override live smoke는 새 artifact가 필요하다. pre-removal transcript는 archival evidence로 분리한다 |
 | hidden path mount smoke | baseline 통과 | existing whole-root smoke와 pre-option-B family smoke에서 hidden path 직접 접근 `ENOENT` 확인 |
 | whole-view smoke | baseline 통과 | existing `source-root=/` family-aware smoke에서 `stat /bin/bash`, `ls /usr`, hidden `/home/spi-ca/.ssh` `ENOENT`를 확인 |
 | whole-mount readonly smoke | baseline 통과 | existing whole-mount readonly transcript(`docs/artifacts/whole-mount-readonly-smoke-transcript.md`)에서 `readonly-root-allowwrite` with empty `allow_write` 기준 `touch`/`mkdir` `EROFS`, hidden `ENOENT`, chroot 내부 `/tmp` mutation `EROFS`를 확인 |
-| rule-input normalization smoke | 부분 검증(마운트 프리 + 일부 live smoke) | source tests cover relative/`~` exact·prefixed-glob normalization, direct-child suffix subset(`normalizes_direct_child_suffix_glob_rules`, runtime-config shared-surface tests), bare suffix rejection, hidden `ENOENT` precedence; existing family-aware mount smoke 보강은 pre-option-B baseline이다. already-absolute live case와 broader unsupported wildcard fail-fast의 live smoke는 아직 별도 artifact로 남아 있다 |
+| rule-input normalization smoke | 부분 검증(마운트 프리 + 일부 live smoke) | source tests cover relative/`~` exact·prefixed-glob normalization, direct-child suffix subset, descendant-subtree subset, bare suffix rejection, hidden `ENOENT` precedence, nested specificity regression; existing family-aware mount smoke 보강은 pre-option-B baseline이다. already-absolute/relative/`~` descendant-subtree live case·broader unsupported wildcard fail-fast·descendant-subtree success/fail-fast smoke가 별도 후속 과제다 |
 | selective readonly rule smoke | baseline 통과 / option B pending | existing unit/live baseline은 rule-match `EROFS`, non-match visible mutation 성공, hidden `ENOENT`를 입증한다. nested allow-write carve-out live smoke는 새 artifact가 필요하다 |
 | carve-out policy smoke | baseline 통과 / option B pending | existing unit/live baseline은 allow-write carve-out success, non-match `EROFS`, hidden `ENOENT`, config-backed source-of-truth를 입증한다. nested readonly re-block live smoke는 새 artifact가 필요하다 |
 | user-namespace chroot smoke | baseline 통과 | existing whole-root carve-out smoke와 whole-mount readonly smoke에서 `unshare -UrR <mount> /bin/bash --noprofile --norc ...` 기준 allow/block mutation을 확인; device-node 동작은 supervisor/namespace layer 책임 |

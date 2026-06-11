@@ -5,9 +5,9 @@
 ## Core documents
 
 - [Requirements](requirements.md) — 제품 목적, hidden `ENOENT`, whole-root view, mutability family 요구사항
-- [Design](design.md) — current implementation snapshot과 남은 설계 계약
+- [Design](design.md) — current implementation snapshot, descendant-subtree source-test evidence, 남은 설계 계약
 - [Architecture](architecture.md) — 코드 경계, 데이터 흐름, 다이어그램 요약
-- [Operations](operations.md) — 최신 recorded build/test/live-smoke evidence와 운영 checklist
+- [Operations](operations.md) — 최신 recorded build/test/live-smoke evidence, descendant-subtree source-test status, 운영 checklist
 - [Nested mutability option B](nested-mutability-option-b.md) — nested override 채택 배경과 canonical contract
 
 ## Supporting references

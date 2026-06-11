@@ -4,7 +4,7 @@
 
 아키텍처 시각화 요약은 [docs/architecture.md](architecture.md)에 정리되어 있다. 다이어그램 source of truth는 `docs/diagrams/*.mmd`이고, 렌더링 계약은 [docs/diagrams/README.md](diagrams/README.md)를 따른다.
 
-> Implementation status note (2026-06): v1 core modules `cli`, `config`, `errors`, `path`, `matcher`, and `fs` now include the family-aware mutability surface plus option B nested override logic. Current source implements `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` loading, one-family-per-mount validation, CLI-over-config precedence, shared hide/readonly/allow-write normalization, hidden-before-`EROFS` precedence, most-specific nested mutability, and affected-coordinate-wide writability checks for path-only and multi-path mutation. Existing mount-free coverage targets visible-path `access` pass-through, symlink-target guards on `lookup`/`open`/`readlink`, whole-mount readonly via `readonly-root-allowwrite` empty carve-out, xattr/fallocate guards, source-root symlink escape rejection, mount-root recursion exclusion, `copy_file_range` source/destination handling, and option B nested allow-write/re-block validation. Latest recorded cargo verification includes `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features`, and `cargo test --all-targets --all-features` passing with 78 tests. Existing repo-local real-FUSE family-aware smoke (`docs/artifacts/future-mutability-smoke-transcript.md`) is pre-option-B baseline evidence; option B nested override live smoke still needs a fresh artifact. Whole-root/chroot baseline smoke exists for `readonly-root-allowwrite --allow-write /tmp` (`docs/artifacts/whole-root-family-smoke-transcript.md`) and `readonly-root-allowwrite` with empty `allow_write` (`docs/artifacts/whole-mount-readonly-smoke-transcript.md`). Pre-removal whole-root/chroot smoke remains a separate archival artifact (`docs/artifacts/fuse-smoke-transcript.md`). This remains partial implementation progress only; the design requirements below still define the remaining v1 contract and any remaining family-by-family whole-root/chroot matrix gap.
+> Implementation status note (2026-06): v1 core modules `cli`, `config`, `errors`, `path`, `matcher`, and `fs` now include the family-aware mutability surface plus option B nested override logic. Current source implements `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` loading, one-family-per-mount validation, CLI-over-config precedence, shared hide/readonly/allow-write normalization, hidden-before-`EROFS` precedence, most-specific nested mutability, and affected-coordinate-wide writability checks for path-only and multi-path mutation. Existing mount-free coverage targets visible-path `access` pass-through, symlink-target guards on `lookup`/`open`/`readlink`, whole-mount readonly via `readonly-root-allowwrite` empty carve-out, xattr/fallocate guards, source-root symlink escape rejection, mount-root recursion exclusion, `copy_file_range` source/destination handling, option B nested allow-write/re-block validation, and descendant-subtree normalization/specificity regressions across matcher/runtime-config/FUSE tests. Latest recorded full-suite cargo verification includes `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features`, and `cargo test --all-targets --all-features` passing with 88 tests on the current descendant-subtree regression tree. Existing repo-local real-FUSE family-aware smoke (`docs/artifacts/future-mutability-smoke-transcript.md`) is pre-option-B baseline evidence; option B nested override live smoke still needs a fresh artifact. Whole-root/chroot baseline smoke exists for `readonly-root-allowwrite --allow-write /tmp` (`docs/artifacts/whole-root-family-smoke-transcript.md`) and `readonly-root-allowwrite` with empty `allow_write` (`docs/artifacts/whole-mount-readonly-smoke-transcript.md`). Pre-removal whole-root/chroot smoke remains a separate archival artifact (`docs/artifacts/fuse-smoke-transcript.md`). This remains partial implementation progress only; the design requirements below still define the remaining v1 contract and any remaining family-by-family whole-root/chroot matrix gap.
 
 ## 한눈에 보기
 
@@ -40,7 +40,7 @@
 | --- | --- | --- |
 | hidden/readonly 기본 의미론 | hidden=`ENOENT`, readdir 필터링, family-aware evaluator 기준 visible mutation=`EROFS`/carve-out 허용, current whole-root/chroot smoke 존재 | family-by-family whole-root/chroot matrix 보강 |
 | readonly 설정 표면 | current source에는 `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` block, one-family-per-mount/CLI-over-config/fail-fast가 구현돼 있다 | family-by-family whole-root/chroot live evidence 추가 보강 |
-| rule 입력 정규화 | hide, current `--readonly-rule`, `--allow-write`가 shared normalization contract를 사용하며 absolute/relative/`~` exact rule, recursive prefixed limited glob, normalized-prefix direct-child basename-prefix/suffix form(`~/.env.*`, `~/*.pem` 등)을 mount-free test로 검증하고, repo-local live smoke는 relative hide exact + relative/`~` prefixed glob 일부를 보강한다 | already-absolute live cases, broader unsupported wildcard fail-fast, whole-root smoke까지 포함한 추가 live evidence 보강 |
+| rule 입력 정규화 | hide, current `--readonly-rule`, `--allow-write`가 shared normalization contract를 사용하며 absolute/relative/`~` exact rule, recursive prefixed limited glob, normalized-prefix direct-child basename-prefix/suffix form(`~/.env.*`, `~/*.pem` 등), limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-tail>/**`)을 mount-free test로 검증한다. repo-local live smoke는 relative hide exact + relative/`~` prefixed glob 일부를 보강하지만 descendant-subtree live smoke는 아직 별도 evidence가 없다 | already-absolute/relative/`~` descendant-subtree live cases, broader unsupported wildcard fail-fast, whole-root smoke까지 포함한 추가 live evidence 보강 |
 | symlink 처리 | direct symlink-entry guard, hidden target 차단, source-root escape rejection | broader ancestor-symlink traversal hardening |
 | whole-root view | `source-root=/` mount smoke, `/bin`/`/usr`/`/etc` 확인 | 상위 supervisor와의 production integration |
 | chroot 실행 | `unshare -UrR` 기반 smoke 확인 | plain `chroot` 운영 모델 정리 |
@@ -213,22 +213,23 @@ Current implementation snapshot:
 - Absolute exact rules keep the existing virtual-root-anchored semantics.
 - Relative exact rules and relative prefixed-glob prefixes are interpreted from process cwd, then rebased only when the expanded host path stays inside `source_root`.
 - Leading `~` / `~/...` exact or prefixed-glob inputs expand through `HOME` and follow the same containment/rebasing rules.
-- The current glob parser permits recursive basename/suffix/basename-prefix tails plus normalized-prefix direct-child basename-prefix/suffix forms such as `/home/<user>/.env.*`, `~/.env.*`, `/home/<user>/*.pem`, and `~/*.pem`.
+- The current glob parser/evidence covers recursive basename/suffix/basename-prefix tails, normalized-prefix direct-child basename-prefix/suffix forms such as `/home/<user>/.env.*`, `~/.env.*`, `/home/<user>/*.pem`, and `~/*.pem`, plus limited recursive literal descendant-subtree globs (`<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`).
 - Missing `HOME`, expanded paths outside `source_root`, `~user`, wildcard-in-prefix forms, and broader unsupported wildcard forms still fail fast.
-- Current validation evidence for this normalization includes mount-free unit-test coverage in `src/matcher.rs` (`normalizes_direct_child_suffix_glob_rules`), `src/config.rs` (`hide_and_readonly_rules_accept_direct_child_suffix_forms_through_runtime_config`, `allow_write_rules_accept_direct_child_suffix_forms_through_runtime_config`, `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`), and `src/fs.rs` (`hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`), plus repo-local family-aware live smoke for relative hide exact path and relative/`~` prefixed-glob inputs.
+- Current validation evidence for this normalization includes mount-free unit-test coverage in `src/matcher.rs` (`matches_recursive_literal_descendant_subtree_globs`, `recursive_literal_descendant_subtree_rules_preserve_specificity_and_containment`, `recursive_literal_descendant_subtree_specificity_prefers_longer_tail_over_longer_prefix`, `matches_requested_absolute_descendant_subtree_glob_pattern`, `normalizes_direct_child_suffix_glob_rules`), `src/config.rs` (`descendant_subtree_globs_share_runtime_config_grammar_across_surfaces`, `selective_readonly_descendant_subtree_nested_allow_write_uses_literal_tail_specificity`, `runtime_config_accepts_requested_absolute_descendant_subtree_pattern`, direct-child shared-surface tests, `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`), and `src/fs.rs` (`selective_readonly_descendant_subtree_rule_only_locks_git_hooks_subtree`, `hidden_descendant_subtree_rules_keep_enoent_precedence_over_readonly`, `hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`), plus repo-local family-aware live smoke for relative hide exact path and relative/`~` prefixed-glob inputs.
 
 Target contract for path-like rule inputs:
 
 1. First classify whether the token is an exact-path candidate or one of the supported limited globs.
-2. Supported globs keep the recursive basename/suffix/basename-prefix tail grammar, and may additionally use either an optional normalized path prefix before a recursive tail or a normalized-prefix direct-child basename-prefix/suffix tail that is normalized before matcher compilation.
+2. Supported globs keep the recursive basename/suffix/basename-prefix tail grammar, may use an optional normalized path prefix before a recursive tail, may use a normalized-prefix direct-child basename-prefix/suffix tail, and additionally permit a limited recursive literal descendant-subtree form: `<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`.
 3. Already-absolute exact paths like `/home/<user>/.ssh` preserve the current virtual-root-anchored semantics.
-4. Already-absolute prefixed globs like `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, and `/home/<user>/*.pem` preserve absolute-prefix semantics and compile to a virtual prefix plus the corresponding recursive or direct-child tail matcher. The `*.pem` form here is direct-child only.
-5. Relative exact-path candidates and relative prefixed-glob prefixes are interpreted as host paths relative to the process cwd. Only when the expanded host path stays inside `source_root` may it be rebased to a source-root-relative virtual absolute path or virtual glob prefix. This applies to both recursive prefixed globs and direct-child prefix forms such as `./fixtures/*.pem` and `./app/.env.*`.
-6. Leading `~` and `~/...` exact or prefixed-glob candidates are expanded through `HOME`, then subjected to the same `source_root` containment check and rebasing. Canonical examples include `~/.env.*` and `~/*.pem`.
-7. Missing `HOME`, expanded paths outside `source_root`, and `~user` forms are all fail-fast errors.
-8. Broader wildcard forms such as `foo/*/bar.pem`, `**/secret?.pem`, bare suffix `*.pem`, brace expansion, env-var expansion, and command substitution stay unsupported in this contract.
-9. The existing `--readonly-rule` and current `--allow-write` surfaces should reuse the same rule-input normalization contract so hide and mutability classification share the same virtual path or glob prefix before policy matching.
-10. Current implementation reaches this shared normalization contract for hide and the current mutability rule surfaces across exact paths, recursive prefixed globs, and direct-child basename-prefix/suffix forms. The direct-child suffix subset is covered by matcher/runtime-config/FUSE guard tests, while already-absolute live smoke and broader unsupported wildcard live fail-fast evidence remain separate follow-up work.
+4. Already-absolute prefixed globs like `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, `/home/<user>/*.pem`, and `/home/<user>/project/**/.git/hooks/**` preserve absolute-prefix semantics and compile to a virtual prefix plus the corresponding recursive, direct-child, or descendant-subtree tail matcher.
+5. The descendant-subtree form has a recursive gap before the first literal component and matches the literal tail subtree root itself plus all descendants. For example, `**/.git/hooks/**` matches `.git/hooks`, `.git/hooks/pre-commit`, and deeper entries below that subtree.
+6. Relative exact-path candidates and relative prefixed-glob prefixes are interpreted as host paths relative to the process cwd. Only when the expanded host path stays inside `source_root` may it be rebased to a source-root-relative virtual absolute path or virtual glob prefix. This applies to recursive prefixed globs, direct-child prefix forms such as `./fixtures/*.pem` and `./app/.env.*`, and descendant-subtree forms such as `./repo/**/.git/hooks/**`.
+7. Leading `~` and `~/...` exact or prefixed-glob candidates are expanded through `HOME`, then subjected to the same `source_root` containment check and rebasing. Canonical examples include `~/.env.*`, `~/*.pem`, and `~/project/**/.git/hooks/**`.
+8. Missing `HOME`, expanded paths outside `source_root`, and `~user` forms are all fail-fast errors.
+9. Broader wildcard forms such as `foo/*/bar.pem`, `**/secret?.pem`, bare suffix `*.pem`, descendant-subtree tails with internal wildcard segments (`**/.git/*/hooks/**`, `**/.git/**/hooks/**`), descendant-subtree forms without trailing `/**`, brace expansion, env-var expansion, and command substitution stay unsupported in this contract.
+10. The existing `--readonly-rule` and current `--allow-write` surfaces should reuse the same rule-input normalization contract so hide and mutability classification share the same virtual path or glob prefix before policy matching.
+11. Current implementation reaches this shared normalization contract for hide and the current mutability rule surfaces across exact paths, recursive prefixed globs, direct-child basename-prefix/suffix forms, and descendant-subtree forms. Already-absolute/relative/`~` descendant-subtree live smoke and broader unsupported wildcard live fail-fast evidence still remain follow-up work.
 
 
 구현 파일 바로가기: `src/path.rs`, `src/fs.rs`, `src/matcher.rs`, `src/cli.rs`
@@ -237,7 +238,7 @@ Target contract for path-like rule inputs:
 
 이 절은 어떤 입력 rule이 어떤 경로를 숨기게 되는지의 정책 표면을 정의한다.
 
-Target contract 기준으로 hide rules는 exact path와 제한된 glob pattern을 지원한다. 이 target contract의 glob은 recursive tail form과 normalized-prefix direct-child basename-prefix/suffix form을 포함한다. Current implementation snapshot에서도 `PathRuleMatcher`가 absolute/relative/`~` exact rule, recursive prefixed limited glob, direct-child basename-prefix/suffix form을 shared normalization contract 아래에서 compile하며, broader unsupported wildcard는 계속 제한한다.
+Current contract 기준으로 hide rules는 exact path와 제한된 glob pattern을 지원한다. 이 current contract의 glob은 recursive tail form, normalized-prefix direct-child basename-prefix/suffix form, 그리고 limited recursive literal descendant-subtree form(`<normalized-prefix>/**/<literal-tail>/**`)을 포함한다. Current implementation snapshot에서도 `PathRuleMatcher`가 absolute/relative/`~` exact rule, recursive prefixed limited glob, direct-child basename-prefix/suffix form, descendant-subtree form을 shared normalization contract 아래에서 compile한다. broader unsupported wildcard는 계속 제한한다.
 
 Examples:
 
@@ -249,20 +250,22 @@ Examples:
 /home/<user>/.pi/agent/mcp-oauth
 **/.env
 **/.env.*
+**/.git/hooks/**
 ~/.env.*
 ~/*.pem
 **/*.pem
 **/*.key
 ```
 
-Current code exposes the hide rule compiler/runtime through `PathRuleMatcher`.
+`PathRuleMatcher`가 current hide rule compiler/runtime surface다. 아래 matcher structure는 current tiers를 설명하며, descendant-subtree tail도 현재 source/unit-test evidence가 있는 shared matcher tier로 포함한다.
 
 Matcher structure:
 
 - internal prefix rules: mount-root recursion exclusion
-- exact absolute rule set: single path entries after current or future exact-path normalization
+- exact absolute rule set: single path entries after current exact-path normalization
 - hidden directory prefix set: exact directory hides its whole subtree
-- compiled glob matcher: limited basename/suffix/basename-prefix forms such as `**/.env`, `**/.env.*`, `**/*.pem`, `**/*.key`, `**/*.lock`, `/home/<user>/.env.*`, `/home/<user>/*.pem`
+- current compiled glob matcher: limited basename/suffix/basename-prefix forms such as `**/.env`, `**/.env.*`, `**/*.pem`, `**/*.key`, `**/*.lock`, `/home/<user>/.env.*`, `/home/<user>/*.pem`
+- current descendant-subtree compiled glob matcher tier: literal-tail subtree forms such as `**/.git/**`, `**/.git/hooks/**`, `/home/<user>/project/**/.git/hooks/**`, `/home/spi-ca/Codebase/the-onion/palgong/**/.git/hooks/**`
 - optional per-path hidden result cache keyed by normalized virtual path and rule version
 
 Symlink target cache policy:
@@ -631,11 +634,12 @@ Current CLI contract:
   - same-specificity opposite-polarity conflict와 primary ancestor 없는 secondary rule은 fail-fast다.
 - exact path inputs now accept absolute paths plus relative paths and leading `~` / `~/...` under the documented source-root rebasing contract.
 - current implementation/source-test evidence covers recursive basename/suffix/basename-prefix tails plus normalized-prefix direct-child basename-prefix/suffix forms such as `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, and `/home/<user>/*.pem`.
+- current implementation/source-test evidence also covers limited recursive literal descendant-subtree forms such as `**/.git/**`, `**/.git/hooks/**`, `./repo/**/.git/hooks/**`, and `/home/<user>/project/**/.git/hooks/**`.
 - unprefixed bare suffix `*.pem` remains unsupported even after the direct-child suffix expansion.
 - missing `HOME`, expanded paths outside `source_root`, and `~user` forms must remain fail-fast errors.
-- broader wildcard forms outside that recursive-tail + direct-child-prefix contract remain unsupported.
-- the existing `--readonly-rule` and current `--allow-write` parsing/matcher surfaces reuse the same rule-input normalization contract as hide rules, and the implemented direct-child suffix subset keeps that shared contract plus hidden-before-`EROFS` precedence.
-- current implementation/source-test evidence for the direct-child suffix subset specifically includes `normalizes_direct_child_suffix_glob_rules`, the runtime-config shared-surface tests, `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`, and `hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`. live smoke evidence is still split between repo-local family-aware transcript, current whole-root/chroot family-aware transcript, and pre-removal archival transcript.
+- broader wildcard forms outside that recursive-tail + direct-child-prefix + descendant-subtree-tail contract remain unsupported.
+- the existing `--readonly-rule` and current `--allow-write` parsing/matcher surfaces reuse the same rule-input normalization contract as hide rules, and the implemented descendant-subtree subset keeps that shared contract plus hidden-before-`EROFS` precedence. This remains a shared surface, not a readonly-only exception.
+- current implementation/source-test evidence for the descendant-subtree and direct-child subsets specifically includes the matcher tests, runtime-config shared-surface tests, `bare_suffix_globs_stay_unsupported_on_hide_and_mutability_surfaces`, `selective_readonly_descendant_subtree_rule_only_locks_git_hooks_subtree`, `hidden_descendant_subtree_rules_keep_enoent_precedence_over_readonly`, and `hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly`. live smoke remains follow-up work alongside the already-separated repo-local/current whole-root/pre-removal transcript set.
 
 Current config contract:
 
@@ -697,6 +701,7 @@ Validation is split into unit, integration, mount smoke, and system smoke levels
 - source-root escape prevention
 - current implementation coverage: exact hide rule matching with virtual-root-anchored absolute paths
 - current implementation coverage: limited glob hide rule matching, recursive absolute/relative/`~` prefixed glob normalization, normalized-prefix direct-child basename-prefix form, and rejection of broader unsupported wildcard inputs
+- current implementation coverage: limited recursive literal descendant-subtree glob normalization/matching for hide, `--readonly-rule`, and `--allow-write`, including subtree-root self-match and descendant matches
 - current implementation coverage: relative exact path rebasing from process cwd into a virtual absolute path when inside `source_root`
 - current implementation coverage: relative prefixed-glob rebasing from process cwd into a virtual glob prefix when inside `source_root`
 - current implementation coverage: leading `~` / `~/...` expansion through `HOME` for exact, recursive prefixed-glob, and direct-child basename-prefix/suffix inputs plus `source_root` containment checks.
@@ -718,7 +723,7 @@ Validation is split into unit, integration, mount smoke, and system smoke levels
 - hidden lookup/getattr/open/access/readlink/xattr behavior
 - filtered `readdir` and `readdirplus`
 - target rule-input normalization contract: relative cwd-based rebasing and `HOME`-based rebasing for exact and supported prefixed-glob inputs
-- target rule-input normalization fail-fast cases: missing `HOME`, `~user`, expanded path outside `source_root`, wildcard-in-prefix forms, bare suffix `*.pem`, brace expansion, env-var expansion, command substitution, and broader unsupported wildcard forms such as `foo/*/bar.pem` and `**/secret?.pem`
+- target rule-input normalization fail-fast cases: missing `HOME`, `~user`, expanded path outside `source_root`, wildcard-in-prefix forms, bare suffix `*.pem`, descendant-subtree tails with internal wildcard segments or missing trailing `/**`, brace expansion, env-var expansion, command substitution, and broader unsupported wildcard forms such as `foo/*/bar.pem` and `**/secret?.pem`
 - selective readonly rule application to matching and non-matching visible paths (target contract)
 - multi-path op classification for hidden source/target/parent and readonly-matched source/target/parent (target contract)
 - current implementation coverage: whole-mount readonly `EROFS` precedence after hidden `ENOENT`
@@ -737,8 +742,8 @@ Validation is split into unit, integration, mount smoke, and system smoke levels
 - symlink whose resolved virtual target is hidden returns `ENOENT`
 - hardlink alias limitation is documented and tested as path-based behavior
 - smoke exact relative-path and `~` / `~/...` rule inputs separately from already-absolute inputs
-- also smoke supported prefixed globs covering recursive suffix, direct-child suffix, and basename-prefix tails, such as `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, and `/home/<user>/*.pem`
-- keep unsupported/fail-fast smoke for wildcard-in-prefix forms, unprefixed bare suffix `*.pem`, brace/env/command expansion, and broader unsupported wildcard forms (for example `foo/*/bar.pem`, `**/secret?.pem`) rather than implicit shell expansion
+- also smoke supported prefixed globs covering recursive suffix, direct-child suffix, basename-prefix tails, and descendant-subtree tails, such as `./fixtures/**/*.pem`, `~/fixtures/**/*.pem`, `/home/<user>/**/*.pem`, `/home/<user>/.env.*`, `~/.env.*`, `./fixtures/*.pem`, `~/*.pem`, `/home/<user>/*.pem`, `./repo/**/.git/hooks/**`, and `/home/<user>/project/**/.git/hooks/**`
+- keep unsupported/fail-fast smoke for wildcard-in-prefix forms, unprefixed bare suffix `*.pem`, descendant-subtree tails with internal wildcard segments or missing trailing `/**`, brace/env/command expansion, and broader unsupported wildcard forms (for example `foo/*/bar.pem`, `**/secret?.pem`) rather than implicit shell expansion
 - target contract: readonly-matched paths reject `touch`, `mkdir`, `rename`, `chmod`, `truncate`, `setxattr`, and write-intent `open` with `EROFS`, while visible non-matching paths remain writable if the host allows it
 - current implementation smoke: the same mutation cases use `readonly-root-allowwrite` with empty `allow_write` when whole-mount readonly semantics are desired
 
@@ -752,7 +757,7 @@ Validation is split into unit, integration, mount smoke, and system smoke levels
 - bash startup and dynamic linker/shared library access through mounted view
 - `/proc`, `/sys`, `/dev`, `/run` policy smoke confirms ordinary path-only behavior and documents supervisor-owned native semantics
 - current selective-readonly CLI/config and option B nested override are implemented in source; smoke exact path/pattern cases and nested carve-out/re-block cases as separate current-surface evidence.
-- exact-path and supported glob normalization is implemented; add explicit system smoke for remaining live-evidence gaps such as already-absolute cases, `HOME`-unset fail-fast, `source_root`-outside fail-fast, `~user` unsupported errors, and option B nested override success/fail-fast cases.
+- exact-path and supported glob normalization is implemented for the current subset including descendant-subtree source/unit tests; add explicit system smoke for remaining live-evidence gaps such as descendant-subtree success cases across hide/readonly/allow-write, already-absolute cases, `HOME`-unset fail-fast, `source_root`-outside fail-fast, `~user` unsupported errors, descendant-subtree broader-form fail-fast, and option B nested override success/fail-fast cases.
 - large traversal with many hide rules while checking the v1 latency, RSS, and fd-count targets
 - daemon shutdown and `fusermount3 -u` cleanup behavior
 

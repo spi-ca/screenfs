@@ -776,6 +776,79 @@ mod tests {
     }
 
     #[test]
+    fn descendant_subtree_globs_share_runtime_config_grammar_across_surfaces() {
+        let source = test_dir();
+        let mount = source.join("mount");
+        std::fs::create_dir(&mount).unwrap();
+        std::fs::create_dir_all(source.join("project/repo/.git/hooks")).unwrap();
+        std::fs::write(source.join("project/repo/.git/hooks/pre-commit"), b"hook").unwrap();
+        std::fs::write(source.join("project/repo/.git/config"), b"config").unwrap();
+
+        let hook = VirtualPath::new("/project/repo/.git/hooks/pre-commit");
+        let hook_dir = VirtualPath::new("/project/repo/.git/hooks");
+        let config = VirtualPath::new("/project/repo/.git/config");
+
+        let cli_cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec!["/project/**/.git/hooks/**".to_string()],
+                readonly_rules: vec!["/project/**/.git/hooks/**".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec![],
+        })
+        .unwrap();
+        assert!(cli_cfg.is_hidden(&hook));
+        assert!(cli_cfg.matches_readonly_rule(&hook));
+        assert!(cli_cfg.matches_readonly_rule(&hook_dir));
+        assert!(!cli_cfg.matches_readonly_rule(&config));
+
+        let allow_write_cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec![],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            allow_write_rules: vec!["/project/**/.git/hooks/**".to_string()],
+        })
+        .unwrap();
+        assert!(allow_write_cfg.matches_allow_write_rule(&hook));
+        assert!(allow_write_cfg.matches_allow_write_rule(&hook_dir));
+        assert!(!allow_write_cfg.matches_allow_write_rule(&config));
+        assert!(!allow_write_cfg.is_readonly(&hook));
+        assert!(allow_write_cfg.is_readonly(&config));
+
+        let config_path = source.join("screenfs.yaml");
+        std::fs::write(
+            &config_path,
+            "mutability:\n  family: readonly-root-allowwrite\n  allow_write:\n    - /project/**/.git/hooks/**\n",
+        )
+        .unwrap();
+        let file_cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                hide_rules: vec![],
+                readonly_rules: vec![],
+            },
+            config_path: Some(config_path),
+            policy_family: None,
+            allow_write_rules: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(file_cfg.mutability_source(), MutabilitySource::Config);
+        assert!(file_cfg.matches_allow_write_rule(&hook));
+        assert!(!file_cfg.matches_allow_write_rule(&config));
+
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
     fn selective_readonly_nested_allow_write_uses_most_specific_match() {
         let source = test_dir();
         let mount = source.join("mnt");
@@ -796,6 +869,60 @@ mod tests {
         assert!(cfg.is_readonly(&VirtualPath::new("/workspace/docs/a.txt")));
         assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/tmp/out.txt")));
         assert!(!cfg.is_readonly(&VirtualPath::new("/free/out.txt")));
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn selective_readonly_descendant_subtree_nested_allow_write_uses_literal_tail_specificity() {
+        let source = test_dir();
+        let mount = source.join("mnt");
+        std::fs::create_dir(&mount).unwrap();
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                hide_rules: vec![],
+                readonly_rules: vec!["/workspace/**/.git/**".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec!["/workspace/**/.git/hooks/**".to_string()],
+        })
+        .unwrap();
+
+        assert!(cfg.is_readonly(&VirtualPath::new("/workspace/repo/.git/config")));
+        assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/repo/.git/hooks/pre-commit")));
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn runtime_config_accepts_requested_absolute_descendant_subtree_pattern() {
+        let source = test_dir();
+        let mount = source.join("mount");
+        std::fs::create_dir_all(&mount).unwrap();
+        let pattern = "/home/spi-ca/Codebase/the-onion/palgong/**/.git/hooks/**".to_string();
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: PathBuf::from("/"),
+                mount_root: mount,
+                hide_rules: vec![pattern.clone()],
+                readonly_rules: vec![pattern.clone()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec![],
+        })
+        .unwrap();
+        let hook =
+            VirtualPath::new("/home/spi-ca/Codebase/the-onion/palgong/repo/.git/hooks/pre-commit");
+        let outside =
+            VirtualPath::new("/home/spi-ca/Codebase/the-onion/other/.git/hooks/pre-commit");
+
+        assert!(cfg.is_hidden(&hook));
+        assert!(cfg.matches_readonly_rule(&hook));
+        assert!(!cfg.is_hidden(&outside));
+        assert!(!cfg.matches_readonly_rule(&outside));
+
         std::fs::remove_dir_all(source).unwrap();
     }
 
@@ -886,6 +1013,36 @@ mod tests {
         .unwrap();
         assert!(cfg.is_readonly(&VirtualPath::new("/workspace/.env.prod")));
         assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/.env.local")));
+
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec!["**/.git/**".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec!["**/.git/hooks/**".to_string()],
+        })
+        .unwrap();
+        assert!(cfg.is_readonly(&VirtualPath::new("/workspace/repo/.git/config")));
+        assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/repo/.git/hooks/pre-commit")));
+
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec!["**/.git/hooks/**".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            allow_write_rules: vec!["**/.git/**".to_string()],
+        })
+        .unwrap();
+        assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/repo/.git/config")));
+        assert!(cfg.is_readonly(&VirtualPath::new("/workspace/repo/.git/hooks/pre-commit")));
 
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
@@ -1014,6 +1171,77 @@ mod tests {
             .unwrap_err();
             assert!(allow_write_err.contains("unsupported glob: *.pem"));
         }
+
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn broader_descendant_wildcard_forms_stay_unsupported_across_runtime_config_surfaces() {
+        let source = test_dir();
+        let mount = source.join("mount");
+        std::fs::create_dir(&mount).unwrap();
+
+        let hide_err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec!["**/.git/**/hooks/**".to_string()],
+                readonly_rules: vec![],
+            },
+            config_path: None,
+            policy_family: None,
+            allow_write_rules: Vec::new(),
+        })
+        .unwrap_err();
+        assert!(hide_err.contains("unsupported glob: **/.git/**/hooks/**"));
+
+        let readonly_err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec!["**/*/.git/**".to_string()],
+            },
+            config_path: None,
+            policy_family: None,
+            allow_write_rules: Vec::new(),
+        })
+        .unwrap_err();
+        assert!(readonly_err.contains("unsupported glob: **/*/.git/**"));
+
+        let allow_write_err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec![],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            allow_write_rules: vec!["/project/**/.git/**/hooks/**".to_string()],
+        })
+        .unwrap_err();
+        assert!(allow_write_err.contains("unsupported glob: /project/**/.git/**/hooks/**"));
+
+        let config_path = source.join("screenfs.yaml");
+        std::fs::write(
+            &config_path,
+            "mutability:\n  family: readonly-root-allowwrite\n  allow_write:\n    - '**/.git/**/hooks/**'\n",
+        )
+        .unwrap();
+        let config_err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                hide_rules: vec![],
+                readonly_rules: vec![],
+            },
+            config_path: Some(config_path),
+            policy_family: None,
+            allow_write_rules: Vec::new(),
+        })
+        .unwrap_err();
+        assert!(config_err.contains("unsupported glob: **/.git/**/hooks/**"));
 
         std::fs::remove_dir_all(source).unwrap();
     }

@@ -32,7 +32,7 @@ option B는 **general ordered policy language**로 재설계하지 않는다. �
 - mutability family는 계속 `selective-readonly`와 `readonly-root-allowwrite` 두 개로 닫는다.
 - 한 mount는 계속 정확히 하나의 family만 선택한다.
 - hide semantics와 hidden `ENOENT` precedence는 변경하지 않는다.
-- rule input normalization contract는 hide/current rule surfaces와 계속 공유한다.
+- rule input normalization contract는 hide/current rule surfaces와 계속 공유한다. 여기에는 one-or-more literal path component를 tail로 갖는 limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-tail>/**`)도 포함되며, 현재 소스/unit test가 hide·readonly·allow-write shared surface와 nested specificity 규칙을 검증한다. readonly-only 예외로 따로 해석하지 않는다.
 - 기존 `--readonly` legacy surface를 복원하지 않는다.
 
 즉, option B는 “family 제거”가 아니라 **family 내부에서 opposite-polarity exception rule을 허용**하는 제한적 확장이다.
@@ -128,6 +128,8 @@ specificity 정의:
 - exact path rule은 같은 normalized prefix 길이의 prefixed glob rule보다 더 구체적이다.
 - 같은 rule kind끼리는 더 긴 normalized virtual prefix가 더 구체적이다.
 - recursive glob과 direct-child glob이 같은 normalized prefix를 공유하면 direct-child glob이 더 구체적이다.
+- descendant-subtree glob끼리는 literal tail component 수가 더 많을수록 더 구체적이고, literal tail 길이가 같으면 더 긴 normalized prefix가 더 구체적이다.
+- 따라서 `**/.git/hooks/**`는 `**/.git/**`보다 더 구체적이고, `/workspace/**/.git/hooks/**`는 `/**/.git/hooks/**`보다 더 구체적이다.
 - 같은 normalized target set과 같은 polarity를 가진 duplicate rule은 idempotent로 허용할 수 있다.
 - 같은 normalized target set 또는 같은 specificity에서 opposite polarity가 충돌하면 fail-fast다.
 
@@ -177,6 +179,8 @@ final writability 판정:
 - primary ancestor는 normalization 이후 secondary rule의 virtual prefix/target이 primary rule의 virtual prefix/target 아래에 있고, primary rule이 secondary rule보다 덜 구체적인 경우를 뜻한다.
 - exact primary `/workspace`는 secondary `/workspace/tmp`의 ancestor다.
 - recursive primary `/workspace/**/*.json`은 secondary `/workspace/tmp/**/*.json`의 ancestor 후보다.
+- descendant-subtree primary `**/.git/**`는 secondary `**/.git/hooks/**`의 ancestor 후보다.
+- prefixed descendant-subtree primary `/workspace/**/.git/**`는 secondary `/workspace/**/.git/hooks/**`의 ancestor 후보다.
 - 서로 겹치지 않거나 secondary가 primary보다 넓은 target set이면 ancestor가 아니다.
 - `selective-readonly`에서 primary ancestor 없는 standalone `allow-write` rule은 **fail-fast**다.
 - 이유: 기본값이 이미 writable이므로 standalone `allow-write`는 의미가 없고 오해를 만든다.
@@ -197,6 +201,7 @@ final writability 판정:
 
 - secondary `readonly` rule은 primary `allow-write` subtree 내부 re-block 용도로만 허용한다.
 - primary ancestor 판정은 `selective-readonly`와 같은 normalized virtual prefix/target-set 관계를 사용한다.
+- 예를 들어 primary `allow-write=**/.git/**` 아래 secondary `readonly=**/.git/hooks/**`는 허용 후보지만, 그 반대 방향이나 같은 specificity 충돌은 fail-fast다.
 - `readonly-root-allowwrite`에서 primary ancestor 없는 standalone `readonly` rule은 **fail-fast**다.
 - 이유: 기본값이 이미 readonly이므로 standalone `readonly`는 의미가 없고 오해를 만든다.
 
@@ -224,6 +229,12 @@ screenfs /src /mnt \
   --policy-family selective-readonly \
   --readonly-rule /workspace \
   --allow-write /workspace/tmp
+
+# descendant-subtree specificity example
+screenfs /src /mnt \
+  --policy-family selective-readonly \
+  --readonly-rule '/workspace/**/.git/**' \
+  --allow-write '/workspace/**/.git/hooks/**'
 ```
 
 검증:
@@ -241,6 +252,12 @@ screenfs /src /mnt \
   --policy-family readonly-root-allowwrite \
   --allow-write /workspace \
   --readonly-rule /workspace/vendor
+
+# descendant-subtree specificity example
+screenfs /src /mnt \
+  --policy-family readonly-root-allowwrite \
+  --allow-write '/workspace/**/.git/**' \
+  --readonly-rule '/workspace/**/.git/hooks/**'
 ```
 
 검증:
@@ -389,7 +406,7 @@ option B를 도입하면 최소 다음 검증이 필요하다.
 
 ### 10.5 live smoke
 
-최소 두 mount smoke가 필요하다.
+current source/unit-test evidence와 별도로 최소 두 mount smoke가 필요하다.
 
 1. `selective-readonly` + nested `allow-write`
 2. `readonly-root-allowwrite` + nested `readonly`

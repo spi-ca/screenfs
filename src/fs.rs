@@ -732,6 +732,83 @@ mod tests {
     }
 
     #[test]
+    fn selective_readonly_descendant_subtree_rule_only_locks_git_hooks_subtree() {
+        let dir = test_dir("selective-readonly-git-hooks-subtree");
+        std::fs::create_dir_all(dir.join("project/repo/.git/hooks")).unwrap();
+        std::fs::write(dir.join("project/repo/.git/hooks/pre-commit"), b"hook").unwrap();
+        std::fs::write(dir.join("project/repo/.git/config"), b"config").unwrap();
+        let fs = fs_for(
+            &dir,
+            Vec::new(),
+            vec!["/project/**/.git/hooks/**".to_string()],
+        );
+
+        let hook = fs
+            .reply_entry_for_path(VirtualPath::new("/project/repo/.git/hooks/pre-commit"))
+            .unwrap()
+            .attr
+            .ino;
+        let hooks_dir = fs
+            .reply_entry_for_path(VirtualPath::new("/project/repo/.git/hooks"))
+            .unwrap()
+            .attr
+            .ino;
+        let config = fs
+            .reply_entry_for_path(VirtualPath::new("/project/repo/.git/config"))
+            .unwrap()
+            .attr
+            .ino;
+
+        assert_eq!(
+            block_on(fs.open(dummy_req(), hook, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS
+        );
+        assert_eq!(
+            block_on(fs.opendir(dummy_req(), hooks_dir, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS
+        );
+
+        let config_handle = block_on(fs.open(dummy_req(), config, libc::O_WRONLY as u32)).unwrap();
+        block_on(fs.release(dummy_req(), config, config_handle.fh, 0, 0, false, false)).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn hidden_descendant_subtree_rules_keep_enoent_precedence_over_readonly() {
+        let dir = test_dir("hidden-git-hooks-precedence");
+        std::fs::create_dir_all(dir.join("project/repo/.git/hooks")).unwrap();
+        std::fs::write(dir.join("project/repo/.git/hooks/pre-commit"), b"hook").unwrap();
+        std::fs::write(dir.join("project/repo/.git/config"), b"config").unwrap();
+        let fs = fs_for(
+            &dir,
+            vec!["/project/**/.git/hooks/**".to_string()],
+            vec!["/project/**/.git/**".to_string()],
+        );
+
+        let hidden_hook = tracked_inode(&fs, "/project/repo/.git/hooks/pre-commit");
+        let hidden_hooks_dir = tracked_inode(&fs, "/project/repo/.git/hooks");
+        let readonly_config = fs
+            .reply_entry_for_path(VirtualPath::new("/project/repo/.git/config"))
+            .unwrap()
+            .attr
+            .ino;
+
+        assert_eq!(
+            block_on(fs.open(dummy_req(), hidden_hook, libc::O_WRONLY as u32)).unwrap_err(),
+            ENOENT
+        );
+        assert_eq!(
+            block_on(fs.opendir(dummy_req(), hidden_hooks_dir, libc::O_WRONLY as u32)).unwrap_err(),
+            ENOENT
+        );
+        assert_eq!(
+            block_on(fs.open(dummy_req(), readonly_config, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn visible_read_and_nested_listing_preserve_access_and_parent_entries() {
         let dir = test_dir("visible-read-list");
         std::fs::create_dir_all(dir.join("a/b")).unwrap();
