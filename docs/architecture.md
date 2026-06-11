@@ -3,12 +3,11 @@
 이 문서는 현재 계획서(`README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`)와 현재 코드(`src/*.rs`)를 함께 기준으로 정리한 아키텍처 요약이다.
 
 - source of truth: 구현 코드는 `src/`, 계약과 목표는 `README.md`, `docs/requirements.md`, `docs/design.md`
-- 현재 상태: v1 핵심 hidden 경로 의미론과 family-aware mutability surface(`--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability`)가 소스/마운트-프리 테스트에 구현돼 있다. repo-local family-aware FUSE smoke(`docs/artifacts/future-mutability-smoke-transcript.md`), current whole-root/chroot family-aware smoke(`docs/artifacts/whole-root-family-smoke-transcript.md`), archival pre-removal smoke(`docs/artifacts/fuse-smoke-transcript.md`)가 함께 존재한다. `/dev/null` 등 device-node semantics는 FUSE mount의 `nodev` 제약 때문에 상위 supervisor/namespace layer 책임으로 남는다.
+- 현재 상태: v1 핵심 hidden 경로 의미론과 family-aware mutability surface(`--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability`)가 소스/마운트-프리 테스트에 구현돼 있다. repo-local family-aware FUSE smoke(`docs/artifacts/future-mutability-smoke-transcript.md`), current whole-root/chroot family-aware smoke(`docs/artifacts/whole-root-family-smoke-transcript.md`), current whole-mount readonly smoke(`docs/artifacts/whole-mount-readonly-smoke-transcript.md`), archival pre-removal smoke(`docs/artifacts/fuse-smoke-transcript.md`)가 함께 존재하며, canonical evidence 목록은 `docs/operations.md`를 따른다. `/dev/null` 등 device-node semantics는 FUSE mount의 `nodev` 제약 때문에 상위 supervisor/namespace layer 책임으로 남는다.
 - 런타임 전제: non-root + `fusermount3`, `FUSE_OVER_IO_URING` 필수, 협상 실패 시 fallback 없이 fail-fast
 - 통합 경계: mount owner와 동일 host uid 접근이 기본 전제이며, chroot 권한 모델과 `/proc`·`/sys`·`/dev`·`/run` native semantics는 상위 supervisor 책임이다
-- 다이어그램 원본: `docs/diagrams/*.mmd`
-- 렌더링 산출물: `docs/diagrams/*.png`, `docs/diagrams/*.svg`
-- 공용 렌더링 규칙: `docs/diagrams/README.md`를 따른다. `docs/diagrams/mermaid-config.json`은 Mermaid theme/font source of truth이고, `docs/diagrams/puppeteer-config.json`은 Puppeteer launch option source of truth다. PNG는 이 두 config를 함께 사용해 Mermaid CLI `--scale 2`로 렌더링한다.
+- 다이어그램 source of truth: `docs/diagrams/*.mmd`
+- 다이어그램 렌더링 계약: `docs/diagrams/README.md`
 
 ## 1. 시스템 컨텍스트
 
@@ -16,7 +15,9 @@
 
 ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mount를 만들고, 그 mount를 sandbox/chroot 같은 상위 consumer가 읽는 구조다. `pi-bash-sandbox`는 대표 통합 예시지만 시스템 경계 자체는 특정 supervisor 하나에 고정되지 않는다. 아래 그림의 mount path는 `/tmp/screenfs-root` 예시일 뿐 고정 경로가 아니다. 목표 계약상 숨김 경로는 `ENOENT`, selective readonly rule에 매칭된 visible mutation은 `EROFS`로 분기한다. 현재 소스는 `selective-readonly`와 `readonly-root-allowwrite` family, explicit family/rule/config surface, source/target/parent 기반 handler-level policy evaluator까지 구현한다. repo-local family-aware live smoke와 current whole-root/chroot family-aware live smoke도 확보됐고, pre-removal historical transcript는 archival evidence로만 분리해 읽는다. mount-level `ro`만으로는 충분하지 않다.
 
-![ScreenFS system context](diagrams/system-context.png)
+![ScreenFS system context](diagrams/system-context.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
 구현 파일 바로가기: `README.md`, `docs/design.md`, `docs/operations.md`
 
@@ -26,7 +27,9 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 현재 코드는 `main -> cli/config -> fs`를 중심으로 구성되어 있고, `src/fs.rs`는 module root/orchestrator로서 `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`에 inode/file-handle state, path guard, confined host access를 위임한다. `src/matcher.rs`의 `PathRuleMatcher`는 hide/readonly/allow-write rule compilation과 runtime policy checks에 공유된다.
 
-![ScreenFS module architecture](diagrams/module-architecture.png)
+![ScreenFS module architecture](diagrams/module-architecture.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
 핵심 포인트:
 
@@ -49,7 +52,9 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 많은 조회·traversal 요청은 virtual path 계산 후 hidden 판정이 먼저, symlink target hidden 검사와 mutability policy evaluator 판정이 뒤따르고, host filesystem delegation이 마지막 순서로 진행된다. 아래 다이어그램은 current target selective-readonly family를 기준으로 읽되, 같은 evaluator shape가 현재 소스의 `readonly-root-allowwrite` family에도 재사용된다고 이해하면 된다. repo-local family-aware smoke, current whole-root/chroot family-aware smoke, archival pre-removal smoke는 서로 다른 artifact로 관리된다.
 
-![ScreenFS request decision flow](diagrams/request-decision-flow.png)
+![ScreenFS request decision flow](diagrams/request-decision-flow.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
 핵심 포인트:
 
@@ -75,7 +80,9 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 `PathRuleMatcher` 기반 hide matching은 host canonical path가 아니라 lexical virtual path 기준으로 동작한다. 이후 backing 접근은 `source_root` 밖으로 빠져나가지 않도록 제한한다. 아래 다이어그램은 특히 visible symlink entry를 직접 다루는 경로를 기준으로 읽는 것이 정확하다.
 
-![ScreenFS path resolution and confinement](diagrams/path-resolution.png)
+![ScreenFS path resolution and confinement](diagrams/path-resolution.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
 핵심 포인트:
 

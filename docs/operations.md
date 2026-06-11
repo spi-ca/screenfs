@@ -13,7 +13,7 @@ fusermount3 version: 3.18.2
 /dev/fuse: present
 ```
 
-위 kernel config artifact는 현재 커널 빌드 설정에 `FUSE_OVER_IO_URING` 관련 옵션이 활성화되어 있음을 보여주는 정적 근거다. 이는 mount 성공이나 세션 협상 성공을 새로 증명하는 smoke artifact는 아니다.
+위 kernel config artifact는 현재 커널 빌드 설정에 `FUSE_OVER_IO_URING` 관련 옵션이 활성화되어 있음을 보여주는 정적 근거다. 이는 mount 성공이나 실제 session 협상 성공을 새로 증명하는 smoke artifact는 아니다.
 
 프로젝트 상태:
 
@@ -36,14 +36,14 @@ cargo test --all-targets --all-features
 cargo clippy --all-targets --all-features
 ```
 
-현재 option B 갱신 세션의 실제 상태:
+최신 recorded build/test evidence:
 
-- 이번 세션은 option B nested mutability override를 current source/docs에 반영하는 코드/문서 변경을 함께 다룬다.
+- 최신 recorded evidence는 option B nested mutability override를 current source/docs에 반영한 상태를 기준으로 정리됐다.
 - fresh evidence 확보를 위해 `cargo fmt --check`를 재실행해 통과했다.
 - `cargo check`, `cargo clippy --all-targets --all-features`, `cargo test --all-targets --all-features`를 재실행했고 모두 통과했다.
-- `cargo test --all-targets --all-features`는 이번 세션 기준 총 78 tests 통과다.
+- 최신 recorded `cargo test --all-targets --all-features` 결과는 총 78 tests 통과다.
 - 현재 mount-free test coverage에는 relative/`~` exact·prefixed-glob normalization, hide/current mutability rule shared semantics, option B nested allow-write/re-block precedence와 fail-fast validation, `readonly_root_allowwrite_requires_writable_parent_for_path_only_and_multi_path_mutation`, `readonly_root_allowwrite_copy_file_range_requires_writable_destination_parent`, config mutability load/override가 포함된다. 다만 이는 family별 live smoke 완료를 의미하지 않는다.
-- 문서 정합성 확인으로 변경한 `README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`, `docs/nested-mutability-option-b.md`의 해당 구간을 재독해한다.
+- 문서 정합성 확인으로 변경된 문서 구간은 상호 일관성을 위해 다시 읽어 확인한다.
 
 ## Mermaid 다이어그램 산출물 재생성
 
@@ -122,7 +122,7 @@ file docs/diagrams/*.png
 
 ## Mount 예시
 
-아래 명령은 운영 예시다. 이번 문서 갱신의 검증 증거에는 포함되지 않는다. `pi-bash-sandbox` + chroot는 대표 통합 시나리오지만, 동일한 whole-root mount는 다른 sandbox/chroot consumer에도 재사용될 수 있다.
+아래 명령은 운영 예시다. 최신 recorded verification evidence 자체로 읽지는 않는다. `pi-bash-sandbox` + chroot는 대표 통합 시나리오지만, 동일한 whole-root mount는 다른 sandbox/chroot consumer에도 재사용될 수 있다.
 
 기본 mount:
 
@@ -277,14 +277,14 @@ fusermount3 -u /tmp/screenfs-root
 
 ## Requirement-linked verification matrix
 
-현재 문서에는 historical evidence와 current-session evidence를 구분해 적는다.
+현재 문서는 historical evidence와 latest recorded evidence를 구분해 적는다.
 
 | 항목 | 현재 상태 | 근거 |
 | --- | --- | --- |
-| Rust formatting | 통과 | 이번 세션에서 `cargo fmt --check` 재실행 완료 |
-| Rust compile check | 통과 | 이번 세션에서 `cargo check` 재실행 완료 |
-| Rust lint | 통과 | 이번 세션에서 `cargo clippy --all-targets --all-features` 재실행 완료 |
-| Mount-free unit tests | 통과 | 이번 세션에서 `cargo test --all-targets --all-features` 재실행 완료, 총 78 tests 통과 |
+| Rust formatting | 통과 | 최신 recorded evidence 기준 `cargo fmt --check` 재실행 완료 |
+| Rust compile check | 통과 | 최신 recorded evidence 기준 `cargo check` 재실행 완료 |
+| Rust lint | 통과 | 최신 recorded evidence 기준 `cargo clippy --all-targets --all-features` 재실행 완료 |
+| Mount-free unit tests | 통과 | 최신 recorded evidence 기준 `cargo test --all-targets --all-features` 재실행 완료, 총 78 tests 통과 |
 | FUSE mount smoke | 부분 통과 / option B pending | 기존 repo-local family-aware transcript(`docs/artifacts/future-mutability-smoke-transcript.md`)는 option B 도입 전 evidence로 유지한다. current whole-root carve-out transcript(`docs/artifacts/whole-root-family-smoke-transcript.md`)와 whole-mount readonly transcript(`docs/artifacts/whole-mount-readonly-smoke-transcript.md`)는 baseline family evidence이며, option B nested override live smoke는 새 artifact가 필요하다. pre-removal transcript는 archival evidence로 분리한다 |
 | hidden path mount smoke | baseline 통과 | existing whole-root smoke와 pre-option-B family smoke에서 hidden path 직접 접근 `ENOENT` 확인 |
 | whole-view smoke | baseline 통과 | existing `source-root=/` family-aware smoke에서 `stat /bin/bash`, `ls /usr`, hidden `/home/spi-ca/.ssh` `ENOENT`를 확인 |

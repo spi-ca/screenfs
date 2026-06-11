@@ -1,61 +1,40 @@
 # AGENTS.md
 
-이 저장소에서 작업하는 에이전트는 아래 지침을 따른다.
+이 저장소에서 작업하는 에이전트는 아래 공통 규칙을 따른다.
 
 ## 프로젝트 목적
 
-`ScreenFS`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 전체 `/` 파일시스템을 pass-through 하면서, 지정된 민감 경로는 존재하지 않는 것처럼 숨기고 visible path에는 readonly policy를 적용할 수 있게 설계한다. `pi-bash-sandbox`는 대표 통합 예시지만, 프로젝트 목적을 그 용도 하나로 한정하지 않는다.
+`ScreenFS`는 non-root whole-root consumer를 위한 FUSE 기반 filesystem view layer다. 전체 `/`를 pass-through 하면서 민감 경로는 존재하지 않는 것처럼 숨기고, visible path에는 family-aware readonly/carve-out policy를 적용한다. `pi-bash-sandbox`는 대표 통합 예시지만 프로젝트 목적을 그 용도 하나로 한정하지 않는다.
 
-## 작업 원칙
+## 필수 가드레일
 
 - 기본 실행 전제는 non-root다.
 - FUSE mount는 `fusermount3`를 기준으로 문서화하고 구현한다.
-- root-only mount, privileged bind mount, system-wide mount namespace 조작에 의존하는 설계로 바꾸지 않는다.
+- root-only mount, privileged bind mount, system-wide mount namespace 조작에 의존하지 않는다.
 - `/dev/null` bind overlay, 빈 파일 overlay, tmpfs masking처럼 이름을 남기는 masking 방식은 사용하지 않는다.
-- 숨김 대상은 가능한 한 `ENOENT`로 처리하고, `Permission denied`로 존재를 노출하지 않는다.
 - chroot 사용을 전제로 하므로 프로젝트 디렉터리 전용 view가 아니라 전체 `/` view 요구사항을 유지한다.
-- `fractal-fuse = 0.4.0` 기반 구현 전제를 임의로 변경하지 않는다.
-- FUSE3 및 `FUSE_OVER_IO_URING` 사용 목표를 문서와 설계에서 유지한다.
-- 사용자의 기존 변경사항을 덮어쓰지 말고, 변경 전후 diff를 확인한다.
+- `fractal-fuse = 0.4.0`, FUSE3, `FUSE_OVER_IO_URING` 목표를 임의로 바꾸지 않는다.
+- hidden path는 가능한 한 `ENOENT`로 처리하고 `Permission denied`로 존재를 노출하지 않는다.
+- `selective-readonly`와 `readonly-root-allowwrite` 두 family만 current contract로 취급하고, hidden `ENOENT` precedence와 one-family-per-mount 규칙을 유지한다.
+- 현재 CLI/config surface와 historical pre-removal evidence를 혼동하지 않는다. pre-removal transcript는 archival evidence로만 읽는다.
+- `docs/guidelines/**`는 명시적 요청 없이는 수정하지 않는다.
+- 사용자의 기존 변경사항을 덮어쓰지 말고 변경 전후 diff를 확인한다.
 
 ## 필수 의미론
 
-Hidden path는 다음 operation에서 존재하지 않는 것처럼 동작해야 한다.
+- hidden entry는 `readdir`, `readdirplus` 결과에서 제외된다.
+- hidden path에 대한 `lookup`, `getattr`, `open`, `access`는 `ENOENT`다.
+- `selective-readonly`에서 readonly rule에 매치된 visible path의 read/stat/list는 허용하고 mutation은 `EROFS`다.
+- `readonly-root-allowwrite`에서는 allow-write carve-out이 없는 visible mutation이 `EROFS`다.
+- nested override를 포함한 어떤 family에서도 hidden `ENOENT`가 readonly/carve-out 판정보다 우선한다.
 
-- `readdir`, `readdirplus`: 결과에서 제외
-- `lookup`, `getattr`, `open`, `access`: `ENOENT`
+## 추가 문서
 
-Selective readonly rule 목표는 다음을 지킨다.
+- Pi role workflow와 repo-local resource 설명: [`docs/pi-agents.md`](docs/pi-agents.md)
+- 다이어그램 렌더링 계약: [`docs/diagrams/README.md`](docs/diagrams/README.md)
+- 운영/검증 기준: [`docs/operations.md`](docs/operations.md)
 
-- hidden path는 selective readonly 여부와 무관하게 `ENOENT`
-- readonly rule에 매치된 visible path의 read/stat/list 허용
-- `write`, `create`, `mkdir`, `mknod`, `unlink`, `rmdir`, `rename`, `link`, `symlink`, mutation `setattr`, `fallocate`는 readonly rule에 매치된 path에서 `EROFS`
-- readonly rule에 매치되지 않은 visible path는 이 요구사항만으로 자동 readonly가 되지 않음
-- future documented mutability policy family는 `selective-readonly`와 `readonly-root-allowwrite` 두 개로 닫고, mount당 하나만 선택한다.
-- 제거된 `--readonly` legacy surface를 current contract처럼 다시 도입하지 않는다.
-- future carve-out family에서는 hidden `ENOENT` 우선, allowWrite union semantics, affected-coordinate-wide writable requirement를 유지한다.
-- hide / `--readonly-rule` / future `--allow-write`는 exact path, supported prefixed glob, broader unsupported wildcard, `HOME`/`source_root`/`~user` fail-fast semantics를 같은 normalization contract로 공유한다.
-- current CLI/config surface와 historical pre-removal evidence를 혼동하지 않는다. 현재 구현은 family-aware surface 기준으로 읽고, pre-removal transcript는 archival evidence로만 취급한다.
-
-## Pi role agents
-
-이 프로젝트는 software 작성 workflow를 위해 project-local Pi resource를 제공한다.
-
-- Subagents: `.pi/agents/*.md`
-- Skills: `.pi/skills/software-role-agents/SKILL.md`, `.pi/skills/software-developer-parallel/SKILL.md`, `.pi/skills/iterative-findings-loop/SKILL.md`
-- Prompt templates: `.pi/prompts/software-role-workflow.md`, `.pi/prompts/software-developer-parallel.md`, `.pi/prompts/goal-impl.md`, `.pi/prompts/goal-change.md`
-- Extensions: `.pi/extensions/guardrails.json`, `.pi/extensions/guardrails.v0.json`
-- 설명 문서: `docs/pi-agents.md`
-
-역할은 `user-representative`, `software-systems-engineer`, `software-designer`, `software-developer`, `software-implementer`, `software-qa`, `software-reviewer`를 기준으로 한다. `software-developer`는 독립 work package를 병렬 lane으로 구현할 때 사용한다. project-local subagent 실행 확인은 우회하지 않는다.
-
-## 검증 지침
-
-`docs/diagrams`를 수정했거나 `docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`이 바뀌면 다음도 함께 지킨다.
-
-- `docs/diagrams/*.mmd`를 source of truth로 보고 대응 `*.svg`, `*.png`를 재생성한다.
-- PNG 생성 명령은 공용 config 두 개를 함께 사용하고 Mermaid CLI `--scale 2`를 포함해야 한다.
-- 상세 렌더 계약과 재생성 예시는 `docs/diagrams/README.md`를 따른다.
+## 검증 포인터
 
 문서 변경 시 최소 확인:
 
@@ -65,7 +44,7 @@ find README.md AGENTS.md docs -maxdepth 2 -type f -print
 find .pi/agents .pi/skills .pi/prompts -maxdepth 3 -type f -print | sort
 ```
 
-코드 변경이 포함되면 관련 Rust 검증을 추가한다.
+코드 변경이 포함되면 추가 확인:
 
 ```bash
 cargo fmt --check
@@ -73,4 +52,4 @@ cargo clippy --all-targets --all-features
 cargo test --all-targets --all-features
 ```
 
-현재 단계의 문서가 구현 완료를 의미하지 않도록, 미구현 기능은 요구사항 또는 설계 목표로 표현한다.
+`docs/diagrams/*.mmd` 또는 Mermaid render config를 바꿨다면 `docs/diagrams/README.md` 규칙에 따라 대응 `*.svg`, `*.png`를 함께 재생성하고 PNG에는 Mermaid CLI `--scale 2`를 포함한다.

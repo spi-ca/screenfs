@@ -2,23 +2,29 @@
 
 이 문서는 `ScreenFS`를 구현하기 위한 설계 기준이다. 현재 저장소에는 v1 핵심 모듈의 초기 구현이 포함되어 있지만, 이 문서는 여전히 구현 완료 선언이 아니라 구현자가 따라야 할 계약이다.
 
-아키텍처 시각화 요약은 [docs/architecture.md](architecture.md)에 정리되어 있다. 다이어그램 원본과 공용 렌더링 규칙은 [docs/diagrams/README.md](diagrams/README.md)를 따른다. `docs/diagrams/*.png`는 `docs/diagrams/mermaid-config.json`, `docs/diagrams/puppeteer-config.json`을 함께 사용하고 Mermaid CLI `--scale 2`로 렌더링하는 것을 기준으로 읽는다.
+아키텍처 시각화 요약은 [docs/architecture.md](architecture.md)에 정리되어 있다. 다이어그램 source of truth는 `docs/diagrams/*.mmd`이고, 렌더링 계약은 [docs/diagrams/README.md](diagrams/README.md)를 따른다.
 
-> Implementation status note (2026-06): v1 core modules `cli`, `config`, `errors`, `path`, `matcher`, and `fs` now include the family-aware mutability surface plus option B nested override logic. Current source implements `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` loading, one-family-per-mount validation, CLI-over-config precedence, shared hide/readonly/allow-write normalization, hidden-before-`EROFS` precedence, most-specific nested mutability, and affected-coordinate-wide writability checks for path-only and multi-path mutation. Existing mount-free coverage targets visible-path `access` pass-through, symlink-target guards on `lookup`/`open`/`readlink`, whole-mount readonly via `readonly-root-allowwrite` empty carve-out, xattr/fallocate guards, source-root symlink escape rejection, mount-root recursion exclusion, `copy_file_range` source/destination handling, and option B nested allow-write/re-block validation. Current-session cargo verification includes `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features`, and `cargo test --all-targets --all-features` passing with 78 tests. Existing repo-local real-FUSE family-aware smoke (`docs/artifacts/future-mutability-smoke-transcript.md`) is pre-option-B baseline evidence; option B nested override live smoke still needs a fresh artifact. Whole-root/chroot baseline smoke exists for `readonly-root-allowwrite --allow-write /tmp` (`docs/artifacts/whole-root-family-smoke-transcript.md`) and `readonly-root-allowwrite` with empty `allow_write` (`docs/artifacts/whole-mount-readonly-smoke-transcript.md`). Pre-removal whole-root/chroot smoke remains a separate archival artifact (`docs/artifacts/fuse-smoke-transcript.md`). This remains partial implementation progress only; the design requirements below still define the remaining v1 contract and any remaining family-by-family whole-root/chroot matrix gap.
+> Implementation status note (2026-06): v1 core modules `cli`, `config`, `errors`, `path`, `matcher`, and `fs` now include the family-aware mutability surface plus option B nested override logic. Current source implements `--policy-family`, `--readonly-rule`, `--allow-write`, `--config`, YAML `mutability` loading, one-family-per-mount validation, CLI-over-config precedence, shared hide/readonly/allow-write normalization, hidden-before-`EROFS` precedence, most-specific nested mutability, and affected-coordinate-wide writability checks for path-only and multi-path mutation. Existing mount-free coverage targets visible-path `access` pass-through, symlink-target guards on `lookup`/`open`/`readlink`, whole-mount readonly via `readonly-root-allowwrite` empty carve-out, xattr/fallocate guards, source-root symlink escape rejection, mount-root recursion exclusion, `copy_file_range` source/destination handling, and option B nested allow-write/re-block validation. Latest recorded cargo verification includes `cargo fmt --check`, `cargo check`, `cargo clippy --all-targets --all-features`, and `cargo test --all-targets --all-features` passing with 78 tests. Existing repo-local real-FUSE family-aware smoke (`docs/artifacts/future-mutability-smoke-transcript.md`) is pre-option-B baseline evidence; option B nested override live smoke still needs a fresh artifact. Whole-root/chroot baseline smoke exists for `readonly-root-allowwrite --allow-write /tmp` (`docs/artifacts/whole-root-family-smoke-transcript.md`) and `readonly-root-allowwrite` with empty `allow_write` (`docs/artifacts/whole-mount-readonly-smoke-transcript.md`). Pre-removal whole-root/chroot smoke remains a separate archival artifact (`docs/artifacts/fuse-smoke-transcript.md`). This remains partial implementation progress only; the design requirements below still define the remaining v1 contract and any remaining family-by-family whole-root/chroot matrix gap.
 
 ## 한눈에 보기
 
 ### 시스템 컨텍스트
 
-![ScreenFS system context](diagrams/system-context.png)
+![ScreenFS system context](diagrams/system-context.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
 ### 요청 처리 흐름
 
-![ScreenFS request decision flow](diagrams/request-decision-flow.png)
+![ScreenFS request decision flow](diagrams/request-decision-flow.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
 ### 모듈 구조
 
-![ScreenFS module architecture](diagrams/module-architecture.png)
+![ScreenFS module architecture](diagrams/module-architecture.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
 ## 빠른 읽기 가이드
 
@@ -183,7 +189,9 @@ Data flow:
 
 이 절은 hide rule이 **host path**가 아니라 **virtual path** 기준으로 동작한다는 점을 기억하고 읽으면 이해가 빠르다.
 
-![ScreenFS path resolution](diagrams/path-resolution.png)
+![ScreenFS path resolution](diagrams/path-resolution.svg)
+
+다이어그램 원본: [diagrams/README.md](diagrams/README.md)
 
 Hidden matching uses a **lexically normalized absolute virtual path**, not `std::fs::canonicalize()`.
 
