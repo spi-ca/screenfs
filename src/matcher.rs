@@ -9,6 +9,129 @@ pub struct PathRuleMatcher {
     exact: Vec<VirtualPath>,
     prefixes: Vec<VirtualPath>,
     glob_rules: Vec<CompiledGlob>,
+    descriptors: Vec<RuleDescriptor>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RuleSpecificity {
+    prefix_components: usize,
+    kind_rank: u8,
+    tail_rank: u8,
+    tail_len: usize,
+}
+
+impl RuleSpecificity {
+    fn exact_or_prefix(path: &VirtualPath, exact: bool) -> Self {
+        Self {
+            prefix_components: component_count(path),
+            kind_rank: if exact { 3 } else { 2 },
+            tail_rank: 0,
+            tail_len: 0,
+        }
+    }
+
+    fn glob(prefix: Option<&VirtualPath>, recursive: bool, pattern: &GlobPattern) -> Self {
+        let (tail_rank, tail_len) = pattern.specificity_tail();
+        Self {
+            prefix_components: prefix.map(component_count).unwrap_or(0),
+            kind_rank: if recursive { 0 } else { 1 },
+            tail_rank,
+            tail_len,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleDescriptor {
+    anchor: VirtualPath,
+    specificity: RuleSpecificity,
+    target: RuleTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuleTarget {
+    Subtree,
+    Glob {
+        recursive: bool,
+        pattern: GlobPattern,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GlobPattern {
+    Basename(String),
+    Prefix(String),
+    Suffix(String),
+}
+
+impl GlobPattern {
+    fn matches_component(&self, component: Component<'_>) -> bool {
+        match component {
+            Component::Normal(part) => self.matches_name(&part.to_string_lossy()),
+            _ => false,
+        }
+    }
+
+    fn matches_name(&self, name: &str) -> bool {
+        match self {
+            Self::Basename(expected) => name == expected.as_str(),
+            Self::Prefix(name_prefix) => name.starts_with(name_prefix),
+            Self::Suffix(suffix) => name.ends_with(suffix),
+        }
+    }
+
+    fn contains_pattern(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Basename(left), Self::Basename(right)) => left == right,
+            (Self::Prefix(prefix), Self::Basename(name)) => name.starts_with(prefix),
+            (Self::Prefix(prefix), Self::Prefix(other_prefix)) => other_prefix.starts_with(prefix),
+            (Self::Suffix(suffix), Self::Basename(name)) => name.ends_with(suffix),
+            (Self::Suffix(suffix), Self::Suffix(other_suffix)) => other_suffix.ends_with(suffix),
+            _ => false,
+        }
+    }
+
+    fn specificity_tail(&self) -> (u8, usize) {
+        match self {
+            Self::Basename(name) => (3, name.len()),
+            Self::Prefix(prefix) => (1, prefix.len()),
+            Self::Suffix(suffix) => (1, suffix.len()),
+        }
+    }
+}
+
+impl RuleDescriptor {
+    pub fn anchor(&self) -> &VirtualPath {
+        &self.anchor
+    }
+
+    pub fn specificity(&self) -> RuleSpecificity {
+        self.specificity
+    }
+
+    pub fn has_less_specific_ancestor_of(&self, other: &Self) -> bool {
+        self.specificity < other.specificity && self.contains_target_set(other)
+    }
+
+    fn contains_target_set(&self, other: &Self) -> bool {
+        match (&self.target, &other.target) {
+            (RuleTarget::Subtree, _) => other.anchor.starts_with(&self.anchor),
+            (RuleTarget::Glob { recursive, pattern }, RuleTarget::Subtree) => {
+                subtree_is_inside_glob(&self.anchor, *recursive, pattern, &other.anchor)
+            }
+            (
+                RuleTarget::Glob { recursive, pattern },
+                RuleTarget::Glob {
+                    recursive: other_recursive,
+                    pattern: other_pattern,
+                },
+            ) => {
+                pattern.contains_pattern(other_pattern)
+                    && other.anchor.starts_with(&self.anchor)
+                    && (*recursive || (!other_recursive && other.anchor == self.anchor))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +209,27 @@ impl CompiledGlob {
         })
     }
 
-    fn matches_path_or_ancestor(&self, path: &VirtualPath) -> bool {
+    fn descriptor(&self) -> RuleDescriptor {
+        let (prefix, recursive) = match self {
+            Self::Basename {
+                prefix, recursive, ..
+            }
+            | Self::Prefix {
+                prefix, recursive, ..
+            }
+            | Self::Suffix {
+                prefix, recursive, ..
+            } => (prefix.as_ref(), *recursive),
+        };
+        let pattern = self.pattern();
+        RuleDescriptor {
+            anchor: prefix.cloned().unwrap_or_else(VirtualPath::root),
+            specificity: RuleSpecificity::glob(prefix, recursive, &pattern),
+            target: RuleTarget::Glob { recursive, pattern },
+        }
+    }
+
+    fn match_specificity(&self, path: &VirtualPath) -> Option<RuleSpecificity> {
         let (candidate, recursive) = match self {
             Self::Basename {
                 prefix, recursive, ..
@@ -99,33 +242,32 @@ impl CompiledGlob {
             } => match prefix.as_ref() {
                 Some(prefix) => match path.as_path().strip_prefix(prefix.as_path()) {
                     Ok(relative) => (relative, *recursive),
-                    Err(_) => return false,
+                    Err(_) => return None,
                 },
                 None => (path.as_path(), *recursive),
             },
         };
 
         let mut components = candidate.components();
-        if recursive {
+        let matched = if recursive {
             components.any(|component| self.matches_component(component))
         } else {
             components
                 .next()
                 .is_some_and(|component| self.matches_component(component))
-        }
+        };
+        matched.then(|| self.descriptor().specificity)
     }
 
     fn matches_component(&self, component: Component<'_>) -> bool {
-        match component {
-            Component::Normal(part) => {
-                let part = part.to_string_lossy();
-                match self {
-                    Self::Basename { name, .. } => part == name.as_str(),
-                    Self::Prefix { name_prefix, .. } => part.starts_with(name_prefix),
-                    Self::Suffix { suffix, .. } => part.ends_with(suffix),
-                }
-            }
-            _ => false,
+        self.pattern().matches_component(component)
+    }
+
+    fn pattern(&self) -> GlobPattern {
+        match self {
+            Self::Basename { name, .. } => GlobPattern::Basename(name.clone()),
+            Self::Prefix { name_prefix, .. } => GlobPattern::Prefix(name_prefix.clone()),
+            Self::Suffix { suffix, .. } => GlobPattern::Suffix(suffix.clone()),
         }
     }
 }
@@ -143,13 +285,29 @@ impl PathRuleMatcher {
         let mut exact = Vec::new();
         let mut prefixes = internal_prefixes;
         let mut glob_rules = Vec::new();
+        let mut descriptors = Vec::new();
+
+        for prefix in &prefixes {
+            descriptors.push(RuleDescriptor {
+                anchor: prefix.clone(),
+                specificity: RuleSpecificity::exact_or_prefix(prefix, false),
+                target: RuleTarget::Subtree,
+            });
+        }
 
         for rule in rules {
             let rule = rule.as_ref();
             if looks_like_glob(rule) {
-                glob_rules.push(CompiledGlob::compile(rule, context)?);
+                let glob = CompiledGlob::compile(rule, context)?;
+                descriptors.push(glob.descriptor());
+                glob_rules.push(glob);
             } else {
                 let path = normalize_rule_path(rule, context)?;
+                descriptors.push(RuleDescriptor {
+                    anchor: path.clone(),
+                    specificity: RuleSpecificity::exact_or_prefix(&path, false),
+                    target: RuleTarget::Subtree,
+                });
                 exact.push(path.clone());
                 prefixes.push(path);
             }
@@ -159,6 +317,7 @@ impl PathRuleMatcher {
             exact,
             prefixes,
             glob_rules,
+            descriptors,
         })
     }
 
@@ -181,16 +340,37 @@ impl PathRuleMatcher {
             exact: Vec::new(),
             prefixes: Vec::new(),
             glob_rules: Vec::new(),
+            descriptors: Vec::new(),
         }
     }
 
+    pub fn best_specificity(&self, path: &VirtualPath) -> Option<RuleSpecificity> {
+        let exact_matches = self
+            .exact
+            .iter()
+            .filter(|p| *p == path)
+            .map(|p| RuleSpecificity::exact_or_prefix(p, true));
+        let prefix_matches = self
+            .prefixes
+            .iter()
+            .filter(|prefix| path.starts_with(prefix))
+            .map(|prefix| RuleSpecificity::exact_or_prefix(prefix, false));
+        let glob_matches = self
+            .glob_rules
+            .iter()
+            .filter_map(|rule| rule.match_specificity(path));
+        exact_matches
+            .chain(prefix_matches)
+            .chain(glob_matches)
+            .max()
+    }
+
+    pub fn descriptors(&self) -> &[RuleDescriptor] {
+        &self.descriptors
+    }
+
     pub fn matches_path(&self, path: &VirtualPath) -> bool {
-        self.exact.iter().any(|p| p == path)
-            || self.prefixes.iter().any(|prefix| path.starts_with(prefix))
-            || self
-                .glob_rules
-                .iter()
-                .any(|rule| rule.matches_path_or_ancestor(path))
+        self.best_specificity(path).is_some()
     }
 
     pub fn matches_symlink_target(
@@ -226,6 +406,32 @@ pub fn mount_root_internal_prefix(source_root: &Path, mount_root: &Path) -> Opti
     let mut virtual_path = PathBuf::from("/");
     virtual_path.push(relative);
     Some(VirtualPath::new(virtual_path))
+}
+
+fn component_count(path: &VirtualPath) -> usize {
+    path.as_path()
+        .components()
+        .filter(|component| matches!(component, Component::Normal(_)))
+        .count()
+}
+
+fn subtree_is_inside_glob(
+    glob_anchor: &VirtualPath,
+    recursive: bool,
+    pattern: &GlobPattern,
+    subtree_anchor: &VirtualPath,
+) -> bool {
+    let Ok(relative) = subtree_anchor.as_path().strip_prefix(glob_anchor.as_path()) else {
+        return false;
+    };
+    let mut components = relative.components();
+    if recursive {
+        components.any(|component| pattern.matches_component(component))
+    } else {
+        components
+            .next()
+            .is_some_and(|component| pattern.matches_component(component))
+    }
 }
 
 fn looks_like_glob(rule: &str) -> bool {

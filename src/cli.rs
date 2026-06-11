@@ -257,9 +257,9 @@ Options:
       --policy-family <FAMILY>   Select mutability family
                                  [possible values: selective-readonly, readonly-root-allowwrite]
       --readonly-rule <PATTERN>  Mark matching visible paths read-only (EROFS)
-                                 Repeatable; selective-readonly only
+                                 Repeatable; primary for selective-readonly, nested re-block for readonly-root-allowwrite
       --allow-write <PATTERN>    Re-enable writes for matching paths
-                                 Repeatable; readonly-root-allowwrite only
+                                 Repeatable; primary for readonly-root-allowwrite, nested carve-out for selective-readonly
   -h, --help                     Show this help text
 
 Mutability families:
@@ -268,7 +268,7 @@ Mutability families:
 
 Rules and precedence:
   - Hidden paths win first: hidden entries stay ENOENT even if a mutability rule also matches.
-  - --readonly-rule and --allow-write cannot be used together on the same mount.
+  - --readonly-rule and --allow-write together require explicit --policy-family and a valid nested ancestor relationship.
   - If --policy-family is omitted, --allow-write implies readonly-root-allowwrite; otherwise the default is selective-readonly.
   - With no CLI mutability options, config mutability.family supplies the family; otherwise CLI replaces config mutability settings.
 
@@ -317,9 +317,10 @@ pub(crate) fn validate_future_mutability_surface(
 ) -> Result<MutabilityFamily, String> {
     let readonly_label = surface.readonly_label();
     let allow_write_label = surface.allow_write_label();
-    if !readonly_rules.is_empty() && !allow_write_rules.is_empty() {
+    if !readonly_rules.is_empty() && !allow_write_rules.is_empty() && policy_family.is_none() {
         return Err(format!(
-            "{readonly_label} and {allow_write_label} cannot be used together"
+            "{readonly_label} and {allow_write_label} require explicit {}",
+            surface.family_label()
         ));
     }
 
@@ -329,14 +330,22 @@ pub(crate) fn validate_future_mutability_surface(
         None => MutabilityFamily::SelectiveReadonly,
     };
     match effective_family {
-        MutabilityFamily::SelectiveReadonly if !allow_write_rules.is_empty() => Err(format!(
-            "{allow_write_label} requires {} readonly-root-allowwrite",
-            surface.family_label()
-        )),
-        MutabilityFamily::ReadonlyRootAllowwrite if !readonly_rules.is_empty() => Err(format!(
-            "{readonly_label} cannot be used with {} readonly-root-allowwrite",
-            surface.family_label()
-        )),
+        MutabilityFamily::SelectiveReadonly
+            if !allow_write_rules.is_empty() && readonly_rules.is_empty() =>
+        {
+            Err(format!(
+                "{allow_write_label} requires an ancestor {readonly_label} with {} selective-readonly",
+                surface.family_label()
+            ))
+        }
+        MutabilityFamily::ReadonlyRootAllowwrite
+            if !readonly_rules.is_empty() && allow_write_rules.is_empty() =>
+        {
+            Err(format!(
+                "{readonly_label} requires an ancestor {allow_write_label} with {} readonly-root-allowwrite",
+                surface.family_label()
+            ))
+        }
         _ => Ok(effective_family),
     }
 }
@@ -461,7 +470,26 @@ mod tests {
             "/tmp",
         ])
         .unwrap_err();
-        assert!(err.contains("cannot be used together"));
+        assert!(err.contains("require explicit --policy-family"));
+
+        let args = LaunchArgs::parse_from([
+            "screenfs",
+            "/",
+            "/mnt",
+            "--policy-family",
+            "selective-readonly",
+            "--readonly-rule",
+            "/logs",
+            "--allow-write",
+            "/logs/tmp",
+        ])
+        .unwrap();
+        assert_eq!(
+            args.policy_family,
+            Some(MutabilityFamily::SelectiveReadonly)
+        );
+        assert_eq!(args.cli.readonly_rules, vec!["/logs"]);
+        assert_eq!(args.allow_write_rules, vec!["/logs/tmp"]);
 
         let args =
             LaunchArgs::parse_from(["screenfs", "/", "/mnt", "--allow-write", "/tmp"]).unwrap();
@@ -478,7 +506,7 @@ mod tests {
             "/logs",
         ])
         .unwrap_err();
-        assert!(err.contains("cannot be used with --policy-family readonly-root-allowwrite"));
+        assert!(err.contains("requires an ancestor --allow-write"));
 
         let err = LaunchArgs::parse_from(["screenfs", "/", "/mnt", "--policy-family", "bogus"])
             .unwrap_err();
@@ -521,7 +549,9 @@ mod tests {
         assert!(help.contains("Examples:"));
         assert!(help.contains("[possible values: selective-readonly, readonly-root-allowwrite]"));
         assert!(help.contains("Repeatable; hidden paths resolve as ENOENT"));
-        assert!(help.contains("--readonly-rule and --allow-write cannot be used together"));
+        assert!(help.contains(
+            "--readonly-rule and --allow-write together require explicit --policy-family"
+        ));
         assert!(help.contains("screenfs / /tmp/screenfs-root --hide /home/me/.ssh"));
         assert!(help.contains("screenfs / /tmp/screenfs-root --config screenfs.yaml"));
         assert!(help.contains("# screenfs.yaml"));

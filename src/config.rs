@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::cli::{
     CliArgs, LaunchArgs, MutabilityFamily, MutabilitySurface, validate_future_mutability_surface,
 };
-use crate::matcher::{MatcherScope, PathRuleMatcher, mount_root_internal_prefix};
+use crate::matcher::{MatcherScope, PathRuleMatcher, RuleDescriptor, mount_root_internal_prefix};
 use crate::path::{RuleNormalizationContext, VirtualPath};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +94,11 @@ impl RuntimeConfig {
             Vec::new(),
             &context,
         )?;
+        validate_nested_mutability_rules(
+            mutability.family,
+            &readonly_matcher,
+            &allow_write_matcher,
+        )?;
 
         Ok(Self {
             source_root: cli.source_root,
@@ -127,9 +132,19 @@ impl RuntimeConfig {
     }
 
     pub fn is_readonly(&self, path: &VirtualPath) -> bool {
+        let readonly = self.readonly_matcher.best_specificity(path);
+        let allow_write = self.allow_write_matcher.best_specificity(path);
         match self.mutability_family {
-            MutabilityFamily::SelectiveReadonly => self.matches_readonly_rule(path),
-            MutabilityFamily::ReadonlyRootAllowwrite => !self.matches_allow_write_rule(path),
+            MutabilityFamily::SelectiveReadonly => match (readonly, allow_write) {
+                (Some(readonly), Some(allow_write)) => readonly >= allow_write,
+                (Some(_), None) => true,
+                _ => false,
+            },
+            MutabilityFamily::ReadonlyRootAllowwrite => match (readonly, allow_write) {
+                (Some(readonly), Some(allow_write)) => readonly >= allow_write,
+                (None, Some(_)) => false,
+                _ => true,
+            },
         }
     }
 
@@ -216,6 +231,68 @@ where
     I: IntoIterator<Item = &'a str>,
 {
     PathRuleMatcher::compile(scope, rules, internal_prefixes, context)
+}
+
+fn validate_nested_mutability_rules(
+    family: MutabilityFamily,
+    readonly: &PathRuleMatcher,
+    allow_write: &PathRuleMatcher,
+) -> Result<(), String> {
+    for readonly_rule in readonly.descriptors() {
+        for allow_write_rule in allow_write.descriptors() {
+            if readonly_rule.specificity() == allow_write_rule.specificity()
+                && same_anchor(readonly_rule, allow_write_rule)
+            {
+                return Err(
+                    "readonly and allow-write rules conflict at the same normalized specificity"
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    match family {
+        MutabilityFamily::SelectiveReadonly => {
+            validate_secondary_rules(
+                allow_write.descriptors(),
+                readonly.descriptors(),
+                "allow-write",
+                "readonly",
+            )?;
+        }
+        MutabilityFamily::ReadonlyRootAllowwrite => {
+            validate_secondary_rules(
+                readonly.descriptors(),
+                allow_write.descriptors(),
+                "readonly",
+                "allow-write",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_secondary_rules(
+    secondary_rules: &[RuleDescriptor],
+    primary_rules: &[RuleDescriptor],
+    secondary_label: &str,
+    primary_label: &str,
+) -> Result<(), String> {
+    for secondary in secondary_rules {
+        if !primary_rules
+            .iter()
+            .any(|primary| primary.has_less_specific_ancestor_of(secondary))
+        {
+            return Err(format!(
+                "{secondary_label} rule requires a less-specific ancestor {primary_label} rule"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn same_anchor(left: &RuleDescriptor, right: &RuleDescriptor) -> bool {
+    left.anchor() == right.anchor()
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -695,6 +772,193 @@ mod tests {
             }
         }
 
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn selective_readonly_nested_allow_write_uses_most_specific_match() {
+        let source = test_dir();
+        let mount = source.join("mnt");
+        std::fs::create_dir(&mount).unwrap();
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                hide_rules: vec![],
+                readonly_rules: vec!["/workspace".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec!["/workspace/tmp".to_string()],
+        })
+        .unwrap();
+
+        assert!(cfg.is_readonly(&VirtualPath::new("/workspace/docs/a.txt")));
+        assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/tmp/out.txt")));
+        assert!(!cfg.is_readonly(&VirtualPath::new("/free/out.txt")));
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn readonly_root_allowwrite_nested_readonly_uses_most_specific_match() {
+        let source = test_dir();
+        let mount = source.join("mnt");
+        std::fs::create_dir(&mount).unwrap();
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                hide_rules: vec![],
+                readonly_rules: vec!["/workspace/vendor".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::ReadonlyRootAllowwrite),
+            allow_write_rules: vec!["/workspace".to_string()],
+        })
+        .unwrap();
+
+        assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/out.txt")));
+        assert!(cfg.is_readonly(&VirtualPath::new("/workspace/vendor/lock.json")));
+        assert!(cfg.is_readonly(&VirtualPath::new("/free/out.txt")));
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn nested_mutability_rules_require_primary_ancestor_and_no_equal_conflict() {
+        let source = test_dir();
+        let mount = source.join("mnt");
+        std::fs::create_dir(&mount).unwrap();
+
+        let err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec!["/workspace".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec!["/other/tmp".to_string()],
+        })
+        .unwrap_err();
+        assert!(err.contains("allow-write rule requires a less-specific ancestor readonly rule"));
+
+        let err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec!["/workspace".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec!["/workspace".to_string()],
+        })
+        .unwrap_err();
+        assert!(err.contains("conflict at the same normalized specificity"));
+
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec!["/workspace/**/*.json".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec!["/workspace/tmp/**/*.json".to_string()],
+        })
+        .unwrap();
+        assert!(cfg.is_readonly(&VirtualPath::new("/workspace/app/config.json")));
+        assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/tmp/config.json")));
+
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                hide_rules: vec![],
+                readonly_rules: vec!["**/.env*".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec!["**/.env.local".to_string()],
+        })
+        .unwrap();
+        assert!(cfg.is_readonly(&VirtualPath::new("/workspace/.env.prod")));
+        assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/.env.local")));
+
+        let err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                hide_rules: vec![],
+                readonly_rules: vec!["/workspace/**/*.json".to_string()],
+            },
+            config_path: None,
+            policy_family: Some(MutabilityFamily::SelectiveReadonly),
+            allow_write_rules: vec!["/workspace/tmp/**/*.lock".to_string()],
+        })
+        .unwrap_err();
+        assert!(err.contains("allow-write rule requires a less-specific ancestor readonly rule"));
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn config_option_b_requires_family_when_both_rule_sets_are_present() {
+        let source = test_dir();
+        let mount = source.join("mnt");
+        std::fs::create_dir(&mount).unwrap();
+        let config_path = source.join("screenfs.yaml");
+        std::fs::write(
+            &config_path,
+            "mutability:\n  readonly_rules:\n    - /workspace\n  allow_write:\n    - /workspace/tmp\n",
+        )
+        .unwrap();
+
+        let err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                hide_rules: vec![],
+                readonly_rules: vec![],
+            },
+            config_path: Some(config_path),
+            policy_family: None,
+            allow_write_rules: Vec::new(),
+        })
+        .unwrap_err();
+        assert!(err.contains("require explicit mutability.family"));
+        std::fs::remove_dir_all(source).unwrap();
+    }
+
+    #[test]
+    fn config_option_b_uses_config_as_source_of_truth_without_cli_mutability() {
+        let source = test_dir();
+        let mount = source.join("mnt");
+        std::fs::create_dir(&mount).unwrap();
+        let config_path = source.join("screenfs.yaml");
+        std::fs::write(
+            &config_path,
+            "mutability:\n  family: selective-readonly\n  readonly_rules:\n    - /workspace\n  allow_write:\n    - /workspace/tmp\n",
+        )
+        .unwrap();
+
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                hide_rules: vec![],
+                readonly_rules: vec![],
+            },
+            config_path: Some(config_path),
+            policy_family: None,
+            allow_write_rules: Vec::new(),
+        })
+        .unwrap();
+
+        assert_eq!(cfg.mutability_source(), MutabilitySource::Config);
+        assert!(cfg.is_readonly(&VirtualPath::new("/workspace/docs/a.txt")));
+        assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/tmp/out.txt")));
         std::fs::remove_dir_all(source).unwrap();
     }
 
