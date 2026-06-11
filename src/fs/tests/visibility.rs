@@ -7,7 +7,7 @@ fn hidden_read_and_list_operations_return_enoent_and_filter_entries() {
     std::fs::write(dir.join("hidden.pem"), b"secret").unwrap();
     std::fs::create_dir(dir.join("private")).unwrap();
     std::fs::write(dir.join("private/note.txt"), b"nope").unwrap();
-    let fs = fs_for_root_readonly(&dir, vec!["**/*.pem".to_string(), "/private".to_string()]);
+    let fs = fs_for_root_readonly(&dir, vec!["*.pem".to_string(), "/private".to_string()]);
 
     let hidden_inode = tracked_inode(&fs, "/hidden.pem");
     let fh = insert_tracked_file_handle(
@@ -319,6 +319,173 @@ fn default_hidden_recursive_visible_glob_does_not_expose_unrelated_directories()
         .unwrap()
         .fh;
     block_on(fs.release(dummy_req(), pem, fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn default_hidden_cwd_rebased_direct_child_visible_glob_uses_dynamic_bridge_index() {
+    let dir = test_dir("visible-cwd-direct-child-bridge");
+    let source = dir.join("src");
+    let cwd = source.join("workspace/app");
+    std::fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+    std::fs::write(source.join("workspace/app/fixtures/local.pem"), b"ok").unwrap();
+    std::fs::write(
+        source.join("workspace/app/fixtures/nested/local.pem"),
+        b"nested",
+    )
+    .unwrap();
+    std::fs::write(source.join("workspace/app/readme.txt"), b"hidden").unwrap();
+    let mount = source.join("mount");
+    std::fs::create_dir(&mount).unwrap();
+
+    let fs = {
+        let _env = ProcessEnvGuard::new(&cwd, None);
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                visibility_hidden_rules: Vec::new(),
+                visibility_visible_rules: vec!["./fixtures/*.pem".to_string()],
+                mutability_readonly_rules: Vec::new(),
+                mutability_writable_rules: Vec::new(),
+            },
+            config_path: None,
+            visibility_default: Some(crate::cli::VisibilityDefault::Hidden),
+            mutability_default: None,
+        })
+        .unwrap();
+        ScreenFs::new(cfg)
+    };
+
+    let root_names = root_listing_names(&fs);
+    assert!(root_names.contains(&"workspace".to_string()));
+
+    let workspace = lookup_root_inode(&fs, "workspace");
+    let workspace_fh = open_directory_handle(&fs, workspace);
+    let workspace_names: Vec<String> =
+        block_on(fs.readdirplus(dummy_req(), workspace, workspace_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(workspace_names.contains(&"app".to_string()));
+    block_on(fs.releasedir(dummy_req(), workspace, workspace_fh, 0)).unwrap();
+
+    let app = lookup_child_inode(&fs, workspace, "app");
+    let app_fh = open_directory_handle(&fs, app);
+    let app_names: Vec<String> = block_on(fs.readdirplus(dummy_req(), app, app_fh, 0, 4096))
+        .unwrap()
+        .into_iter()
+        .map(|entry| String::from_utf8(entry.name).unwrap())
+        .collect();
+    assert!(app_names.contains(&"fixtures".to_string()));
+    assert!(!app_names.contains(&"readme.txt".to_string()));
+    block_on(fs.releasedir(dummy_req(), app, app_fh, 0)).unwrap();
+
+    let fixtures = lookup_child_inode(&fs, app, "fixtures");
+    let fixtures_fh = open_directory_handle(&fs, fixtures);
+    let fixture_names: Vec<String> =
+        block_on(fs.readdirplus(dummy_req(), fixtures, fixtures_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(fixture_names.contains(&"local.pem".to_string()));
+    assert!(!fixture_names.contains(&"nested".to_string()));
+    block_on(fs.releasedir(dummy_req(), fixtures, fixtures_fh, 0)).unwrap();
+
+    let pem = lookup_child_inode(&fs, fixtures, "local.pem");
+    let fh = block_on(fs.open(dummy_req(), pem, libc::O_RDONLY as u32))
+        .unwrap()
+        .fh;
+    block_on(fs.release(dummy_req(), pem, fh, 0, 0, false, false)).unwrap();
+    assert_eq!(
+        block_on(fs.lookup(dummy_req(), fixtures, OsStr::new("nested"))).unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn default_hidden_absolute_txt_visible_globs_distinguish_direct_child_and_recursive_matches() {
+    let dir = test_dir("visible-absolute-txt-glob-families");
+    std::fs::create_dir_all(dir.join("a/nested")).unwrap();
+    std::fs::create_dir_all(dir.join("b")).unwrap();
+    std::fs::write(dir.join("a/top.txt"), b"top").unwrap();
+    std::fs::write(dir.join("a/nested/deep.txt"), b"deep").unwrap();
+    std::fs::write(dir.join("b/other.txt"), b"other").unwrap();
+
+    let direct_fs = fs_for_axes(
+        &dir,
+        Some(crate::cli::VisibilityDefault::Hidden),
+        Vec::new(),
+        vec!["/a/*.txt".to_string()],
+        None,
+        Vec::new(),
+        Vec::new(),
+    );
+    let direct_root_names = root_listing_names(&direct_fs);
+    assert!(direct_root_names.contains(&"a".to_string()));
+    assert!(!direct_root_names.contains(&"b".to_string()));
+    let direct_a = lookup_root_inode(&direct_fs, "a");
+    let direct_a_fh = open_directory_handle(&direct_fs, direct_a);
+    let direct_a_names: Vec<String> =
+        block_on(direct_fs.readdirplus(dummy_req(), direct_a, direct_a_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(direct_a_names.contains(&"top.txt".to_string()));
+    assert!(!direct_a_names.contains(&"nested".to_string()));
+    block_on(direct_fs.releasedir(dummy_req(), direct_a, direct_a_fh, 0)).unwrap();
+    let top = lookup_child_inode(&direct_fs, direct_a, "top.txt");
+    let fh = block_on(direct_fs.open(dummy_req(), top, libc::O_RDONLY as u32))
+        .unwrap()
+        .fh;
+    block_on(direct_fs.release(dummy_req(), top, fh, 0, 0, false, false)).unwrap();
+    assert_eq!(
+        block_on(direct_fs.lookup(dummy_req(), direct_a, OsStr::new("nested"))).unwrap_err(),
+        ENOENT
+    );
+
+    let recursive_fs = fs_for_axes(
+        &dir,
+        Some(crate::cli::VisibilityDefault::Hidden),
+        Vec::new(),
+        vec!["/a/**/*.txt".to_string()],
+        None,
+        Vec::new(),
+        Vec::new(),
+    );
+    let recursive_root_names = root_listing_names(&recursive_fs);
+    assert!(recursive_root_names.contains(&"a".to_string()));
+    assert!(!recursive_root_names.contains(&"b".to_string()));
+    let recursive_a = lookup_root_inode(&recursive_fs, "a");
+    let recursive_a_fh = open_directory_handle(&recursive_fs, recursive_a);
+    let recursive_a_names: Vec<String> =
+        block_on(recursive_fs.readdirplus(dummy_req(), recursive_a, recursive_a_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(recursive_a_names.contains(&"top.txt".to_string()));
+    assert!(recursive_a_names.contains(&"nested".to_string()));
+    block_on(recursive_fs.releasedir(dummy_req(), recursive_a, recursive_a_fh, 0)).unwrap();
+    let nested = lookup_child_inode(&recursive_fs, recursive_a, "nested");
+    let nested_fh = open_directory_handle(&recursive_fs, nested);
+    let nested_names: Vec<String> =
+        block_on(recursive_fs.readdirplus(dummy_req(), nested, nested_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(nested_names.contains(&"deep.txt".to_string()));
+    block_on(recursive_fs.releasedir(dummy_req(), nested, nested_fh, 0)).unwrap();
+    let deep = lookup_child_inode(&recursive_fs, nested, "deep.txt");
+    let fh = block_on(recursive_fs.open(dummy_req(), deep, libc::O_RDONLY as u32))
+        .unwrap()
+        .fh;
+    block_on(recursive_fs.release(dummy_req(), deep, fh, 0, 0, false, false)).unwrap();
     std::fs::remove_dir_all(dir).unwrap();
 }
 

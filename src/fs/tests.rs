@@ -34,6 +34,7 @@ fn fs_for_policy(
 ) -> ScreenFs {
     let mount = source.join("mount");
     std::fs::create_dir_all(&mount).unwrap();
+    let _env = ProcessEnvGuard::new(source, None);
     let cfg = RuntimeConfig::from_launch(LaunchArgs {
         cli: CliArgs {
             source_root: source.to_path_buf(),
@@ -86,6 +87,7 @@ fn fs_for_axes(
 ) -> ScreenFs {
     let mount = source.join("mount");
     std::fs::create_dir_all(&mount).unwrap();
+    let _env = ProcessEnvGuard::new(source, None);
     let cfg = RuntimeConfig::from_launch(LaunchArgs {
         cli: CliArgs {
             source_root: source.to_path_buf(),

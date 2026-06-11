@@ -116,6 +116,80 @@ fn writable_default_readonly_rules_are_scoped_to_matching_paths() {
 }
 
 #[test]
+fn writable_default_direct_child_globs_lock_only_immediate_children() {
+    let dir = test_dir("writable-default-direct-child-globs");
+    std::fs::create_dir_all(dir.join("free/nested")).unwrap();
+    std::fs::write(dir.join("free/state.lock"), b"locked").unwrap();
+    std::fs::write(dir.join("free/id_ed25519"), b"locked").unwrap();
+    std::fs::write(dir.join("free/nested/state.lock"), b"nested").unwrap();
+    std::fs::write(dir.join("free/nested/id_ed25519"), b"nested").unwrap();
+    let fs = fs_for(
+        &dir,
+        Vec::new(),
+        vec!["/free/*.lock".to_string(), "/free/id_*".to_string()],
+    );
+
+    for path in ["/free/state.lock", "/free/id_ed25519"] {
+        let ino = fs
+            .reply_entry_for_path(VirtualPath::new(path))
+            .unwrap()
+            .attr
+            .ino;
+        assert_eq!(
+            block_on(fs.open(dummy_req(), ino, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS
+        );
+    }
+
+    for path in ["/free/nested/state.lock", "/free/nested/id_ed25519"] {
+        let ino = fs
+            .reply_entry_for_path(VirtualPath::new(path))
+            .unwrap()
+            .attr
+            .ino;
+        let handle = block_on(fs.open(dummy_req(), ino, libc::O_WRONLY as u32)).unwrap();
+        block_on(fs.release(dummy_req(), ino, handle.fh, 0, 0, false, false)).unwrap();
+    }
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readonly_default_canonical_absolute_txt_globs_preserve_direct_child_over_recursive_specificity()
+{
+    let dir = test_dir("readonly-default-absolute-txt-globs");
+    std::fs::create_dir_all(dir.join("a/nested")).unwrap();
+    std::fs::write(dir.join("a/top.txt"), b"top").unwrap();
+    std::fs::write(dir.join("a/nested/deep.txt"), b"deep").unwrap();
+    let fs = fs_for_policy(
+        &dir,
+        Vec::new(),
+        vec!["/a/*.txt".to_string()],
+        Some(MutabilityDefault::Readonly),
+        vec!["/a/**/*.txt".to_string()],
+    );
+
+    let top = fs
+        .reply_entry_for_path(VirtualPath::new("/a/top.txt"))
+        .unwrap()
+        .attr
+        .ino;
+    let deep = fs
+        .reply_entry_for_path(VirtualPath::new("/a/nested/deep.txt"))
+        .unwrap()
+        .attr
+        .ino;
+
+    assert_eq!(
+        block_on(fs.open(dummy_req(), top, libc::O_WRONLY as u32)).unwrap_err(),
+        libc::EROFS
+    );
+    let handle = block_on(fs.open(dummy_req(), deep, libc::O_WRONLY as u32)).unwrap();
+    block_on(fs.release(dummy_req(), deep, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn writable_default_symlink_returns_erofs_and_hidden_precedence_remains_enoent() {
     let dir = test_dir("writable-default-symlink");
     std::fs::write(dir.join("locked.lock"), b"locked").unwrap();
@@ -129,7 +203,7 @@ fn writable_default_symlink_returns_erofs_and_hidden_precedence_remains_enoent()
             "/hidden.lock".to_string(),
             "/hidden-link-create".to_string(),
         ],
-        vec!["**/*.lock".to_string(), "/locked-link-create".to_string()],
+        vec!["*.lock".to_string(), "/locked-link-create".to_string()],
     );
 
     let locked = fs
@@ -212,7 +286,7 @@ fn readonly_default_writable_match_non_match_and_hidden_precedence() {
         vec!["/hidden.txt".to_string()],
         Vec::new(),
         Some(MutabilityDefault::Readonly),
-        vec!["**/*.txt".to_string()],
+        vec!["*.txt".to_string()],
     );
 
     let allowed = fs
@@ -257,7 +331,7 @@ fn readonly_default_requires_writable_parent_for_path_only_and_multi_path_mutati
         Vec::new(),
         Vec::new(),
         Some(MutabilityDefault::Readonly),
-        vec!["**/*.txt".to_string()],
+        vec!["*.txt".to_string()],
     );
     assert_eq!(
         block_on(

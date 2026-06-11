@@ -8,6 +8,15 @@ use crate::path::{
 #[derive(Debug, Clone)]
 pub struct PathRuleMatcher {
     descriptors: Vec<RuleDescriptor>,
+    index: MatcherIndex,
+}
+
+#[derive(Debug, Clone)]
+struct MatcherIndex {
+    match_order: Vec<usize>,
+    dynamic_bridge_scan_roots: Vec<VirtualPath>,
+    needs_dynamic_bridge_index: bool,
+    has_global_descendant_match: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,6 +371,17 @@ impl RuleDescriptor {
         self.needs_dynamic_bridge_index().then_some(&self.anchor)
     }
 
+    fn may_match_descendant_under_any_path(&self) -> bool {
+        self.anchor == VirtualPath::root()
+            && matches!(
+                self.target,
+                RuleTarget::Glob {
+                    recursive: true,
+                    ..
+                } | RuleTarget::RecursiveLiteralSubtree { .. }
+            )
+    }
+
     pub fn has_unproven_overlap_with(&self, other: &Self) -> bool {
         !self.contains_target_set(other)
             && !other.contains_target_set(self)
@@ -419,6 +439,50 @@ impl RuleDescriptor {
             }
         }
     }
+}
+
+impl MatcherIndex {
+    fn build(descriptors: &[RuleDescriptor]) -> Self {
+        let mut match_order = (0..descriptors.len()).collect::<Vec<_>>();
+        match_order.sort_by(|left, right| {
+            descriptors[*right]
+                .specificity
+                .cmp(&descriptors[*left].specificity)
+                .then_with(|| right.cmp(left))
+        });
+
+        let mut dynamic_bridge_scan_roots = descriptors
+            .iter()
+            .filter_map(|descriptor| descriptor.dynamic_bridge_scan_root().cloned())
+            .collect::<Vec<_>>();
+        dynamic_bridge_scan_roots.sort();
+        dynamic_bridge_scan_roots.dedup();
+        dynamic_bridge_scan_roots = prune_nested_scan_roots(dynamic_bridge_scan_roots);
+
+        let needs_dynamic_bridge_index = !dynamic_bridge_scan_roots.is_empty();
+        let has_global_descendant_match = descriptors
+            .iter()
+            .any(RuleDescriptor::may_match_descendant_under_any_path);
+
+        Self {
+            match_order,
+            dynamic_bridge_scan_roots,
+            needs_dynamic_bridge_index,
+            has_global_descendant_match,
+        }
+    }
+}
+
+fn prune_nested_scan_roots(roots: Vec<VirtualPath>) -> Vec<VirtualPath> {
+    let mut pruned: Vec<VirtualPath> = Vec::new();
+    for root in roots {
+        if pruned.iter().any(|existing| root.starts_with(existing)) {
+            continue;
+        }
+        pruned.retain(|existing| !existing.starts_with(&root));
+        pruned.push(root);
+    }
+    pruned
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -590,7 +654,8 @@ impl PathRuleMatcher {
             }
         }
 
-        Ok(Self { descriptors })
+        let index = MatcherIndex::build(&descriptors);
+        Ok(Self { descriptors, index })
     }
 
     pub fn compile<I, P>(
@@ -613,10 +678,11 @@ impl PathRuleMatcher {
     }
 
     pub fn best_descriptor(&self, path: &VirtualPath) -> Option<&RuleDescriptor> {
-        self.descriptors
+        self.index
+            .match_order
             .iter()
-            .filter(|descriptor| descriptor.matches_path(path))
-            .max_by_key(|descriptor| descriptor.specificity)
+            .map(|index| &self.descriptors[*index])
+            .find(|descriptor| descriptor.matches_path(path))
     }
 
     pub fn descriptors(&self) -> &[RuleDescriptor] {
@@ -628,9 +694,11 @@ impl PathRuleMatcher {
     }
 
     pub fn may_match_descendant_of(&self, path: &VirtualPath) -> bool {
-        self.descriptors
-            .iter()
-            .any(|descriptor| descriptor.may_match_descendant_of(path))
+        self.index.has_global_descendant_match
+            || self
+                .descriptors
+                .iter()
+                .any(|descriptor| descriptor.may_match_descendant_of(path))
     }
 
     pub fn has_static_subtree_bridge_ancestor(&self, path: &VirtualPath) -> bool {
@@ -640,20 +708,11 @@ impl PathRuleMatcher {
     }
 
     pub fn dynamic_bridge_scan_roots(&self) -> Vec<VirtualPath> {
-        let mut roots = self
-            .descriptors
-            .iter()
-            .filter_map(|descriptor| descriptor.dynamic_bridge_scan_root().cloned())
-            .collect::<Vec<_>>();
-        roots.sort();
-        roots.dedup();
-        roots
+        self.index.dynamic_bridge_scan_roots.clone()
     }
 
     pub fn needs_dynamic_bridge_index(&self) -> bool {
-        self.descriptors
-            .iter()
-            .any(RuleDescriptor::needs_dynamic_bridge_index)
+        self.index.needs_dynamic_bridge_index
     }
 
     pub fn matches_symlink_target(
@@ -833,18 +892,20 @@ fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str, bool), String
     }
     if let Some(index) = rule.rfind('/') {
         let pattern = &rule[index + 1..];
-        if is_supported_direct_child_glob(pattern) {
+        if is_supported_basename_glob_pattern(pattern) {
             let prefix = if index == 0 { "/" } else { &rule[..index] };
             if prefix.contains('*') || prefix.contains('?') {
                 return Err(format!("unsupported glob: {rule}"));
             }
             return Ok((Some(prefix), pattern, false));
         }
+    } else if is_supported_basename_glob_pattern(rule) {
+        return Ok((Some("."), rule, false));
     }
     Err(format!("unsupported glob: {rule}"))
 }
 
-fn is_supported_direct_child_glob(pattern: &str) -> bool {
+fn is_supported_basename_glob_pattern(pattern: &str) -> bool {
     is_supported_direct_basename_prefix_glob(pattern)
         || is_supported_direct_child_suffix_glob(pattern)
 }
