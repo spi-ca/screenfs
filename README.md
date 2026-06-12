@@ -37,7 +37,7 @@ real / -> screenfs mount root -> sandbox/chroot consumer
 - 아키텍처 요약: [`docs/architecture.md`](docs/architecture.md)
 - 운영/검증 evidence: [`docs/operations.md`](docs/operations.md)
 
-문서가 설명하는 two-axis surface와 bare slashless cwd-anchor semantics는 현재 구현 계약이다. bare slashless `./<pattern>` direct-child 해석의 최신 source/live evidence는 [`docs/operations.md`](docs/operations.md)와 [`docs/artifacts/current-bare-basename-glob-smoke-transcript.md`](docs/artifacts/current-bare-basename-glob-smoke-transcript.md)에 정리되어 있다.
+문서가 설명하는 two-axis surface와 launch-cwd anchored glob normalization contract(`*.pem` direct-child, `**/*.pem` recursive shorthand 포함)은 현재 목표 계약이다. bare slashless `./<pattern>` direct-child 해석의 최신 source/live evidence는 [`docs/operations.md`](docs/operations.md)와 [`docs/artifacts/current-bare-basename-glob-smoke-transcript.md`](docs/artifacts/current-bare-basename-glob-smoke-transcript.md)에 정리되어 있다. prefixless recursive shorthand(`**/*.pem`, `**/.env.*`, `**/id_*`)의 cwd-anchor semantics와 explicit root-anchor distinction(`/**/*.pem`)을 포함한 current source/live evidence는 [`docs/operations.md`](docs/operations.md)와 [`docs/artifacts/current-four-family-glob-smoke-transcript.md`](docs/artifacts/current-four-family-glob-smoke-transcript.md)에 정리되어 있다.
 
 ## CLI quick reference
 
@@ -114,9 +114,9 @@ mutability:
 - `allowWrite` → `mutability.writable`
 - `denyWrite` → `mutability.readonly`
 
-bare slashless pattern(`*.pem`, `*.key`, `.env.*`, `id_*`)은 ScreenFS가 macOS sandbox-runtime matcher 전체를 재현한다는 뜻이 아니라, 그런 supervisor가 내보내는 bare basename-oriented input shape를 보존하기 위해 launch process cwd를 `source_root` 기준으로 rebase한 `./<pattern>` direct-child rule로 컴파일하는 current ScreenFS contract다. 따라서 cwd가 `source_root` 밖이면 fail-fast 해야 하고, whole-root secret coverage가 목적이면 bare form 대신 `**/*.pem`, `**/*.key`, `**/.env.*`, `/home/me/**/*.pem` 같은 explicit recursive/anchored form을 내보내는 편이 안전하다.
+bare slashless pattern(`*.pem`, `*.key`, `.env.*`, `id_*`)은 ScreenFS가 macOS sandbox-runtime matcher 전체를 재현한다는 뜻이 아니라, 그런 supervisor가 내보내는 bare basename-oriented input shape를 보존하기 위해 launch process cwd를 `source_root` 기준으로 rebase한 `./<pattern>` direct-child rule로 컴파일하는 current contract다. recursive prefixless pattern(`**/*.pem`, `**/.env.*`, `**/id_*`)은 같은 cwd anchor를 재귀로 확장한 `./**/<pattern>` shorthand target이다. 따라서 cwd가 `source_root` 밖이면 둘 다 fail-fast 해야 하고, whole-root secret coverage가 목적이면 bare/prefixless cwd-sensitive form 대신 `/**/*.pem`, `/**/*.key`, `/**/.env.*`, `/**/id_*`, `/home/me/**/*.pem` 같은 explicit root-anchored/absolute recursive form을 내보내는 편이 안전하다.
 
-대표 4-family glob 비교(`**/*.pem`, `./fixtures/*.pem`, `/a/*.txt`, `/a/**/*.txt`)와 `visibility.visible` bridge-visible startup 영향의 current source/live evidence는 [`docs/requirements.md`](docs/requirements.md)의 canonical table, [`docs/operations.md`](docs/operations.md)의 evidence note, [`docs/artifacts/current-four-family-glob-smoke-transcript.md`](docs/artifacts/current-four-family-glob-smoke-transcript.md)에 정리되어 있다.
+대표 4-family glob target 비교(`**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`)와 bare `*.pem` direct-child containment/specificity는 [`docs/requirements.md`](docs/requirements.md)의 canonical table과 [`docs/operations.md`](docs/operations.md)의 status note를 따른다. [`docs/artifacts/current-four-family-glob-smoke-transcript.md`](docs/artifacts/current-four-family-glob-smoke-transcript.md)는 goal 38ca1993 기준 current live baseline이며, `**/*.pem`이 prefixless recursive cwd-anchor shorthand이고 `/**/*.pem`과는 다른 explicit root-anchor family임을 함께 보여준다.
 
 이 매핑은 legacy ScreenFS CLI flag로 번역하지 않고, 아래 YAML 같은 two-axis config를 생성해야 한다.
 
@@ -128,14 +128,14 @@ Use a YAML config file:
 screenfs / /tmp/screenfs-root --config screenfs.yaml
 ```
 
-Hide secrets while keeping the rest of `/` visible. Whole-root secret patterns should use explicit recursive or anchored rules such as `**/*.pem`; bare slashless supported globs are cwd-sensitive `./<pattern>` shorthands, not whole-tree aliases:
+Hide secrets while keeping the rest of `/` visible. Whole-root secret patterns should use explicit root-anchored or absolute recursive rules such as `/**/*.pem`; bare slashless supported globs are cwd-sensitive `./<pattern>` shorthands, and prefixless recursive `**/*.pem` is only a cwd-anchored recursive shorthand:
 
 ```yaml
 visibility:
   default: visible
   hidden:
     - /home/me/.ssh
-    - '**/*.pem'
+    - '/**/*.pem'
 mutability:
   default: writable
 ```
@@ -181,11 +181,11 @@ recorded verification/evidence의 세부 상태는 [`docs/operations.md`](docs/o
 Current baseline artifacts:
 
 - repo-local two-axis smoke baseline: [`docs/artifacts/current-two-axis-smoke-transcript.md`](docs/artifacts/current-two-axis-smoke-transcript.md)
-- repo-local bare slashless cwd-anchor smoke baseline: [`docs/artifacts/current-bare-basename-glob-smoke-transcript.md`](docs/artifacts/current-bare-basename-glob-smoke-transcript.md)
+- repo-local bare slashless cwd-anchor direct-child smoke baseline: [`docs/artifacts/current-bare-basename-glob-smoke-transcript.md`](docs/artifacts/current-bare-basename-glob-smoke-transcript.md) (`*.pem`=`./*.pem` direct-child baseline)
 - whole-root/chroot smoke baseline: [`docs/artifacts/current-whole-root-chroot-smoke-transcript.md`](docs/artifacts/current-whole-root-chroot-smoke-transcript.md)
 - default-writable smoke baseline: [`docs/artifacts/current-default-writable-smoke-transcript.md`](docs/artifacts/current-default-writable-smoke-transcript.md)
 - anchored dynamic visible-glob whole-root startup baseline: [`docs/artifacts/current-dynamic-whole-root-smoke-transcript.md`](docs/artifacts/current-dynamic-whole-root-smoke-transcript.md)
-- canonical 4-family glob repo-local smoke baseline: [`docs/artifacts/current-four-family-glob-smoke-transcript.md`](docs/artifacts/current-four-family-glob-smoke-transcript.md)
+- canonical 4-family glob repo-local smoke baseline: [`docs/artifacts/current-four-family-glob-smoke-transcript.md`](docs/artifacts/current-four-family-glob-smoke-transcript.md) (`**/*.pem` cwd-anchor recursive shorthand, `/**/*.pem` explicit root-anchor distinction, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt` current live baseline)
 
 Historical legacy artifacts:
 

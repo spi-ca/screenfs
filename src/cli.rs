@@ -288,7 +288,7 @@ Rules and precedence:
   - Supported glob inputs share the same normalization contract across hidden, visible, readonly, and writable rules.
 
 Examples:
-  screenfs / /tmp/screenfs-root --hidden /home/me/.ssh --hidden '**/*.pem'
+  screenfs / /tmp/screenfs-root --hidden /home/me/.ssh --hidden '/**/*.pem'
   screenfs / /tmp/screenfs-root --hidden /home --visible /home/me/project
   screenfs / /tmp/screenfs-root --mutability-default readonly --writable . --readonly '**/.git/hooks/**'
   screenfs / /tmp/screenfs-root --config screenfs.yaml
@@ -298,7 +298,7 @@ Examples:
     default: visible
     hidden:
       - ~/.ssh
-      - '**/*.pem'
+      - '/**/*.pem'
     visible:
       - ./fixtures/public.pem
   mutability:

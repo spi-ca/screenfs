@@ -3,11 +3,12 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
-fn matches_exact_rules_directory_prefixes_and_simple_globs() {
+fn matches_exact_rules_directory_prefixes_and_cwd_anchored_recursive_globs() {
     let root = test_dir();
     let source = root.join("source");
-    fs::create_dir_all(source.join("cwd")).unwrap();
-    let context = test_context(&source, &source.join("cwd"), Some(source.join("home")));
+    let cwd = source.join("workspace/app");
+    fs::create_dir_all(&cwd).unwrap();
+    let context = test_context(&source, &cwd, Some(source.join("home")));
     let matcher = PathRuleMatcher::new(
         [
             "/secret",
@@ -16,6 +17,7 @@ fn matches_exact_rules_directory_prefixes_and_simple_globs() {
             "**/.env.*",
             "**/*.pem",
             "**/*.key",
+            "/**/*.crt",
         ],
         Vec::new(),
         &context,
@@ -29,15 +31,18 @@ fn matches_exact_rules_directory_prefixes_and_simple_globs() {
     assert!(matcher.matches_path(&VirtualPath::new("/config/auth.json")));
     assert!(!matcher.matches_path(&VirtualPath::new("/config/auth.json.bak")));
 
-    assert!(matcher.matches_path(&VirtualPath::new("/app/.env")));
-    assert!(matcher.matches_path(&VirtualPath::new("/app/.env/local")));
-    assert!(matcher.matches_path(&VirtualPath::new("/app/.env.local")));
-    assert!(matcher.matches_path(&VirtualPath::new("/app/.env.production/secrets")));
-    assert!(!matcher.matches_path(&VirtualPath::new("/app/.environment")));
-    assert!(matcher.matches_path(&VirtualPath::new("/certs/a.pem")));
-    assert!(matcher.matches_path(&VirtualPath::new("/certs/a.pem/chain")));
-    assert!(matcher.matches_path(&VirtualPath::new("/keys/id.key")));
-    assert!(matcher.matches_path(&VirtualPath::new("/keys/id.key/public")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/.env")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/.env/local")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/.env.local")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/.env.production/secrets")));
+    assert!(!matcher.matches_path(&VirtualPath::new("/workspace/app/.environment")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/certs/a.pem")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/certs/a.pem/chain")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/keys/id.key")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/app/keys/id.key/public")));
+    assert!(!matcher.matches_path(&VirtualPath::new("/workspace/peer/.env")));
+    assert!(!matcher.matches_path(&VirtualPath::new("/workspace/peer/certs/a.pem")));
+    assert!(matcher.matches_path(&VirtualPath::new("/workspace/peer/certs/a.crt")));
     assert!(!matcher.matches_path(&VirtualPath::new("/public/a.txt")));
     fs::remove_dir_all(root).unwrap();
 }
@@ -55,9 +60,10 @@ fn dynamic_bridge_scan_roots_use_normalized_rule_anchors() {
     assert!(exact_only.dynamic_bridge_scan_roots().is_empty());
 
     for (rule, expected) in [
-        ("**/*.pem", vec![VirtualPath::root()]),
+        ("**/*.pem", vec![VirtualPath::new("/workspace/app")]),
+        ("/**/*.pem", vec![VirtualPath::root()]),
         (
-            "./fixtures/*.pem",
+            "./fixtures/**/*.pem",
             vec![VirtualPath::new("/workspace/app/fixtures")],
         ),
         ("/a/*.txt", vec![VirtualPath::new("/a")]),
@@ -76,37 +82,60 @@ fn canonical_glob_families_preserve_match_ranges_and_specificity() {
     let source = root.join("source");
     let cwd = source.join("workspace/app");
     fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+    fs::create_dir_all(source.join("workspace/app/nested")).unwrap();
+    fs::create_dir_all(source.join("workspace/peer")).unwrap();
     fs::create_dir_all(source.join("a/nested")).unwrap();
     let context = test_context(&source, &cwd, None);
 
     let recursive_pem = PathRuleMatcher::new(["**/*.pem"], Vec::new(), &context).unwrap();
-    let direct_fixture_pem =
-        PathRuleMatcher::new(["./fixtures/*.pem"], Vec::new(), &context).unwrap();
+    let root_recursive_pem = PathRuleMatcher::new(["/**/*.pem"], Vec::new(), &context).unwrap();
+    let fixture_recursive_pem =
+        PathRuleMatcher::new(["./fixtures/**/*.pem"], Vec::new(), &context).unwrap();
+    let direct_pem = PathRuleMatcher::new(["*.pem"], Vec::new(), &context).unwrap();
     let direct_txt = PathRuleMatcher::new(["/a/*.txt"], Vec::new(), &context).unwrap();
     let recursive_txt = PathRuleMatcher::new(["/a/**/*.txt"], Vec::new(), &context).unwrap();
 
+    let cwd_direct = VirtualPath::new("/workspace/app/local.pem");
+    let cwd_direct_descendant = VirtualPath::new("/workspace/app/local.pem/chain");
+    let cwd_nested = VirtualPath::new("/workspace/app/nested/local.pem");
+    let cwd_nested_descendant = VirtualPath::new("/workspace/app/nested/local.pem/chain");
     let fixture_direct = VirtualPath::new("/workspace/app/fixtures/local.pem");
-    let fixture_direct_descendant = VirtualPath::new("/workspace/app/fixtures/local.pem/chain");
     let fixture_nested = VirtualPath::new("/workspace/app/fixtures/nested/local.pem");
-    let fixture_nested_descendant =
-        VirtualPath::new("/workspace/app/fixtures/nested/local.pem/chain");
+    let outside_cwd = VirtualPath::new("/workspace/peer/local.pem");
+
+    assert!(recursive_pem.matches_path(&cwd_direct));
+    assert!(recursive_pem.matches_path(&cwd_direct_descendant));
+    assert!(recursive_pem.matches_path(&cwd_nested));
+    assert!(recursive_pem.matches_path(&cwd_nested_descendant));
     assert!(recursive_pem.matches_path(&fixture_direct));
-    assert!(recursive_pem.matches_path(&fixture_direct_descendant));
     assert!(recursive_pem.matches_path(&fixture_nested));
-    assert!(recursive_pem.matches_path(&fixture_nested_descendant));
-    assert!(direct_fixture_pem.matches_path(&fixture_direct));
-    assert!(direct_fixture_pem.matches_path(&fixture_direct_descendant));
-    assert!(!direct_fixture_pem.matches_path(&fixture_nested));
-    assert!(!direct_fixture_pem.matches_path(&fixture_nested_descendant));
+    assert!(!recursive_pem.matches_path(&outside_cwd));
+    assert!(root_recursive_pem.matches_path(&outside_cwd));
+
+    assert!(fixture_recursive_pem.matches_path(&fixture_direct));
+    assert!(fixture_recursive_pem.matches_path(&fixture_nested));
+    assert!(!fixture_recursive_pem.matches_path(&cwd_direct));
     assert!(
         recursive_pem.descriptors()[0]
-            .has_less_specific_ancestor_of(&direct_fixture_pem.descriptors()[0])
+            .has_less_specific_ancestor_of(&fixture_recursive_pem.descriptors()[0])
     );
     assert!(
         recursive_pem.best_specificity(&fixture_direct).unwrap()
-            < direct_fixture_pem
+            < fixture_recursive_pem
                 .best_specificity(&fixture_direct)
                 .unwrap()
+    );
+
+    assert!(direct_pem.matches_path(&cwd_direct));
+    assert!(direct_pem.matches_path(&cwd_direct_descendant));
+    assert!(!direct_pem.matches_path(&cwd_nested));
+    assert!(!direct_pem.matches_path(&fixture_direct));
+    assert!(
+        recursive_pem.descriptors()[0].has_less_specific_ancestor_of(&direct_pem.descriptors()[0])
+    );
+    assert!(
+        recursive_pem.best_specificity(&cwd_direct).unwrap()
+            < direct_pem.best_specificity(&cwd_direct).unwrap()
     );
 
     let direct_txt_path = VirtualPath::new("/a/file.txt");
@@ -256,6 +285,26 @@ fn bare_basename_glob_shorthand_compiles_equivalent_to_current_dir_direct_child_
 }
 
 #[test]
+fn prefixless_recursive_glob_shorthand_compiles_equivalent_to_current_dir_recursive_form() {
+    let root = test_dir();
+    let source = root.join("source");
+    let cwd = source.join("workspace/app");
+    fs::create_dir_all(&cwd).unwrap();
+    let context = test_context(&source, &cwd, None);
+
+    for (shorthand, recursive) in [
+        ("**/*.pem", "./**/*.pem"),
+        ("**/.env.*", "./**/.env.*"),
+        ("**/id_*", "./**/id_*"),
+    ] {
+        let shorthand = PathRuleMatcher::new([shorthand], Vec::new(), &context).unwrap();
+        let recursive = PathRuleMatcher::new([recursive], Vec::new(), &context).unwrap();
+        assert_eq!(shorthand.descriptors(), recursive.descriptors());
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn matches_recursive_literal_descendant_subtree_globs() {
     let root = test_dir();
     let source = root.join("source");
@@ -315,17 +364,25 @@ fn recursive_literal_descendant_subtree_rules_preserve_specificity_and_containme
     let anchored =
         PathRuleMatcher::new(["./fixtures/**/.git/hooks/**"], Vec::new(), &context).unwrap();
     let hooks = PathRuleMatcher::new(["**/hooks"], Vec::new(), &context).unwrap();
+    let root_hooks = PathRuleMatcher::new(["/**/hooks"], Vec::new(), &context).unwrap();
 
     let broad_desc = &broad.descriptors()[0];
     let narrow_desc = &narrow.descriptors()[0];
     let anchored_desc = &anchored.descriptors()[0];
     let hooks_desc = &hooks.descriptors()[0];
+    let root_hooks_desc = &root_hooks.descriptors()[0];
 
     assert!(broad_desc.has_less_specific_ancestor_of(narrow_desc));
-    assert!(hooks_desc.has_less_specific_ancestor_of(narrow_desc));
+    assert!(!hooks_desc.has_less_specific_ancestor_of(narrow_desc));
+    assert!(root_hooks_desc.has_less_specific_ancestor_of(narrow_desc));
     assert!(narrow_desc.has_less_specific_ancestor_of(anchored_desc));
 
     let sample = VirtualPath::new("/workspace/app/fixtures/nested/.git/hooks/pre-commit");
+    let outside_cwd_sample = VirtualPath::new("/workspace/peer/.git/hooks/pre-commit");
+    assert!(hooks.matches_path(&sample));
+    assert!(!hooks.matches_path(&outside_cwd_sample));
+    assert!(root_hooks.matches_path(&outside_cwd_sample));
+    assert!(narrow.matches_path(&outside_cwd_sample));
     assert!(broad.best_specificity(&sample).unwrap() < narrow.best_specificity(&sample).unwrap());
     assert!(
         narrow.best_specificity(&sample).unwrap() < anchored.best_specificity(&sample).unwrap()
@@ -371,6 +428,23 @@ fn matches_requested_absolute_descendant_subtree_glob_pattern() {
     assert!(!matcher.matches_path(&VirtualPath::new(
         "/home/spi-ca/Codebase/the-onion/other/.git/hooks/pre-commit"
     )));
+}
+
+#[test]
+fn prefixless_recursive_glob_fails_fast_when_current_dir_is_outside_source_root() {
+    let root = test_dir();
+    let source = root.join("source");
+    let outside = root.join("outside");
+    fs::create_dir_all(&source).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let context = test_context(&source, &outside, None);
+
+    let err = PathRuleMatcher::new(["**/*.pem"], Vec::new(), &context).unwrap_err();
+    assert!(
+        err.contains("rule path resolves outside source_root: ."),
+        "{err}"
+    );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

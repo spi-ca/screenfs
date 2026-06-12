@@ -1,6 +1,6 @@
 # Documentation
 
-이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 현재 정책 모델은 `visibility`/`mutability` 두 축이며, bare slashless cwd-anchor/direct-child semantics의 최신 source/live evidence는 `operations.md`와 `artifacts/current-bare-basename-glob-smoke-transcript.md`에 정리되어 있다. 빠른 진입점은 아래 순서를 권장한다.
+이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 현재 정책 모델은 `visibility`/`mutability` 두 축이며, launch-cwd anchored glob normalization contract(`*.pem` direct-child, `**/*.pem` recursive shorthand 포함)을 다룬다. bare slashless direct-child semantics의 최신 source/live evidence는 `operations.md`와 `artifacts/current-bare-basename-glob-smoke-transcript.md`에 정리되어 있고, prefixless recursive cwd-anchor semantics와 explicit root-anchor distinction(`/**/*.pem`)의 current source/live evidence는 `operations.md`와 `artifacts/current-four-family-glob-smoke-transcript.md`가 다룬다. 빠른 진입점은 아래 순서를 권장한다.
 
 ## Core documents
 
@@ -50,11 +50,11 @@ Transcript artifact는 상태별로 나뉜다. 목표 계약 reference와 baseli
 Current baseline:
 
 - [Current two-axis repo-local smoke](artifacts/current-two-axis-smoke-transcript.md)
-- [Current bare basename glob smoke](artifacts/current-bare-basename-glob-smoke-transcript.md)
+- [Current bare basename glob smoke](artifacts/current-bare-basename-glob-smoke-transcript.md) — bare direct-child baseline (`*.pem`=`./*.pem`)
 - [Current whole-root/chroot smoke](artifacts/current-whole-root-chroot-smoke-transcript.md)
 - [Current default-writable smoke](artifacts/current-default-writable-smoke-transcript.md)
 - [Current dynamic visible-glob whole-root startup smoke](artifacts/current-dynamic-whole-root-smoke-transcript.md)
-- [Current canonical 4-family glob smoke](artifacts/current-four-family-glob-smoke-transcript.md)
+- [Current canonical 4-family glob smoke](artifacts/current-four-family-glob-smoke-transcript.md) — current live baseline for `**/*.pem`, `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`
 
 Historical legacy:
 

@@ -1,6 +1,6 @@
 # ScreenFS 아키텍처 개요
 
-이 문서는 현재 계획서(`README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`)와 현재 코드(`src/*.rs`)를 함께 기준으로 정리한 아키텍처 요약이다. bare slashless glob의 cwd-anchored `./<pattern>` direct-child semantics는 현재 Rust 구현·테스트·fresh smoke evidence가 갖춰진 contract이며, 최신 baseline은 `docs/artifacts/current-bare-basename-glob-smoke-transcript.md`에 기록돼 있다.
+이 문서는 현재 계획서(`README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`)와 현재 코드(`src/*.rs`)를 함께 기준으로 정리한 아키텍처 요약이다. bare slashless glob의 cwd-anchored `./<pattern>` direct-child semantics와 prefixless recursive shorthand(`**/*.pem`, `**/.env.*`, `**/id_*`)의 cwd-anchored target semantics는 모두 현재 Rust 구현·테스트·fresh smoke evidence가 갖춰진 current contract다. goal 38ca1993에서 정리한 이 규칙들의 current source/live evidence refresh 상태는 `docs/operations.md`를 따른다.
 
 - source of truth: 구현 코드는 `src/`, 계약과 목표는 `README.md`, `docs/requirements.md`, `docs/design.md`
 - 이 문서는 승인된 목표 계약을 `visibility.*` / `mutability.*` 축으로 설명한다.
@@ -104,10 +104,10 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 - `.` 제거, 중복 `/` 정리, `..`는 virtual `/` 위로 못 올라감
 - 현재 구현의 shared rule grammar는 hidden/visible/readonly/writable 전체에서 같은 normalization contract를 재사용한다.
-- current shared grammar의 supported glob은 prefix 없는 `**/<basename>` / `**/*.<suffix>` / `**/<basename-prefix>*`, 그 shorthand인 bare slashless glob(`*.pem`, `*.key`, `.env.*`, `id_*`), recursive optional normalized prefix가 붙은 limited glob, normalized-prefix direct-child basename-prefix/suffix form, recursive literal descendant-subtree form까지 포함한다. bare slashless glob `<pattern>`은 launch process cwd를 `source_root` relative normalized prefix로 rebase한 `./<pattern>` direct-child shorthand이며, 같은 cwd anchor 바로 아래 child basename과 matched child descendants에만 적용된다.
-- canonical 4-family 비교(`**/*.pem`, `./fixtures/*.pem`, `/a/*.txt`, `/a/**/*.txt`)는 `docs/requirements.md`의 table을 따른다. 아키텍처적으로 중요한 차이는 prefixless `**/*.pem`만 whole-tree recursive family라는 점이고, `./fixtures/*.pem`와 `/a/*.txt`는 direct-child anchored family지만 current bridge-index walk는 startup에서 anchor 아래를 재귀 탐색할 수 있다는 점이다. `/a/**/*.txt`는 같은 `/a` anchor라도 더 넓은 recursive discovery를 요구한다.
+- 문서상 shared grammar의 supported glob은 prefix 없는 recursive tail(`**/*.pem`, `**/.env.*`, `**/id_*`, `**/.env`), 그 explicit root-anchor/anchored recursive form(`/**/*.pem`, `./fixtures/**/*.pem`, `/a/**/*.txt` 등), bare slashless glob(`*.pem`, `*.key`, `.env.*`, `id_*`)의 direct-child shorthand, normalized-prefix direct-child basename-prefix/suffix form, recursive literal descendant-subtree form까지 포함한다. bare slashless glob `<pattern>`은 launch process cwd를 `source_root` relative normalized prefix로 rebase한 `./<pattern>` direct-child shorthand이며, prefixless recursive tail `**/<pattern>`은 같은 cwd anchor의 `./**/<pattern>` recursive shorthand target이다. current Rust 구현·테스트·fresh smoke evidence는 이 둘의 current contract와 explicit root-anchor `/**/<pattern>` distinction을 `docs/operations.md` 기준으로 확인한다.
+- canonical 4-family 비교(`**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`)는 `docs/requirements.md`의 table에 적힌 goal 38ca1993 contract를 현재 구현이 그대로 따른다는 source/live evidence다. 아키텍처적으로 중요한 현재 차이는 prefixless `**/*.pem`이 더 이상 whole-tree가 아니라 cwd-anchor recursive shorthand라는 점이다. same-anchor `*.pem`는 여전히 direct-child family로 남아 `**/*.pem`에 contained되고, explicit whole-tree recursive intent는 `/**/*.pem`처럼 root-anchor를 써야 한다. `./fixtures/**/*.pem`와 `/a/**/*.txt`는 anchored recursive family이고, `/a/*.txt`는 direct-child anchored family다. current source/live proof는 `docs/operations.md`와 `docs/artifacts/current-four-family-glob-smoke-transcript.md`를 따른다.
 - relative path와 leading `~`, `~/...` prefix는 host path로 해석된 뒤 `source_root` 내부일 때만 virtual absolute path 또는 virtual glob prefix로 rebase된다.
-- `HOME` 없음, relative/prefixless form의 launch cwd가 `source_root` 밖, `source_root` 밖으로 확장됨, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, one-sided subset 밖의 bare wildcard `*`, `a*b`, `*secret*`)은 fail-fast/unsupported로 남는다.
+- `HOME` 없음, relative path/prefixed glob/bare slashless shorthand/prefixless recursive shorthand를 정규화할 launch cwd가 `source_root` 밖, `source_root` 밖으로 확장됨, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, one-sided subset 밖의 bare wildcard `*`, `a*b`, `*secret*`)은 fail-fast/unsupported로 남는다.
 - descendant-subtree broader forms(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`, trailing `/**` 없는 `**/.git/hooks`)도 부분 해석 없이 fail-fast다.
 - descendant-subtree carve-out(`**/.git/hooks/**` 등)이 visible subtree를 열면 그 경로상의 모든 existing ancestor directory가 bridge-visible이어야 traversal/listing이 성립한다.
 - symlink target은 lexical virtual target으로 재해석해 fully-visible 여부를 다시 검사하며, hidden 또는 bridge-visible target은 `readlink`/dereference에서 `ENOENT`다.
@@ -142,7 +142,7 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 - nested `mutability.readonly` re-block가 다시 `EROFS`를 만드는가
 - hidden-before-mutability precedence가 유지되는가
 - unsupported glob이 fail-fast 하는가
-- `*.pem`가 current launch cwd anchor에서 `./*.pem`과 동등하게 normalize되고, `**/*.pem`과는 same-specificity equivalent가 아니라 containment/nested-override 관계로 처리되는가
+- current contract대로 `**/*.pem`가 launch cwd anchor에서 `./**/*.pem`과 동등하게 normalize되고, 같은 anchor의 `*.pem`/`./*.pem`가 더 구체적인 direct-child containment/nested-override 관계로 처리되는지, 그리고 그 fresh source/live evidence가 refresh됐는가
 - `source-root=/`에서 `/bin`, `/usr`, `/etc` 같은 whole-view 경로가 실제로 보이는가
 - mount-root recursion exclusion이 listing/lookup에 다시 나타나지 않는가
 - symlink entry가 resolved virtual target이 fully visible할 때만 읽히고 bridge-visible target이면 `ENOENT`인가

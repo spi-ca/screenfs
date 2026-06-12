@@ -880,7 +880,7 @@ fn split_supported_recursive_literal_subtree_glob(
 
 fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str, bool), String> {
     if let Some(pattern) = rule.strip_prefix("**/") {
-        return Ok((None, pattern, true));
+        return Ok((Some("."), pattern, true));
     }
     if let Some(index) = rule.find("/**/") {
         let prefix = if index == 0 { "/" } else { &rule[..index] };

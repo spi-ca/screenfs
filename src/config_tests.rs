@@ -454,9 +454,10 @@ fn visible_glob_families_report_dynamic_bridge_scan_roots_family_by_family() {
     {
         let _env = ProcessEnvGuard::new(&cwd, None);
         for (rule, expected) in [
-            ("**/*.pem", vec![VirtualPath::root()]),
+            ("**/*.pem", vec![VirtualPath::new("/workspace/app")]),
+            ("/**/*.pem", vec![VirtualPath::root()]),
             (
-                "./fixtures/*.pem",
+                "./fixtures/**/*.pem",
                 vec![VirtualPath::new("/workspace/app/fixtures")],
             ),
             ("/a/*.txt", vec![VirtualPath::new("/a")]),
@@ -489,6 +490,7 @@ fn canonical_glob_families_share_visibility_and_mutability_axis_semantics() {
     let source = test_dir();
     let cwd = source.join("workspace/app");
     std::fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+    std::fs::create_dir_all(source.join("workspace/peer")).unwrap();
     std::fs::create_dir_all(source.join("a/nested")).unwrap();
     let mount = source.join("mount");
     std::fs::create_dir(&mount).unwrap();
@@ -500,7 +502,7 @@ fn canonical_glob_families_share_visibility_and_mutability_axis_semantics() {
                 source_root: source.clone(),
                 mount_root: mount,
                 visibility_hidden_rules: vec!["**/*.pem".to_string()],
-                visibility_visible_rules: vec!["./fixtures/*.pem".to_string()],
+                visibility_visible_rules: vec!["./fixtures/**/*.pem".to_string()],
                 mutability_readonly_rules: vec!["/a/*.txt".to_string()],
                 mutability_writable_rules: vec!["/a/**/*.txt".to_string()],
             },
@@ -514,18 +516,18 @@ fn canonical_glob_families_share_visibility_and_mutability_axis_semantics() {
         assert!(cfg.matches_hidden_rule(&VirtualPath::new(
             "/workspace/app/fixtures/nested/local.pem"
         )));
+        assert!(!cfg.matches_hidden_rule(&VirtualPath::new("/workspace/peer/local.pem")));
         assert!(cfg.matches_visible_rule(&VirtualPath::new("/workspace/app/fixtures/local.pem")));
-        assert!(
-            cfg.matches_visible_rule(&VirtualPath::new("/workspace/app/fixtures/local.pem/chain"))
-        );
-        assert!(!cfg.matches_visible_rule(&VirtualPath::new(
+        assert!(cfg.matches_visible_rule(&VirtualPath::new(
             "/workspace/app/fixtures/nested/local.pem"
         )));
+        assert!(!cfg.matches_visible_rule(&VirtualPath::new("/workspace/app/local.pem")));
         assert!(!cfg.is_hidden(&VirtualPath::new("/workspace/app/fixtures/local.pem")));
-        assert!(!cfg.is_hidden(&VirtualPath::new("/workspace/app/fixtures/local.pem/chain")));
-        assert!(cfg.is_hidden(&VirtualPath::new(
+        assert!(!cfg.is_hidden(&VirtualPath::new(
             "/workspace/app/fixtures/nested/local.pem"
         )));
+        assert!(cfg.is_hidden(&VirtualPath::new("/workspace/app/local.pem")));
+        assert!(!cfg.is_hidden(&VirtualPath::new("/workspace/peer/local.pem")));
 
         assert!(cfg.matches_readonly_rule(&VirtualPath::new("/a/file.txt")));
         assert!(cfg.matches_readonly_rule(&VirtualPath::new("/a/file.txt/child")));
@@ -620,9 +622,25 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
                 source_root: source.clone(),
-                mount_root: mount,
+                mount_root: mount.clone(),
                 visibility_hidden_rules: vec!["*.pem".to_string()],
                 visibility_visible_rules: vec!["./*.pem".to_string()],
+                mutability_readonly_rules: vec![],
+                mutability_writable_rules: vec![],
+            },
+            config_path: None,
+            visibility_default: None,
+            mutability_default: None,
+        })
+        .unwrap_err();
+        assert!(err.contains("hidden and visible rules conflict"));
+
+        let err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                visibility_hidden_rules: vec!["**/*.pem".to_string()],
+                visibility_visible_rules: vec!["./**/*.pem".to_string()],
                 mutability_readonly_rules: vec![],
                 mutability_writable_rules: vec![],
             },
@@ -669,7 +687,7 @@ fn bare_and_recursive_globs_keep_containment_override_semantics() {
 }
 
 #[test]
-fn bare_glob_fails_fast_when_current_dir_is_outside_source_root() {
+fn cwd_sensitive_glob_shorthands_fail_fast_when_current_dir_is_outside_source_root() {
     let root = test_dir();
     let source = root.join("source");
     let outside = root.join("outside");
@@ -696,25 +714,27 @@ fn bare_glob_fails_fast_when_current_dir_is_outside_source_root() {
         .unwrap();
         assert!(absolute_only.matches_hidden_rule(&VirtualPath::new("/absolute")));
 
-        let err = RuntimeConfig::from_launch(LaunchArgs {
-            cli: CliArgs {
-                source_root: source.clone(),
-                mount_root: mount,
-                visibility_hidden_rules: vec!["*.pem".to_string()],
-                visibility_visible_rules: vec![],
-                mutability_readonly_rules: vec![],
-                mutability_writable_rules: vec![],
-            },
-            config_path: None,
-            visibility_default: None,
-            mutability_default: None,
-        })
-        .unwrap_err();
+        for rule in ["*.pem", "**/*.pem"] {
+            let err = RuntimeConfig::from_launch(LaunchArgs {
+                cli: CliArgs {
+                    source_root: source.clone(),
+                    mount_root: mount.clone(),
+                    visibility_hidden_rules: vec![rule.to_string()],
+                    visibility_visible_rules: vec![],
+                    mutability_readonly_rules: vec![],
+                    mutability_writable_rules: vec![],
+                },
+                config_path: None,
+                visibility_default: None,
+                mutability_default: None,
+            })
+            .unwrap_err();
 
-        assert!(
-            err.contains("rule path resolves outside source_root: ."),
-            "{err}"
-        );
+            assert!(
+                err.contains("rule path resolves outside source_root: ."),
+                "{rule}: {err}"
+            );
+        }
     }
     std::fs::remove_dir_all(root).unwrap();
 }
