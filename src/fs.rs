@@ -251,8 +251,14 @@ impl Filesystem for ScreenFs {
     ) -> FsResult<ReplyAttr> {
         let path = self.path_for_inode(inode)?;
         self.guard_mutation_path(&path, true)?;
-        let source = self.host_path(&path, true)?;
-        apply_setattr(&source, set_attr)?;
+        let flags = if set_attr.size.is_some() {
+            libc::O_WRONLY
+        } else {
+            libc::O_RDONLY
+        };
+        let file = self.open_confined(&path, flags, None)?;
+        self.guard_opened_file_target(&path, &file, true)?;
+        apply_setattr(&file, set_attr)?;
         Ok(ReplyAttr {
             ttl: self.cfg.attr_ttl,
             attr: self.attr_for_path(&path, inode)?,
@@ -272,8 +278,16 @@ impl Filesystem for ScreenFs {
         }
         let parent_path = self.guard_child_mutation_path(&path)?;
         std::os::unix::fs::symlink(link, self.host_path(&path, false)?).map_err(errno_from_io)?;
-        self.invalidate_after_mutation(&[parent_path], std::slice::from_ref(&path), &[]);
-        self.reply_entry_for_path(path)
+        match self.reply_entry_for_path(path.clone()) {
+            Ok(entry) => {
+                self.invalidate_after_mutation(&[parent_path], std::slice::from_ref(&path), &[]);
+                Ok(entry)
+            }
+            Err(err) => {
+                let _ = fs::remove_file(self.host_path(&path, false)?);
+                Err(err)
+            }
+        }
     }
 
     async fn mknod(
@@ -495,14 +509,13 @@ impl Filesystem for ScreenFs {
         name: &OsStr,
         size: u32,
     ) -> FsResult<ReplyXattr> {
-        let source = self.xattr_host_path(inode, false)?;
-        let c_path = cstring_path(&source)?;
+        let file = self.xattr_file(inode, false)?;
         let c_name = cstring_os(name)?;
         read_xattr_reply(
             size,
             || {
                 let needed = unsafe {
-                    libc::getxattr(c_path.as_ptr(), c_name.as_ptr(), std::ptr::null_mut(), 0)
+                    libc::fgetxattr(file.as_raw_fd(), c_name.as_ptr(), std::ptr::null_mut(), 0)
                 };
                 if needed < 0 {
                     Err(errno_from_io(std::io::Error::last_os_error()))
@@ -512,8 +525,8 @@ impl Filesystem for ScreenFs {
             },
             |data| {
                 let read = unsafe {
-                    libc::getxattr(
-                        c_path.as_ptr(),
+                    libc::fgetxattr(
+                        file.as_raw_fd(),
                         c_name.as_ptr(),
                         data.as_mut_ptr().cast(),
                         data.len(),
@@ -529,12 +542,11 @@ impl Filesystem for ScreenFs {
     }
 
     async fn listxattr(&self, _req: Request, inode: u64, size: u32) -> FsResult<ReplyXattr> {
-        let source = self.xattr_host_path(inode, false)?;
-        let c_path = cstring_path(&source)?;
+        let file = self.xattr_file(inode, false)?;
         read_xattr_reply(
             size,
             || {
-                let needed = unsafe { libc::listxattr(c_path.as_ptr(), std::ptr::null_mut(), 0) };
+                let needed = unsafe { libc::flistxattr(file.as_raw_fd(), std::ptr::null_mut(), 0) };
                 if needed < 0 {
                     Err(errno_from_io(std::io::Error::last_os_error()))
                 } else {
@@ -543,7 +555,7 @@ impl Filesystem for ScreenFs {
             },
             |data| {
                 let read = unsafe {
-                    libc::listxattr(c_path.as_ptr(), data.as_mut_ptr().cast(), data.len())
+                    libc::flistxattr(file.as_raw_fd(), data.as_mut_ptr().cast(), data.len())
                 };
                 if read < 0 {
                     Err(errno_from_io(std::io::Error::last_os_error()))
@@ -562,12 +574,11 @@ impl Filesystem for ScreenFs {
         value: &[u8],
         flags: u32,
     ) -> FsResult<()> {
-        let source = self.xattr_host_path(inode, true)?;
-        let c_path = cstring_path(&source)?;
+        let file = self.xattr_file(inode, true)?;
         let c_name = cstring_os(name)?;
         let result = unsafe {
-            libc::setxattr(
-                c_path.as_ptr(),
+            libc::fsetxattr(
+                file.as_raw_fd(),
                 c_name.as_ptr(),
                 value.as_ptr().cast(),
                 value.len(),
@@ -582,10 +593,9 @@ impl Filesystem for ScreenFs {
     }
 
     async fn removexattr(&self, _req: Request, inode: u64, name: &OsStr) -> FsResult<()> {
-        let source = self.xattr_host_path(inode, true)?;
-        let c_path = cstring_path(&source)?;
+        let file = self.xattr_file(inode, true)?;
         let c_name = cstring_os(name)?;
-        let result = unsafe { libc::removexattr(c_path.as_ptr(), c_name.as_ptr()) };
+        let result = unsafe { libc::fremovexattr(file.as_raw_fd(), c_name.as_ptr()) };
         if result == 0 {
             Ok(())
         } else {

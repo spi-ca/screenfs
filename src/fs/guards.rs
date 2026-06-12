@@ -1,15 +1,14 @@
 use std::ffi::{OsStr, OsString};
-use std::fs;
+use std::fs::{self, File};
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 
 use fractal_fuse::{ENOENT, FileAttr, ReplyEntry};
 
-use crate::config::VisibilityDecision;
-use crate::errors::{errno_from_io, open_has_write_intent};
-use crate::path::VirtualPath;
-
 use super::ScreenFs;
 use super::backing::metadata_to_attr;
+use crate::errors::{errno_from_io, open_has_write_intent};
+use crate::path::VirtualPath;
 
 impl ScreenFs {
     pub(super) fn hidden(&self, path: &VirtualPath) -> bool {
@@ -17,16 +16,13 @@ impl ScreenFs {
     }
 
     pub(super) fn visible_for_entry(&self, path: &VirtualPath) -> bool {
-        match self.cfg.visibility_decision(path) {
-            VisibilityDecision::Visible => true,
-            VisibilityDecision::BridgeVisible => self
-                .host_path(path, false)
-                .ok()
-                .and_then(|source| fs::symlink_metadata(source).ok())
-                .is_some_and(|metadata| {
-                    metadata.is_dir() && self.cfg.has_visible_bridge_ancestor(path)
-                }),
-            VisibilityDecision::Hidden => false,
+        match self
+            .host_path(path, false)
+            .ok()
+            .and_then(|source| fs::symlink_metadata(source).ok())
+        {
+            Some(metadata) => self.cfg.entry_is_readable(path, metadata.is_dir()),
+            None => self.cfg.is_fully_visible(path),
         }
     }
 
@@ -61,7 +57,7 @@ impl ScreenFs {
 
     pub(super) fn guard_read_path(&self, path: &VirtualPath) -> Result<(), i32> {
         self.guard_hidden_path(path)?;
-        self.guard_hidden_symlink_target_if_needed(path)
+        self.guard_resolved_target_visibility_if_needed(path)
     }
 
     pub(super) fn guard_coordinate_hidden(
@@ -92,13 +88,8 @@ impl ScreenFs {
             Err(ENOENT) if !follow_final_symlink => path.clone(),
             Err(err) => return Err(err),
         };
-        if matches!(
-            self.cfg.visibility_decision(path),
-            VisibilityDecision::BridgeVisible
-        ) || matches!(
-            self.cfg.visibility_decision(&resolved),
-            VisibilityDecision::BridgeVisible
-        ) || self.readonly(path)
+        if self.cfg.visibility_blocks_mutation(path, &resolved)
+            || self.readonly(path)
             || self.readonly(&resolved)
         {
             Err(libc::EROFS)
@@ -137,20 +128,23 @@ impl ScreenFs {
         self.guard_mutation_coordinates(&[], paths)
     }
 
-    pub(super) fn guard_hidden_symlink_target_if_needed(
+    pub(super) fn guard_resolved_target_visibility_if_needed(
         &self,
         path: &VirtualPath,
     ) -> Result<(), i32> {
-        let source = self.host_path(path, false)?;
-        let Ok(metadata) = fs::symlink_metadata(&source) else {
+        if self.cfg.can_skip_symlink_target_visibility_check() {
             return Ok(());
-        };
-        if metadata.file_type().is_symlink() && !self.cfg.can_skip_symlink_target_visibility_check()
-        {
-            let target = fs::read_link(&source).map_err(errno_from_io)?;
-            self.check_hidden_symlink_target(path, target.as_os_str())?;
         }
-        Ok(())
+        let resolved = match self.resolved_virtual_path(path, true) {
+            Ok(resolved) => resolved,
+            Err(ENOENT) => return Ok(()),
+            Err(err) => return Err(err),
+        };
+        if resolved != *path && !self.cfg.is_fully_visible(&resolved) {
+            Err(ENOENT)
+        } else {
+            Ok(())
+        }
     }
 
     pub(super) fn attr_for_path(&self, path: &VirtualPath, inode: u64) -> Result<FileAttr, i32> {
@@ -202,25 +196,15 @@ impl ScreenFs {
             let name = entry.file_name();
             let child = dir.join_child(&name);
             let metadata = fs::symlink_metadata(entry.path()).map_err(errno_from_io)?;
-            if !(self.cfg.is_fully_visible(&child)
-                || matches!(
-                    self.cfg.visibility_decision(&child),
-                    VisibilityDecision::BridgeVisible
-                ) && metadata.is_dir()
-                    && self.cfg.has_visible_bridge_ancestor(&child))
-            {
+            if !self.cfg.entry_is_readable(&child, metadata.is_dir()) {
                 continue;
             }
             if metadata.file_type().is_symlink()
-                && !self.cfg.can_skip_symlink_target_visibility_check()
+                && self
+                    .guard_resolved_target_visibility_if_needed(&child)
+                    .is_err()
             {
-                let target = fs::read_link(entry.path()).map_err(errno_from_io)?;
-                if self
-                    .cfg
-                    .is_hidden_symlink_target(&child, target.as_os_str())
-                {
-                    continue;
-                }
+                continue;
             }
             entries.push((name, child, metadata));
         }
@@ -260,13 +244,52 @@ impl ScreenFs {
         Ok((path, parent_path))
     }
 
-    pub(super) fn xattr_host_path(&self, inode: u64, mutation: bool) -> Result<PathBuf, i32> {
+    pub(super) fn resolved_virtual_path_for_open_file(
+        &self,
+        file: &File,
+    ) -> Result<VirtualPath, i32> {
+        let fd_path = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
+        let source = fs::read_link(fd_path).map_err(errno_from_io)?;
+        let source_root = self.cfg.source_root.canonicalize().map_err(errno_from_io)?;
+        let relative = source.strip_prefix(&source_root).map_err(|_| ENOENT)?;
+        if relative.as_os_str().is_empty() {
+            Ok(VirtualPath::root())
+        } else {
+            let mut resolved = PathBuf::from("/");
+            resolved.push(relative);
+            Ok(VirtualPath::new(resolved))
+        }
+    }
+
+    pub(super) fn guard_opened_file_target(
+        &self,
+        path: &VirtualPath,
+        file: &File,
+        mutation: bool,
+    ) -> Result<(), i32> {
+        let resolved = self.resolved_virtual_path_for_open_file(file)?;
+        if !self.cfg.is_fully_visible(&resolved) {
+            return Err(ENOENT);
+        }
+        if mutation
+            && (self.cfg.visibility_blocks_mutation(path, &resolved)
+                || self.readonly(path)
+                || self.readonly(&resolved))
+        {
+            return Err(libc::EROFS);
+        }
+        Ok(())
+    }
+
+    pub(super) fn xattr_file(&self, inode: u64, mutation: bool) -> Result<File, i32> {
         let path = self.path_for_inode(inode)?;
         if mutation {
             self.guard_mutation_path(&path, true)?;
         } else {
             self.guard_read_path(&path)?;
         }
-        self.host_path(&path, true)
+        let file = self.open_confined(&path, libc::O_RDONLY, None)?;
+        self.guard_opened_file_target(&path, &file, mutation)?;
+        Ok(file)
     }
 }

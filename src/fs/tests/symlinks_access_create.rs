@@ -76,6 +76,70 @@ fn symlink_to_hidden_target_returns_enoent_for_lookup_open_and_readlink() {
 }
 
 #[test]
+fn multi_hop_symlink_to_hidden_target_returns_enoent() {
+    let dir = test_dir("symlink-hidden-multi-hop");
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link2")).unwrap();
+    std::os::unix::fs::symlink("link2", dir.join("link1")).unwrap();
+    let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
+
+    assert_eq!(
+        fs.reply_entry_for_path(VirtualPath::new("/link1"))
+            .unwrap_err(),
+        ENOENT
+    );
+    assert!(!root_listing_names(&fs).contains(&"link1".to_string()));
+
+    let inode = fs
+        .state
+        .lock()
+        .expect("state mutex poisoned")
+        .inode_for_path(VirtualPath::new("/link1"));
+    assert_eq!(
+        block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.access(dummy_req(), inode, libc::R_OK as u32)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.readlink(dummy_req(), inode)).unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ancestor_symlink_into_hidden_subtree_returns_enoent_for_child() {
+    let dir = test_dir("symlink-hidden-ancestor");
+    std::fs::create_dir_all(dir.join("secret/subdir")).unwrap();
+    std::fs::write(dir.join("secret/subdir/file"), b"secret").unwrap();
+    std::os::unix::fs::symlink("secret", dir.join("visible-dir-link")).unwrap();
+    let fs = fs_for_root_readonly(&dir, vec!["/secret".to_string()]);
+
+    assert_eq!(
+        fs.reply_entry_for_path(VirtualPath::new("/visible-dir-link/subdir/file"))
+            .unwrap_err(),
+        ENOENT
+    );
+    let inode = fs
+        .state
+        .lock()
+        .expect("state mutex poisoned")
+        .inode_for_path(VirtualPath::new("/visible-dir-link/subdir/file"));
+    assert_eq!(
+        block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.access(dummy_req(), inode, libc::R_OK as u32)).unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn symlink_to_bridge_visible_target_is_not_exported() {
     let dir = test_dir("symlink-bridge-visible-target");
     std::fs::create_dir_all(dir.join("target/child")).unwrap();
@@ -111,6 +175,18 @@ fn symlink_to_bridge_visible_target_is_not_exported() {
         .inode_for_path(VirtualPath::new("/link-to-bridge"));
     assert_eq!(
         block_on(fs.readlink(dummy_req(), inode)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.opendir(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.access(dummy_req(), inode, libc::R_OK as u32)).unwrap_err(),
         ENOENT
     );
     std::fs::remove_dir_all(dir).unwrap();
@@ -150,6 +226,27 @@ fn broader_visible_rule_does_not_expose_more_specific_hidden_symlink_target() {
         block_on(fs.readlink(dummy_req(), inode)).unwrap_err(),
         ENOENT
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn symlink_creation_to_hidden_final_target_rolls_back_side_effect() {
+    let dir = test_dir("symlink-create-hidden-final");
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link2")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+
+    assert_eq!(
+        block_on(fs.symlink(
+            dummy_req(),
+            FUSE_ROOT_ID,
+            OsStr::new("link1"),
+            OsStr::new("link2"),
+        ))
+        .unwrap_err(),
+        ENOENT
+    );
+    assert!(!dir.join("link1").exists());
     std::fs::remove_dir_all(dir).unwrap();
 }
 

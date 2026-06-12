@@ -186,6 +186,27 @@ impl RuntimeConfig {
         self.visibility_decision(path).is_fully_visible()
     }
 
+    pub fn is_bridge_visible(&self, path: &VirtualPath) -> bool {
+        matches!(
+            self.visibility_decision(path),
+            VisibilityDecision::BridgeVisible
+        )
+    }
+
+    pub fn entry_is_readable(&self, path: &VirtualPath, is_directory: bool) -> bool {
+        match self.visibility_decision(path) {
+            VisibilityDecision::Visible => true,
+            VisibilityDecision::BridgeVisible => {
+                is_directory && self.has_visible_bridge_ancestor(path)
+            }
+            VisibilityDecision::Hidden => false,
+        }
+    }
+
+    pub fn visibility_blocks_mutation(&self, path: &VirtualPath, resolved: &VirtualPath) -> bool {
+        self.is_bridge_visible(path) || self.is_bridge_visible(resolved)
+    }
+
     pub fn has_visible_bridge_ancestor(&self, path: &VirtualPath) -> bool {
         self.visible_matcher.may_match_descendant_of(path)
     }

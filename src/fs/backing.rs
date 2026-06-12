@@ -1,8 +1,8 @@
 use std::ffi::{CString, OsStr};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::Path;
 
 use fractal_fuse::{FileAttr, FileType, ReplyStatfs, ReplyXattr, SetAttr, SetAttrTime, Timestamp};
@@ -184,29 +184,30 @@ pub(super) fn source_root_statfs(source_root: &Path) -> Result<ReplyStatfs, i32>
     })
 }
 
-pub(super) fn apply_setattr(path: &Path, set_attr: SetAttr) -> Result<(), i32> {
+pub(super) fn apply_setattr(file: &File, set_attr: SetAttr) -> Result<(), i32> {
+    let fd = file.as_raw_fd();
     if let Some(mode) = set_attr.mode {
-        fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o7777))
-            .map_err(errno_from_io)?;
+        let result = unsafe { libc::fchmod(fd, (mode & 0o7777) as libc::mode_t) };
+        if result != 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
     }
     if set_attr.uid.is_some() || set_attr.gid.is_some() {
-        let c_path = cstring_path(path)?;
         let uid = set_attr.uid.unwrap_or(u32::MAX) as libc::uid_t;
         let gid = set_attr.gid.unwrap_or(u32::MAX) as libc::gid_t;
-        let result = unsafe { libc::chown(c_path.as_ptr(), uid, gid) };
+        let result = unsafe { libc::fchown(fd, uid, gid) };
         if result != 0 {
             return Err(errno_from_io(std::io::Error::last_os_error()));
         }
     }
     if let Some(size) = set_attr.size {
-        let file = OpenOptions::new()
-            .write(true)
-            .open(path)
-            .map_err(errno_from_io)?;
-        file.set_len(size).map_err(errno_from_io)?;
+        let result = unsafe { libc::ftruncate(fd, size as libc::off_t) };
+        if result != 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
     }
     if set_attr.atime.is_some() || set_attr.mtime.is_some() {
-        let current = fs::metadata(path).map_err(errno_from_io)?;
+        let current = file.metadata().map_err(errno_from_io)?;
         let atime = set_attr.atime.unwrap_or_else(|| {
             SetAttrTime::Specific(Timestamp::new(
                 current.atime() as u64,
@@ -220,8 +221,7 @@ pub(super) fn apply_setattr(path: &Path, set_attr: SetAttr) -> Result<(), i32> {
             ))
         });
         let times = [timespec_from_setattr(atime), timespec_from_setattr(mtime)];
-        let c_path = cstring_path(path)?;
-        let result = unsafe { libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), 0) };
+        let result = unsafe { libc::futimens(fd, times.as_ptr()) };
         if result != 0 {
             return Err(errno_from_io(std::io::Error::last_os_error()));
         }

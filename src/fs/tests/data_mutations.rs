@@ -23,6 +23,104 @@ fn hidden_xattr_queries_return_enoent() {
 }
 
 #[test]
+fn xattr_operations_use_confined_fd_and_preserve_symlink_visibility() {
+    let dir = test_dir("fd-xattr");
+    std::fs::write(dir.join("visible"), b"ok").unwrap();
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link2")).unwrap();
+    std::os::unix::fs::symlink("link2", dir.join("link1")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+    let visible = fs
+        .reply_entry_for_path(VirtualPath::new("/visible"))
+        .unwrap()
+        .attr
+        .ino;
+    let hidden_link = fs
+        .state
+        .lock()
+        .expect("state mutex poisoned")
+        .inode_for_path(VirtualPath::new("/link1"));
+
+    block_on(fs.setxattr(dummy_req(), visible, OsStr::new("user.test"), b"value", 0)).unwrap();
+    let size = block_on(fs.getxattr(dummy_req(), visible, OsStr::new("user.test"), 0)).unwrap();
+    assert!(matches!(size, ReplyXattr::Size(5)));
+    let value = block_on(fs.getxattr(dummy_req(), visible, OsStr::new("user.test"), 5)).unwrap();
+    assert!(matches!(value, ReplyXattr::Data(data) if data == b"value"));
+    let names = block_on(fs.listxattr(dummy_req(), visible, 1024)).unwrap();
+    assert!(
+        matches!(names, ReplyXattr::Data(data) if data.windows(b"user.test".len()).any(|window| window == b"user.test"))
+    );
+    block_on(fs.removexattr(dummy_req(), visible, OsStr::new("user.test"))).unwrap();
+
+    assert_eq!(
+        block_on(fs.getxattr(dummy_req(), hidden_link, OsStr::new("user.test"), 0)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.setxattr(dummy_req(), hidden_link, OsStr::new("user.test"), b"x", 0))
+            .unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn setattr_uses_confined_fd_and_preserves_symlink_visibility() {
+    let dir = test_dir("fd-setattr");
+    std::fs::write(dir.join("visible"), b"abcdef").unwrap();
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link2")).unwrap();
+    std::os::unix::fs::symlink("link2", dir.join("link1")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+    let visible = fs
+        .reply_entry_for_path(VirtualPath::new("/visible"))
+        .unwrap()
+        .attr
+        .ino;
+    let hidden_link = fs
+        .state
+        .lock()
+        .expect("state mutex poisoned")
+        .inode_for_path(VirtualPath::new("/link1"));
+
+    block_on(fs.setattr(
+        dummy_req(),
+        visible,
+        None,
+        SetAttr {
+            size: Some(3),
+            mode: Some(0o600),
+            ..Default::default()
+        },
+    ))
+    .unwrap();
+    assert_eq!(std::fs::read(dir.join("visible")).unwrap(), b"abc");
+    assert_eq!(
+        std::fs::metadata(dir.join("visible"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+
+    assert_eq!(
+        block_on(fs.setattr(
+            dummy_req(),
+            hidden_link,
+            None,
+            SetAttr {
+                mode: Some(0o600),
+                ..Default::default()
+            },
+        ))
+        .unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn readonly_multi_path_xattr_and_fallocate_mutations_return_erofs() {
     let dir = test_dir("readonly-mutators");
     std::fs::write(dir.join("a"), b"aaaa").unwrap();
