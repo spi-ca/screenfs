@@ -170,18 +170,18 @@ fn mutability_readonly_and_writable_use_most_specific_match() {
 }
 
 #[test]
-fn descendant_subtree_visible_rule_bridges_all_existing_ancestors() {
+fn direct_child_visible_rule_bridges_only_normalized_anchor_ancestors() {
     let source = test_dir();
     let cfg = launch(
         &source,
         Some(VisibilityDefault::Hidden),
         vec![],
-        vec!["**/.git/hooks/**".to_string()],
+        vec!["/workspace/repo/*.pem".to_string()],
         None,
         vec![],
         vec![],
     );
-    for path in ["/", "/workspace", "/workspace/repo", "/workspace/repo/.git"] {
+    for path in ["/", "/workspace", "/workspace/repo"] {
         assert_eq!(
             cfg.visibility_decision(&VirtualPath::new(path)),
             VisibilityDecision::BridgeVisible,
@@ -189,12 +189,20 @@ fn descendant_subtree_visible_rule_bridges_all_existing_ancestors() {
         );
     }
     assert_eq!(
-        cfg.visibility_decision(&VirtualPath::new("/workspace/repo/.git/hooks")),
+        cfg.visibility_decision(&VirtualPath::new("/workspace/repo/local.pem")),
         VisibilityDecision::Visible
     );
     assert_eq!(
-        cfg.visibility_decision(&VirtualPath::new("/workspace/repo/.git/hooks/pre-commit")),
+        cfg.visibility_decision(&VirtualPath::new("/workspace/repo/local.pem/chain")),
         VisibilityDecision::Visible
+    );
+    assert_eq!(
+        cfg.visibility_decision(&VirtualPath::new("/workspace/repo/nested")),
+        VisibilityDecision::Hidden
+    );
+    assert_eq!(
+        cfg.visibility_decision(&VirtualPath::new("/workspace/repo/nested/local.pem")),
+        VisibilityDecision::Hidden
     );
     std::fs::remove_dir_all(source).unwrap();
 }
@@ -281,7 +289,7 @@ fn four_policy_surfaces_share_normalized_virtual_semantics() {
                 source_root: source.clone(),
                 mount_root: mount.clone(),
                 visibility_hidden_rules: vec!["../secrets".to_string()],
-                visibility_visible_rules: vec!["./fixtures/**/*.pem".to_string()],
+                visibility_visible_rules: vec!["./fixtures/*.pem".to_string()],
                 mutability_readonly_rules: vec!["~/locks/**/*.lock".to_string()],
                 mutability_writable_rules: vec!["~/.env.*".to_string()],
             },
@@ -501,17 +509,116 @@ fn four_policy_surfaces_share_anchored_shorthand_normalization_semantics() {
 }
 
 #[test]
-fn visible_glob_families_report_dynamic_bridge_scan_roots_family_by_family() {
+fn config_file_accepts_recursive_literal_directory_shorthand_for_hidden_readonly_and_writable() {
+    let source = test_dir();
+    let mount = source.join("mnt");
+    std::fs::create_dir_all(&mount).unwrap();
+    let config_path = source.join("screenfs.yaml");
+    std::fs::write(
+        &config_path,
+        "visibility:\n  hidden:\n    - \"/repo/**/.git/hooks\"\nmutability:\n  default: readonly\n  readonly:\n    - \"**/aaa\"\n  writable:\n    - \"**/aaa/hook\"\n",
+    )
+    .unwrap();
+
+    let cfg = launch_from_args(LaunchArgs {
+        cli: CliArgs {
+            source_root: source.clone(),
+            mount_root: mount,
+            visibility_hidden_rules: vec![],
+            visibility_visible_rules: vec![],
+            mutability_readonly_rules: vec![],
+            mutability_writable_rules: vec![],
+        },
+        config_path: Some(config_path),
+        visibility_default: None,
+        mutability_default: None,
+    })
+    .unwrap();
+
+    assert!(cfg.matches_hidden_rule(&VirtualPath::new("/repo/nested/.git/hooks/pre-commit")));
+    assert!(cfg.matches_readonly_rule(&VirtualPath::new("/other/aaa/file")));
+    assert!(cfg.matches_writable_rule(&VirtualPath::new("/workspace/repo/aaa/hook/file")));
+    assert!(cfg.is_readonly(&VirtualPath::new("/other/aaa/file")));
+    assert!(!cfg.is_readonly(&VirtualPath::new("/workspace/repo/aaa/hook/file")));
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn visible_recursive_literal_directory_shorthand_rejects_recursive_bridge_discovery_from_config_file()
+ {
+    let source = test_dir();
+    let mount = source.join("mnt");
+    std::fs::create_dir_all(&mount).unwrap();
+    let config_path = source.join("screenfs.yaml");
+    std::fs::write(
+        &config_path,
+        "visibility:\n  default: hidden\n  visible:\n    - \"**/.git/hooks\"\n",
+    )
+    .unwrap();
+
+    let err = launch_from_args(LaunchArgs {
+        cli: CliArgs {
+            source_root: source.clone(),
+            mount_root: mount,
+            visibility_hidden_rules: vec![],
+            visibility_visible_rules: vec![],
+            mutability_readonly_rules: vec![],
+            mutability_writable_rules: vec![],
+        },
+        config_path: Some(config_path),
+        visibility_default: None,
+        mutability_default: None,
+    })
+    .unwrap_err();
+    assert!(
+        err.contains("recursive visible globs are unsupported"),
+        "{err}"
+    );
+    assert!(err.contains("recursive bridge discovery"), "{err}");
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn shorthand_and_trailing_descendant_forms_conflict_at_same_normalized_specificity() {
+    let source = test_dir();
+    let mount = source.join("mnt");
+    std::fs::create_dir_all(&mount).unwrap();
+
+    let err = launch_from_args(LaunchArgs {
+        cli: CliArgs {
+            source_root: source.clone(),
+            mount_root: mount,
+            visibility_hidden_rules: vec![],
+            visibility_visible_rules: vec![],
+            mutability_readonly_rules: vec!["**/.git/hooks".to_string()],
+            mutability_writable_rules: vec!["**/.git/hooks/**".to_string()],
+        },
+        config_path: None,
+        visibility_default: None,
+        mutability_default: None,
+    })
+    .unwrap_err();
+    assert!(
+        err.contains("readonly and writable rules conflict at the same normalized specificity"),
+        "{err}"
+    );
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn visible_rules_reject_recursive_bridge_discovery_but_keep_discovery_free_forms() {
     let source = test_dir();
     let cwd = source.join("workspace/app");
+    let home = source.join("home/tester");
     std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
     let mount = source.join("mount");
     std::fs::create_dir(&mount).unwrap();
 
     {
-        let _env = ProcessEnvGuard::new(&cwd, None);
-        for rule in ["/a/**", "./fixtures/**"] {
-            let cfg = RuntimeConfig::from_launch(LaunchArgs {
+        let _env = ProcessEnvGuard::new(&cwd, Some(&home));
+        for rule in ["/a", "/a/**", "/a/*", "/a/*.txt", "./fixtures/*", "~/*.pem"] {
+            let _cfg = RuntimeConfig::from_launch(LaunchArgs {
                 cli: CliArgs {
                     source_root: source.clone(),
                     mount_root: mount.clone(),
@@ -525,23 +632,25 @@ fn visible_glob_families_report_dynamic_bridge_scan_roots_family_by_family() {
                 mutability_default: None,
             })
             .unwrap();
-
-            assert!(!cfg.needs_dynamic_bridge_index(), "{rule}");
-            assert!(cfg.dynamic_bridge_scan_roots().is_empty(), "{rule}");
         }
 
-        for (rule, expected) in [
-            ("**/*.pem", vec![VirtualPath::new("/workspace/app")]),
-            ("/**/*.pem", vec![VirtualPath::root()]),
-            (
-                "./fixtures/**/*.pem",
-                vec![VirtualPath::new("/workspace/app/fixtures")],
-            ),
-            ("/a/*", vec![VirtualPath::new("/a")]),
-            ("/a/*.txt", vec![VirtualPath::new("/a")]),
-            ("/a/**/*.txt", vec![VirtualPath::new("/a")]),
+        for rule in [
+            "**/*.pem",
+            "/**/*.pem",
+            "/dir/**/*.pem",
+            "**/.git",
+            "**/.git/**",
+            "**/.git/hooks",
+            "**/.git/hooks/**",
+            "/repo/**/.git/hooks",
+            "/repo/**/.git/hooks/**",
+            "./fixtures/**/*.pem",
+            "~/project/**/.git/hooks",
+            "~/project/**/.git/hooks/**",
+            "~/**/aaa/hook",
+            "~/**/aaa/hook/**",
         ] {
-            let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            let err = RuntimeConfig::from_launch(LaunchArgs {
                 cli: CliArgs {
                     source_root: source.clone(),
                     mount_root: mount.clone(),
@@ -554,10 +663,12 @@ fn visible_glob_families_report_dynamic_bridge_scan_roots_family_by_family() {
                 visibility_default: Some(VisibilityDefault::Hidden),
                 mutability_default: None,
             })
-            .unwrap();
-
-            assert!(cfg.needs_dynamic_bridge_index(), "{rule}");
-            assert_eq!(cfg.dynamic_bridge_scan_roots(), expected, "{rule}");
+            .unwrap_err();
+            assert!(
+                err.contains("recursive visible globs are unsupported"),
+                "{rule}: {err}"
+            );
+            assert!(err.contains("recursive bridge discovery"), "{rule}: {err}");
         }
     }
     std::fs::remove_dir_all(source).unwrap();
@@ -580,7 +691,7 @@ fn canonical_glob_families_share_visibility_and_mutability_axis_semantics() {
                 source_root: source.clone(),
                 mount_root: mount,
                 visibility_hidden_rules: vec!["**/*.pem".to_string()],
-                visibility_visible_rules: vec!["./fixtures/**/*.pem".to_string()],
+                visibility_visible_rules: vec!["./fixtures/*.pem".to_string()],
                 mutability_readonly_rules: vec!["/a/*.txt".to_string()],
                 mutability_writable_rules: vec!["/a/**/*.txt".to_string()],
             },
@@ -596,12 +707,12 @@ fn canonical_glob_families_share_visibility_and_mutability_axis_semantics() {
         )));
         assert!(!cfg.matches_hidden_rule(&VirtualPath::new("/workspace/peer/local.pem")));
         assert!(cfg.matches_visible_rule(&VirtualPath::new("/workspace/app/fixtures/local.pem")));
-        assert!(cfg.matches_visible_rule(&VirtualPath::new(
+        assert!(!cfg.matches_visible_rule(&VirtualPath::new(
             "/workspace/app/fixtures/nested/local.pem"
         )));
         assert!(!cfg.matches_visible_rule(&VirtualPath::new("/workspace/app/local.pem")));
         assert!(!cfg.is_hidden(&VirtualPath::new("/workspace/app/fixtures/local.pem")));
-        assert!(!cfg.is_hidden(&VirtualPath::new(
+        assert!(cfg.is_hidden(&VirtualPath::new(
             "/workspace/app/fixtures/nested/local.pem"
         )));
         assert!(cfg.is_hidden(&VirtualPath::new("/workspace/app/local.pem")));
@@ -727,7 +838,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             mutability_default: None,
         })
         .unwrap_err();
-        assert!(err.contains("hidden and visible rules conflict"));
+        assert!(err.contains("recursive visible globs are unsupported"));
 
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
@@ -759,7 +870,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             mutability_default: None,
         })
         .unwrap_err();
-        assert!(err.contains("overlapping glob targets without provable containment"));
+        assert!(err.contains("recursive visible globs are unsupported"));
     }
     std::fs::remove_dir_all(source).unwrap();
 }
@@ -905,6 +1016,67 @@ fn reports_shared_normalization_failures_per_surface() {
         assert!(message.contains(expected), "{message}");
     }
     std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn symlink_target_fast_path_is_enabled_only_when_visibility_policy_cannot_hide_targets() {
+    let root = test_dir();
+    let source = root.join("source");
+    let outside_mount = root.join("mount");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::create_dir_all(&outside_mount).unwrap();
+
+    {
+        let _env = ProcessEnvGuard::new(&source, None);
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: outside_mount.clone(),
+                visibility_hidden_rules: vec![],
+                visibility_visible_rules: vec![],
+                mutability_readonly_rules: vec![],
+                mutability_writable_rules: vec![],
+            },
+            config_path: None,
+            visibility_default: Some(VisibilityDefault::Visible),
+            mutability_default: None,
+        })
+        .unwrap();
+        assert!(cfg.can_skip_symlink_target_visibility_check());
+
+        let hidden_cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: outside_mount.clone(),
+                visibility_hidden_rules: vec!["/hidden".to_string()],
+                visibility_visible_rules: vec![],
+                mutability_readonly_rules: vec![],
+                mutability_writable_rules: vec![],
+            },
+            config_path: None,
+            visibility_default: Some(VisibilityDefault::Visible),
+            mutability_default: None,
+        })
+        .unwrap();
+        assert!(!hidden_cfg.can_skip_symlink_target_visibility_check());
+
+        let default_hidden_cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: outside_mount,
+                visibility_hidden_rules: vec![],
+                visibility_visible_rules: vec!["/visible".to_string()],
+                mutability_readonly_rules: vec![],
+                mutability_writable_rules: vec![],
+            },
+            config_path: None,
+            visibility_default: Some(VisibilityDefault::Hidden),
+            mutability_default: None,
+        })
+        .unwrap();
+        assert!(!default_hidden_cfg.can_skip_symlink_target_visibility_check());
+    }
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 fn test_dir() -> PathBuf {

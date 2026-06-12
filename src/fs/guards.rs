@@ -24,9 +24,7 @@ impl ScreenFs {
                 .ok()
                 .and_then(|source| fs::symlink_metadata(source).ok())
                 .is_some_and(|metadata| {
-                    metadata.is_dir()
-                        && (self.cfg.has_static_visible_subtree_bridge_ancestor(path)
-                            || self.bridge_visible_dirs.contains(path))
+                    metadata.is_dir() && self.cfg.has_visible_bridge_ancestor(path)
                 }),
             VisibilityDecision::Hidden => false,
         }
@@ -147,7 +145,8 @@ impl ScreenFs {
         let Ok(metadata) = fs::symlink_metadata(&source) else {
             return Ok(());
         };
-        if metadata.file_type().is_symlink() {
+        if metadata.file_type().is_symlink() && !self.cfg.can_skip_symlink_target_visibility_check()
+        {
             let target = fs::read_link(&source).map_err(errno_from_io)?;
             self.check_hidden_symlink_target(path, target.as_os_str())?;
         }
@@ -208,12 +207,13 @@ impl ScreenFs {
                     self.cfg.visibility_decision(&child),
                     VisibilityDecision::BridgeVisible
                 ) && metadata.is_dir()
-                    && (self.cfg.has_static_visible_subtree_bridge_ancestor(&child)
-                        || self.bridge_visible_dirs.contains(&child)))
+                    && self.cfg.has_visible_bridge_ancestor(&child))
             {
                 continue;
             }
-            if metadata.file_type().is_symlink() {
+            if metadata.file_type().is_symlink()
+                && !self.cfg.can_skip_symlink_target_visibility_check()
+            {
                 let target = fs::read_link(entry.path()).map_err(errno_from_io)?;
                 if self
                     .cfg

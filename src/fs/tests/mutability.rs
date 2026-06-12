@@ -239,6 +239,125 @@ fn readonly_default_canonical_absolute_txt_globs_preserve_direct_child_over_recu
 }
 
 #[test]
+fn writable_default_recursive_literal_directory_shorthand_locks_git_hooks_subtree() {
+    let dir = test_dir("writable-default-git-hooks-shorthand");
+    std::fs::create_dir_all(dir.join("project/repo/.git/hooks")).unwrap();
+    std::fs::write(dir.join("project/repo/.git/hooks/pre-commit"), b"hook").unwrap();
+    std::fs::write(dir.join("project/repo/.git/config"), b"config").unwrap();
+    let fs = fs_for(&dir, Vec::new(), vec!["/project/**/.git/hooks".to_string()]);
+
+    let hook = fs
+        .reply_entry_for_path(VirtualPath::new("/project/repo/.git/hooks/pre-commit"))
+        .unwrap()
+        .attr
+        .ino;
+    let hooks_dir = fs
+        .reply_entry_for_path(VirtualPath::new("/project/repo/.git/hooks"))
+        .unwrap()
+        .attr
+        .ino;
+    let config = fs
+        .reply_entry_for_path(VirtualPath::new("/project/repo/.git/config"))
+        .unwrap()
+        .attr
+        .ino;
+
+    assert_eq!(
+        block_on(fs.open(dummy_req(), hook, libc::O_WRONLY as u32)).unwrap_err(),
+        libc::EROFS
+    );
+    assert_eq!(
+        block_on(fs.opendir(dummy_req(), hooks_dir, libc::O_WRONLY as u32)).unwrap_err(),
+        libc::EROFS
+    );
+
+    let config_handle = block_on(fs.open(dummy_req(), config, libc::O_WRONLY as u32)).unwrap();
+    block_on(fs.release(dummy_req(), config, config_handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readonly_default_recursive_literal_directory_writable_shorthand_overrides_default() {
+    let dir = test_dir("readonly-default-git-hooks-shorthand-override");
+    std::fs::create_dir_all(dir.join("workspace/repo/.git/hooks")).unwrap();
+    std::fs::create_dir_all(dir.join("other/repo/.git/hooks")).unwrap();
+    std::fs::write(dir.join("workspace/repo/.git/hooks/pre-commit"), b"hook").unwrap();
+    std::fs::write(dir.join("workspace/repo/.git/config"), b"config").unwrap();
+    std::fs::write(dir.join("other/repo/.git/hooks/pre-commit"), b"hook").unwrap();
+    let fs = fs_for_policy(
+        &dir,
+        Vec::new(),
+        Vec::new(),
+        Some(MutabilityDefault::Readonly),
+        vec!["/workspace/**/.git/hooks".to_string()],
+    );
+
+    let workspace_hook = fs
+        .reply_entry_for_path(VirtualPath::new("/workspace/repo/.git/hooks/pre-commit"))
+        .unwrap()
+        .attr
+        .ino;
+    let workspace_hooks_dir = fs
+        .reply_entry_for_path(VirtualPath::new("/workspace/repo/.git/hooks"))
+        .unwrap()
+        .attr
+        .ino;
+    let workspace_config = fs
+        .reply_entry_for_path(VirtualPath::new("/workspace/repo/.git/config"))
+        .unwrap()
+        .attr
+        .ino;
+    let other_hook = fs
+        .reply_entry_for_path(VirtualPath::new("/other/repo/.git/hooks/pre-commit"))
+        .unwrap()
+        .attr
+        .ino;
+
+    let hook_handle =
+        block_on(fs.open(dummy_req(), workspace_hook, libc::O_WRONLY as u32)).unwrap();
+    block_on(fs.release(
+        dummy_req(),
+        workspace_hook,
+        hook_handle.fh,
+        0,
+        0,
+        false,
+        false,
+    ))
+    .unwrap();
+
+    let created = block_on(fs.create(
+        dummy_req(),
+        workspace_hooks_dir,
+        OsStr::new("post-commit"),
+        0o755,
+        libc::O_WRONLY as u32 | libc::O_CREAT as u32,
+    ))
+    .unwrap();
+    block_on(fs.release(
+        dummy_req(),
+        created.attr.ino,
+        created.fh,
+        0,
+        0,
+        false,
+        false,
+    ))
+    .unwrap();
+    assert!(dir.join("workspace/repo/.git/hooks/post-commit").exists());
+
+    assert_eq!(
+        block_on(fs.open(dummy_req(), workspace_config, libc::O_WRONLY as u32)).unwrap_err(),
+        libc::EROFS
+    );
+    assert_eq!(
+        block_on(fs.open(dummy_req(), other_hook, libc::O_WRONLY as u32)).unwrap_err(),
+        libc::EROFS
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn writable_default_symlink_returns_erofs_and_hidden_precedence_remains_enoent() {
     let dir = test_dir("writable-default-symlink");
     std::fs::write(dir.join("locked.lock"), b"locked").unwrap();

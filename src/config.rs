@@ -119,6 +119,7 @@ impl RuntimeConfig {
             Vec::new(),
             &context,
         )?;
+        reject_recursive_visible_bridge_discovery(&visible_matcher)?;
         let readonly_matcher = compile_matcher(
             MatcherScope::Readonly,
             mutability.readonly.iter().map(String::as_str),
@@ -185,17 +186,18 @@ impl RuntimeConfig {
         self.visibility_decision(path).is_fully_visible()
     }
 
-    pub fn has_static_visible_subtree_bridge_ancestor(&self, path: &VirtualPath) -> bool {
-        self.visible_matcher
-            .has_static_subtree_bridge_ancestor(path)
+    pub fn has_visible_bridge_ancestor(&self, path: &VirtualPath) -> bool {
+        self.visible_matcher.may_match_descendant_of(path)
     }
 
-    pub fn dynamic_bridge_scan_roots(&self) -> Vec<VirtualPath> {
-        self.visible_matcher.dynamic_bridge_scan_roots()
-    }
-
-    pub fn needs_dynamic_bridge_index(&self) -> bool {
-        self.visible_matcher.needs_dynamic_bridge_index()
+    pub fn can_skip_symlink_target_visibility_check(&self) -> bool {
+        self.visibility_default == VisibilityDefault::Visible
+            && self
+                .internal_hidden_matcher
+                .can_skip_symlink_target_visibility_check()
+            && self
+                .hidden_matcher
+                .can_skip_symlink_target_visibility_check()
     }
 
     pub fn is_hidden_symlink_target(&self, link_path: &VirtualPath, raw_target: &OsStr) -> bool {
@@ -411,6 +413,16 @@ where
     I: IntoIterator<Item = &'a str>,
 {
     PathRuleMatcher::compile(scope, rules, internal_prefixes, context)
+}
+
+fn reject_recursive_visible_bridge_discovery(visible: &PathRuleMatcher) -> Result<(), String> {
+    if visible.has_recursive_bridge_discovery_rule() {
+        return Err(
+            "invalid visible pattern: recursive visible globs are unsupported because they require recursive bridge discovery; prefer an explicit subtree visible rule such as /dir or /dir/**"
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 fn validate_opposite_rules(

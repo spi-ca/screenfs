@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -14,8 +13,6 @@ use fractal_fuse::{
 
 use crate::config::RuntimeConfig;
 use crate::errors::errno_from_io;
-use crate::path::VirtualPath;
-
 mod backing;
 mod guards;
 mod state;
@@ -30,72 +27,18 @@ use self::state::State;
 pub struct ScreenFs {
     cfg: RuntimeConfig,
     state: Mutex<State>,
-    bridge_visible_dirs: HashSet<VirtualPath>,
 }
 
 impl ScreenFs {
     pub fn new(cfg: RuntimeConfig) -> Self {
-        let bridge_visible_dirs = build_bridge_visible_dirs(&cfg);
         Self {
             cfg,
             state: Mutex::new(State::new()),
-            bridge_visible_dirs,
         }
     }
 
     pub fn config(&self) -> &RuntimeConfig {
         &self.cfg
-    }
-}
-
-fn build_bridge_visible_dirs(cfg: &RuntimeConfig) -> HashSet<VirtualPath> {
-    let mut bridge_dirs = HashSet::new();
-    if !cfg.needs_dynamic_bridge_index() {
-        return bridge_dirs;
-    }
-    let mut stack = cfg.dynamic_bridge_scan_roots();
-    while let Some(dir) = stack.pop() {
-        let Ok(source) = cfg
-            .source_root
-            .join(dir.to_source_relative_path())
-            .canonicalize()
-        else {
-            continue;
-        };
-        let Ok(entries) = fs::read_dir(source) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let child = dir.join_child(&entry.file_name());
-            let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
-                continue;
-            };
-            let fully_visible = cfg.is_fully_visible(&child)
-                && (!metadata.file_type().is_symlink()
-                    || fs::read_link(entry.path()).ok().is_some_and(|target| {
-                        !cfg.is_hidden_symlink_target(&child, target.as_os_str())
-                    }));
-            if fully_visible {
-                add_bridge_ancestors(&mut bridge_dirs, &child);
-            }
-            if metadata.is_dir() {
-                stack.push(child);
-            }
-        }
-    }
-    bridge_dirs
-}
-
-fn add_bridge_ancestors(bridge_dirs: &mut HashSet<VirtualPath>, path: &VirtualPath) {
-    let mut current = ScreenFs::parent_path(path);
-    loop {
-        if !current.as_path().as_os_str().is_empty() {
-            bridge_dirs.insert(current.clone());
-        }
-        if current == VirtualPath::root() {
-            break;
-        }
-        current = ScreenFs::parent_path(&current);
     }
 }
 

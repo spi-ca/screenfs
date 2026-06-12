@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use crate::path::{
@@ -13,9 +14,11 @@ pub struct PathRuleMatcher {
 
 #[derive(Debug, Clone)]
 struct MatcherIndex {
-    match_order: Vec<usize>,
-    dynamic_bridge_scan_roots: Vec<VirtualPath>,
-    needs_dynamic_bridge_index: bool,
+    subtree_by_anchor: BTreeMap<VirtualPath, Vec<usize>>,
+    direct_child_glob_by_anchor: BTreeMap<VirtualPath, Vec<usize>>,
+    recursive_order: Vec<usize>,
+    bridge_descendant_by_path: BTreeMap<VirtualPath, Vec<usize>>,
+    order_rank: Vec<usize>,
     has_global_descendant_match: bool,
 }
 
@@ -195,6 +198,8 @@ impl LiteralPathTail {
                 || component == ".."
                 || component.contains('*')
                 || component.contains('?')
+                || component.contains('[')
+                || component.contains(']')
             {
                 return Err(format!("unsupported glob: {rule}"));
             }
@@ -212,10 +217,6 @@ impl LiteralPathTail {
 
     fn total_len(&self) -> usize {
         self.0.iter().map(String::len).sum()
-    }
-
-    fn first(&self) -> Option<&str> {
-        self.0.first().map(String::as_str)
     }
 
     fn contains_name_matching(&self, pattern: &GlobPattern) -> bool {
@@ -363,16 +364,14 @@ impl RuleDescriptor {
         }
     }
 
-    pub fn is_static_subtree_bridge_ancestor(&self, path: &VirtualPath) -> bool {
-        matches!(self.target, RuleTarget::Subtree) && self.anchor.starts_with(path)
-    }
-
-    pub fn needs_dynamic_bridge_index(&self) -> bool {
-        !matches!(self.target, RuleTarget::Subtree)
-    }
-
-    pub fn dynamic_bridge_scan_root(&self) -> Option<&VirtualPath> {
-        self.needs_dynamic_bridge_index().then_some(&self.anchor)
+    pub fn requires_recursive_bridge_discovery(&self) -> bool {
+        matches!(
+            self.target,
+            RuleTarget::Glob {
+                recursive: true,
+                ..
+            } | RuleTarget::RecursiveLiteralSubtree { .. }
+        )
     }
 
     fn may_match_descendant_under_any_path(&self) -> bool {
@@ -455,38 +454,96 @@ impl MatcherIndex {
                 .then_with(|| right.cmp(left))
         });
 
-        let mut dynamic_bridge_scan_roots = descriptors
-            .iter()
-            .filter_map(|descriptor| descriptor.dynamic_bridge_scan_root().cloned())
-            .collect::<Vec<_>>();
-        dynamic_bridge_scan_roots.sort();
-        dynamic_bridge_scan_roots.dedup();
-        dynamic_bridge_scan_roots = prune_nested_scan_roots(dynamic_bridge_scan_roots);
+        let mut subtree_by_anchor: BTreeMap<VirtualPath, Vec<usize>> = BTreeMap::new();
+        let mut direct_child_glob_by_anchor: BTreeMap<VirtualPath, Vec<usize>> = BTreeMap::new();
+        let mut recursive_order = Vec::new();
+        let mut bridge_descendant_by_path: BTreeMap<VirtualPath, Vec<usize>> = BTreeMap::new();
+        let mut order_rank = vec![usize::MAX; descriptors.len()];
+        for (rank, index) in match_order.iter().enumerate() {
+            order_rank[*index] = rank;
+        }
+        for index in &match_order {
+            let descriptor = &descriptors[*index];
+            match &descriptor.target {
+                RuleTarget::Subtree => {
+                    subtree_by_anchor
+                        .entry(descriptor.anchor.clone())
+                        .or_default()
+                        .push(*index);
+                    for ancestor in path_ancestors(&descriptor.anchor) {
+                        bridge_descendant_by_path
+                            .entry(ancestor)
+                            .or_default()
+                            .push(*index);
+                    }
+                }
+                RuleTarget::Glob {
+                    recursive: false, ..
+                } => {
+                    direct_child_glob_by_anchor
+                        .entry(descriptor.anchor.clone())
+                        .or_default()
+                        .push(*index);
+                    for ancestor in path_ancestors(&descriptor.anchor) {
+                        bridge_descendant_by_path
+                            .entry(ancestor)
+                            .or_default()
+                            .push(*index);
+                    }
+                }
+                RuleTarget::Glob {
+                    recursive: true, ..
+                }
+                | RuleTarget::RecursiveLiteralSubtree { .. } => recursive_order.push(*index),
+            }
+        }
 
-        let needs_dynamic_bridge_index = !dynamic_bridge_scan_roots.is_empty();
         let has_global_descendant_match = descriptors
             .iter()
             .any(RuleDescriptor::may_match_descendant_under_any_path);
 
         Self {
-            match_order,
-            dynamic_bridge_scan_roots,
-            needs_dynamic_bridge_index,
+            subtree_by_anchor,
+            direct_child_glob_by_anchor,
+            recursive_order,
+            bridge_descendant_by_path,
+            order_rank,
             has_global_descendant_match,
         }
     }
-}
 
-fn prune_nested_scan_roots(roots: Vec<VirtualPath>) -> Vec<VirtualPath> {
-    let mut pruned: Vec<VirtualPath> = Vec::new();
-    for root in roots {
-        if pruned.iter().any(|existing| root.starts_with(existing)) {
-            continue;
+    fn candidate_order(&self, path: &VirtualPath) -> Vec<usize> {
+        let mut candidates = Vec::new();
+        for ancestor in path_ancestors(path) {
+            if let Some(indices) = self.subtree_by_anchor.get(&ancestor) {
+                push_unique(&mut candidates, indices);
+            }
+            if let Some(indices) = self.direct_child_glob_by_anchor.get(&ancestor) {
+                push_unique(&mut candidates, indices);
+            }
         }
-        pruned.retain(|existing| !existing.starts_with(&root));
-        pruned.push(root);
+        push_unique(&mut candidates, &self.recursive_order);
+        self.sort_candidates_by_match_order(candidates)
     }
-    pruned
+
+    fn descendant_candidate_order(&self, path: &VirtualPath) -> Vec<usize> {
+        let mut candidates = Vec::new();
+        if let Some(indices) = self.bridge_descendant_by_path.get(path) {
+            push_unique(&mut candidates, indices);
+        }
+        for ancestor in path_ancestors(path) {
+            if let Some(indices) = self.direct_child_glob_by_anchor.get(&ancestor) {
+                push_unique(&mut candidates, indices);
+            }
+        }
+        push_unique(&mut candidates, &self.recursive_order);
+        self.sort_candidates_by_match_order(candidates)
+    }
+
+    fn sort_candidates_by_match_order(&self, mut candidates: Vec<usize>) -> Vec<usize> {
+        candidates.sort_by_key(|index| self.order_rank[*index]);
+        candidates
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -535,18 +592,18 @@ enum CompiledGlob {
 }
 
 impl CompiledGlob {
-    fn compile(rule: &str, context: &RuleNormalizationContext) -> Result<Self, String> {
-        if let Some((prefix, tail)) = split_supported_recursive_literal_subtree_glob(rule)? {
+    fn compile(
+        rule: &str,
+        context: &RuleNormalizationContext,
+        allow_generic_single_component_directory_shorthand: bool,
+    ) -> Result<Self, String> {
+        if let Some((prefix, tail)) = split_supported_recursive_literal_subtree_glob(
+            rule,
+            allow_generic_single_component_directory_shorthand,
+        )? {
             let prefix = prefix
                 .map(|raw| normalize_rule_path(raw, context))
                 .transpose()?;
-            if let Some(name) = tail.first().filter(|_| tail.component_count() == 1) {
-                return Ok(Self::Basename {
-                    prefix,
-                    recursive: true,
-                    name: name.to_string(),
-                });
-            }
             return Ok(Self::RecursiveLiteralSubtree { prefix, tail });
         }
 
@@ -554,7 +611,12 @@ impl CompiledGlob {
         let prefix = prefix
             .map(|raw| normalize_rule_path(raw, context))
             .transpose()?;
-        if pattern.is_empty() || pattern.contains('/') || pattern.contains('?') {
+        if pattern.is_empty()
+            || pattern.contains('/')
+            || pattern.contains('?')
+            || pattern.contains('[')
+            || pattern.contains(']')
+        {
             return Err(format!("unsupported glob: {rule}"));
         }
         if pattern == "*" {
@@ -654,35 +716,61 @@ impl PathRuleMatcher {
         I: IntoIterator<Item = P>,
         P: AsRef<str>,
     {
+        Self::new_with_directory_shorthand_mode(rules, internal_prefixes, context, false)
+    }
+
+    fn new_with_directory_shorthand_mode<I, P>(
+        rules: I,
+        internal_prefixes: Vec<VirtualPath>,
+        context: &RuleNormalizationContext,
+        allow_generic_single_component_directory_shorthand: bool,
+    ) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<str>,
+    {
         let mut descriptors = Vec::new();
 
         for prefix in &internal_prefixes {
-            descriptors.push(RuleDescriptor {
-                anchor: prefix.clone(),
-                specificity: RuleSpecificity::exact_or_prefix(prefix, false),
-                target: RuleTarget::Subtree,
-            });
+            push_descriptor_dedup(
+                &mut descriptors,
+                RuleDescriptor {
+                    anchor: prefix.clone(),
+                    specificity: RuleSpecificity::exact_or_prefix(prefix, false),
+                    target: RuleTarget::Subtree,
+                },
+            );
         }
 
         for rule in rules {
             let rule = rule.as_ref();
             if let Some(raw_prefix) = split_supported_subtree_shorthand(rule) {
                 let path = normalize_rule_path(raw_prefix, context)?;
-                descriptors.push(RuleDescriptor {
-                    anchor: path.clone(),
-                    specificity: RuleSpecificity::exact_or_prefix(&path, false),
-                    target: RuleTarget::Subtree,
-                });
+                push_descriptor_dedup(
+                    &mut descriptors,
+                    RuleDescriptor {
+                        anchor: path.clone(),
+                        specificity: RuleSpecificity::exact_or_prefix(&path, false),
+                        target: RuleTarget::Subtree,
+                    },
+                );
             } else if looks_like_glob(rule) {
-                let glob = CompiledGlob::compile(rule, context)?;
-                descriptors.push(glob.descriptor());
+                let glob = CompiledGlob::compile(
+                    rule,
+                    context,
+                    allow_generic_single_component_directory_shorthand,
+                )?;
+                push_descriptor_dedup(&mut descriptors, glob.descriptor());
             } else {
                 let path = normalize_rule_path(rule, context)?;
-                descriptors.push(RuleDescriptor {
-                    anchor: path.clone(),
-                    specificity: RuleSpecificity::exact_or_prefix(&path, false),
-                    target: RuleTarget::Subtree,
-                });
+                push_descriptor_dedup(
+                    &mut descriptors,
+                    RuleDescriptor {
+                        anchor: path.clone(),
+                        specificity: RuleSpecificity::exact_or_prefix(&path, false),
+                        target: RuleTarget::Subtree,
+                    },
+                );
             }
         }
 
@@ -700,8 +788,17 @@ impl PathRuleMatcher {
         I: IntoIterator<Item = P>,
         P: AsRef<str>,
     {
-        Self::new(rules, internal_prefixes, context)
-            .map_err(|err| format!("invalid {} pattern: {err}", scope.label()))
+        let allow_generic_single_component_directory_shorthand = matches!(
+            scope,
+            MatcherScope::Hidden | MatcherScope::Readonly | MatcherScope::Writable
+        );
+        Self::new_with_directory_shorthand_mode(
+            rules,
+            internal_prefixes,
+            context,
+            allow_generic_single_component_directory_shorthand,
+        )
+        .map_err(|err| format!("invalid {} pattern: {err}", scope.label()))
     }
 
     pub fn best_specificity(&self, path: &VirtualPath) -> Option<RuleSpecificity> {
@@ -711,10 +808,14 @@ impl PathRuleMatcher {
 
     pub fn best_descriptor(&self, path: &VirtualPath) -> Option<&RuleDescriptor> {
         self.index
-            .match_order
-            .iter()
-            .map(|index| &self.descriptors[*index])
+            .candidate_order(path)
+            .into_iter()
+            .map(|index| &self.descriptors[index])
             .find(|descriptor| descriptor.matches_path(path))
+    }
+
+    pub fn candidate_descriptor_count(&self, path: &VirtualPath) -> usize {
+        self.index.candidate_order(path).len()
     }
 
     pub fn descriptors(&self) -> &[RuleDescriptor] {
@@ -728,23 +829,25 @@ impl PathRuleMatcher {
     pub fn may_match_descendant_of(&self, path: &VirtualPath) -> bool {
         self.index.has_global_descendant_match
             || self
-                .descriptors
-                .iter()
+                .index
+                .descendant_candidate_order(path)
+                .into_iter()
+                .map(|index| &self.descriptors[index])
                 .any(|descriptor| descriptor.may_match_descendant_of(path))
     }
 
-    pub fn has_static_subtree_bridge_ancestor(&self, path: &VirtualPath) -> bool {
+    pub fn descendant_candidate_descriptor_count(&self, path: &VirtualPath) -> usize {
+        self.index.descendant_candidate_order(path).len()
+    }
+
+    pub fn has_recursive_bridge_discovery_rule(&self) -> bool {
         self.descriptors
             .iter()
-            .any(|descriptor| descriptor.is_static_subtree_bridge_ancestor(path))
+            .any(RuleDescriptor::requires_recursive_bridge_discovery)
     }
 
-    pub fn dynamic_bridge_scan_roots(&self) -> Vec<VirtualPath> {
-        self.index.dynamic_bridge_scan_roots.clone()
-    }
-
-    pub fn needs_dynamic_bridge_index(&self) -> bool {
-        self.index.needs_dynamic_bridge_index
+    pub fn can_skip_symlink_target_visibility_check(&self) -> bool {
+        self.descriptors.is_empty()
     }
 
     pub fn matches_symlink_target(
@@ -780,6 +883,33 @@ pub fn mount_root_internal_prefix(source_root: &Path, mount_root: &Path) -> Opti
     let mut virtual_path = PathBuf::from("/");
     virtual_path.push(relative);
     Some(VirtualPath::new(virtual_path))
+}
+
+fn push_descriptor_dedup(descriptors: &mut Vec<RuleDescriptor>, descriptor: RuleDescriptor) {
+    if !descriptors.contains(&descriptor) {
+        descriptors.push(descriptor);
+    }
+}
+
+fn push_unique(out: &mut Vec<usize>, indices: &[usize]) {
+    for index in indices {
+        if !out.contains(index) {
+            out.push(*index);
+        }
+    }
+}
+
+fn path_ancestors(path: &VirtualPath) -> Vec<VirtualPath> {
+    let mut ancestors = Vec::new();
+    let mut current = Some(path.as_path());
+    while let Some(path) = current {
+        ancestors.push(VirtualPath::new(path));
+        if path == Path::new("/") {
+            break;
+        }
+        current = path.parent();
+    }
+    ancestors
 }
 
 fn component_count(path: &VirtualPath) -> usize {
@@ -886,10 +1016,14 @@ fn looks_like_glob(rule: &str) -> bool {
 
 fn split_supported_recursive_literal_subtree_glob(
     rule: &str,
+    allow_generic_single_component_directory_shorthand: bool,
 ) -> Result<Option<(Option<&str>, LiteralPathTail)>, String> {
-    let Some(without_descendants) = rule.strip_suffix("/**") else {
-        return Ok(None);
-    };
+    let (without_descendants, require_literal_tail) =
+        if let Some(without_descendants) = rule.strip_suffix("/**") {
+            (without_descendants, true)
+        } else {
+            (rule, false)
+        };
 
     let (prefix, raw_tail) = if let Some(tail) = without_descendants.strip_prefix("**/") {
         (None, tail)
@@ -904,10 +1038,46 @@ fn split_supported_recursive_literal_subtree_glob(
         }
         (Some(prefix), &without_descendants[index + 4..])
     } else {
-        return Err(format!("unsupported glob: {rule}"));
+        return Ok(None);
     };
 
+    if !require_literal_tail
+        && !looks_like_recursive_literal_directory_shorthand_tail(
+            raw_tail,
+            allow_generic_single_component_directory_shorthand,
+        )
+    {
+        return Ok(None);
+    }
+
     Ok(Some((prefix, LiteralPathTail::parse(rule, raw_tail)?)))
+}
+
+fn looks_like_recursive_literal_directory_shorthand_tail(
+    raw_tail: &str,
+    allow_generic_single_component_directory_shorthand: bool,
+) -> bool {
+    let mut components = raw_tail.split('/').peekable();
+    let Some(first) = components.next() else {
+        return false;
+    };
+    if !is_literal_tail_component(first) {
+        return false;
+    }
+    if components.peek().is_none() {
+        return allow_generic_single_component_directory_shorthand;
+    }
+    components.all(is_literal_tail_component)
+}
+
+fn is_literal_tail_component(component: &str) -> bool {
+    !component.is_empty()
+        && component != "."
+        && component != ".."
+        && !component.contains('*')
+        && !component.contains('?')
+        && !component.contains('[')
+        && !component.contains(']')
 }
 
 fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str, bool), String> {

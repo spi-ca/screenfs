@@ -48,34 +48,46 @@ fn matches_exact_rules_directory_prefixes_and_cwd_anchored_recursive_globs() {
 }
 
 #[test]
-fn dynamic_bridge_scan_roots_use_normalized_rule_anchors() {
+fn matcher_indexes_candidates_by_family_and_normalized_anchor() {
     let root = test_dir();
     let source = root.join("source");
     let cwd = source.join("workspace/app");
     fs::create_dir_all(&cwd).unwrap();
     let context = test_context(&source, &cwd, None);
 
-    for rule in ["/etc", "/etc/**", "./fixtures/**"] {
-        let matcher = PathRuleMatcher::new([rule], Vec::new(), &context).unwrap();
-        assert!(!matcher.needs_dynamic_bridge_index(), "{rule}");
-        assert!(matcher.dynamic_bridge_scan_roots().is_empty(), "{rule}");
-    }
+    let matcher = PathRuleMatcher::new(
+        [
+            "/etc",
+            "/etc/**",
+            "./fixtures/**",
+            "/a/*.txt",
+            "/b/*.pem",
+            "/a/**/*.lock",
+        ],
+        Vec::new(),
+        &context,
+    )
+    .unwrap();
 
-    for (rule, expected) in [
-        ("**/*.pem", vec![VirtualPath::new("/workspace/app")]),
-        ("/**/*.pem", vec![VirtualPath::root()]),
-        (
-            "./fixtures/**/*.pem",
-            vec![VirtualPath::new("/workspace/app/fixtures")],
-        ),
-        ("/a/*", vec![VirtualPath::new("/a")]),
-        ("/a/*.txt", vec![VirtualPath::new("/a")]),
-        ("/a/**/*.txt", vec![VirtualPath::new("/a")]),
-    ] {
-        let matcher = PathRuleMatcher::new([rule], Vec::new(), &context).unwrap();
-        assert!(matcher.needs_dynamic_bridge_index(), "{rule}");
-        assert_eq!(matcher.dynamic_bridge_scan_roots(), expected, "{rule}");
-    }
+    assert_eq!(matcher.descriptors().len(), 5);
+    assert!(matcher.matches_path(&VirtualPath::new("/a/file.txt")));
+    assert!(!matcher.matches_path(&VirtualPath::new("/b/file.txt")));
+    assert!(matcher.matches_path(&VirtualPath::new("/a/nested/file.lock")));
+
+    let a_txt_candidates = matcher.candidate_descriptor_count(&VirtualPath::new("/a/file.txt"));
+    let b_txt_candidates = matcher.candidate_descriptor_count(&VirtualPath::new("/b/file.txt"));
+    assert!(a_txt_candidates < matcher.descriptors().len());
+    assert!(b_txt_candidates < matcher.descriptors().len());
+    assert_eq!(a_txt_candidates, b_txt_candidates);
+
+    let a_descendant_candidates =
+        matcher.descendant_candidate_descriptor_count(&VirtualPath::new("/a"));
+    let unrelated_descendant_candidates =
+        matcher.descendant_candidate_descriptor_count(&VirtualPath::new("/unrelated"));
+    assert!(a_descendant_candidates < matcher.descriptors().len());
+    assert!(unrelated_descendant_candidates < a_descendant_candidates);
+    assert!(matcher.may_match_descendant_of(&VirtualPath::new("/a")));
+    assert!(!matcher.may_match_descendant_of(&VirtualPath::new("/unrelated")));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -321,6 +333,7 @@ fn anchored_wildcard_all_and_trailing_subtree_shorthand_preserve_normalized_sema
         ("/vault/**", "/vault"),
         ("./fixtures/**", "./fixtures"),
         ("~/sandbox/**", "~/sandbox"),
+        ("~/aa/**", "~/aa"),
     ] {
         let shorthand = PathRuleMatcher::new([shorthand], Vec::new(), &context).unwrap();
         let subtree = PathRuleMatcher::new([subtree], Vec::new(), &context).unwrap();
@@ -424,6 +437,102 @@ fn matches_recursive_literal_descendant_subtree_globs() {
     assert!(prefixed.matches_path(&VirtualPath::new(
         "/workspace/app/fixtures/nested/.git/hooks/pre-commit"
     )));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn recursive_literal_directory_shorthand_matches_canonical_descendant_subtree_forms() {
+    let root = test_dir();
+    let source = root.join("source");
+    let cwd = source.join("workspace/app");
+    let home = source.join("home/tester");
+    fs::create_dir_all(source.join("workspace/app/repo/nested")).unwrap();
+    fs::create_dir_all(home.join("repo/nested")).unwrap();
+    let context = test_context(&source, &cwd, Some(home));
+
+    for (shorthand, canonical, matching_path, non_matching_path) in [
+        (
+            "**/.git/hooks",
+            "**/.git/hooks/**",
+            "/workspace/app/repo/.git/hooks/pre-commit",
+            "/workspace/app/repo/.git/x/hooks/pre-commit",
+        ),
+        (
+            "/repo/**/.git/hooks",
+            "/repo/**/.git/hooks/**",
+            "/repo/nested/.git/hooks/pre-commit",
+            "/other/nested/.git/hooks/pre-commit",
+        ),
+        (
+            "./repo/**/.git/hooks",
+            "./repo/**/.git/hooks/**",
+            "/workspace/app/repo/nested/.git/hooks/pre-commit",
+            "/workspace/app/other/.git/hooks/pre-commit",
+        ),
+        (
+            "~/repo/**/.git/hooks",
+            "~/repo/**/.git/hooks/**",
+            "/home/tester/repo/nested/.git/hooks/pre-commit",
+            "/home/tester/other/.git/hooks/pre-commit",
+        ),
+        (
+            "**/.git",
+            "**/.git/**",
+            "/workspace/app/repo/.git/config",
+            "/workspace/app/repo/.gitignore",
+        ),
+        (
+            "**/node_modules",
+            "**/node_modules/**",
+            "/workspace/app/repo/node_modules/pkg/index.js",
+            "/workspace/app/repo/node_module/pkg/index.js",
+        ),
+        (
+            "~/**/aaa/hook",
+            "~/**/aaa/hook/**",
+            "/home/tester/repo/nested/aaa/hook/pre-commit",
+            "/workspace/app/repo/nested/aaa/hook/pre-commit",
+        ),
+    ] {
+        let shorthand =
+            PathRuleMatcher::compile(MatcherScope::Hidden, [shorthand], Vec::new(), &context)
+                .unwrap();
+        let canonical =
+            PathRuleMatcher::compile(MatcherScope::Hidden, [canonical], Vec::new(), &context)
+                .unwrap();
+        assert_eq!(
+            shorthand.descriptors(),
+            canonical.descriptors(),
+            "{shorthand:?}"
+        );
+        assert_eq!(
+            shorthand.matches_path(&VirtualPath::new(matching_path)),
+            canonical.matches_path(&VirtualPath::new(matching_path)),
+            "{matching_path}"
+        );
+        assert!(
+            shorthand.matches_path(&VirtualPath::new(matching_path)),
+            "{matching_path}"
+        );
+        assert_eq!(
+            shorthand.matches_path(&VirtualPath::new(non_matching_path)),
+            canonical.matches_path(&VirtualPath::new(non_matching_path)),
+            "{non_matching_path}"
+        );
+        assert!(
+            !shorthand.matches_path(&VirtualPath::new(non_matching_path)),
+            "{non_matching_path}"
+        );
+    }
+
+    let dedup = PathRuleMatcher::compile(
+        MatcherScope::Hidden,
+        ["**/.git/hooks", "**/.git/hooks/**"],
+        Vec::new(),
+        &context,
+    )
+    .unwrap();
+    assert_eq!(dedup.descriptors().len(), 1);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -533,6 +642,8 @@ fn rejects_unsupported_globs_and_paths_outside_source_root() {
 
     assert!(PathRuleMatcher::new(["../../secret"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["**/secret?.pem"], Vec::new(), &context).is_err());
+    assert!(PathRuleMatcher::new(["**/foo?"], Vec::new(), &context).is_err());
+    assert!(PathRuleMatcher::new(["**/[abc]"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["*"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["**/*"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["a*b"], Vec::new(), &context).is_err());
@@ -540,7 +651,11 @@ fn rejects_unsupported_globs_and_paths_outside_source_root() {
     assert!(PathRuleMatcher::new(["/pre*fix/*.pem"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["foo/*/bar.pem"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["~user/.ssh"], Vec::new(), &context).is_err());
+    assert!(PathRuleMatcher::new(["**/.git/*/hooks"], Vec::new(), &context).is_err());
+    assert!(PathRuleMatcher::new(["**/.git/**/hooks"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["**/.git/**/hooks/**"], Vec::new(), &context).is_err());
+    assert!(PathRuleMatcher::new(["~/**/bbb/**/ccc"], Vec::new(), &context).is_err());
+    assert!(PathRuleMatcher::new(["~/**/bbb/**/ccc/**"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["**/*/.git/**"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["**/./hooks/**"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["foo/**"], Vec::new(), &context).is_err());

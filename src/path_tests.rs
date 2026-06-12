@@ -84,16 +84,16 @@ fn resolves_host_paths_within_source_root_without_changing_virtual_lexical_join(
     let source = root.join("source");
     std::fs::create_dir_all(source.join("real")).unwrap();
     std::fs::write(source.join("real/file.txt"), b"ok").unwrap();
-    std::os::unix::fs::symlink("real", source.join("alias")).unwrap();
+    std::os::unix::fs::symlink("real", source.join("linkdir")).unwrap();
 
     assert_eq!(
-        VirtualPath::new("/alias/file.txt")
+        VirtualPath::new("/linkdir/file.txt")
             .to_source_path(&source)
             .as_path(),
-        source.join("alias/file.txt").as_path()
+        source.join("linkdir/file.txt").as_path()
     );
     assert_eq!(
-        VirtualPath::new("/alias/file.txt")
+        VirtualPath::new("/linkdir/file.txt")
             .resolve_host_path(&source, true)
             .unwrap(),
         source.join("real/file.txt").canonicalize().unwrap()
