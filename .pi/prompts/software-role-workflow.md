@@ -82,4 +82,4 @@ Use the `parallel-development` stage only when the designer has separated non-ov
 
 If project-local subagent confirmation is required, do not try to bypass it. Ask for confirmation or fall back to role-by-role execution in the root agent.
 
-Do not finish until every explicit requirement is mapped to fresh evidence from files, commands, diffs, tests, logs, or artifacts. If validation fails, triage and fix the cause before final reporting.
+Do not finish until every explicit requirement is mapped to current evidence from files, commands, diffs, tests, logs, or artifacts. If validation fails, triage and fix the cause before final reporting.

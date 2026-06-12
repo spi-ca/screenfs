@@ -23,7 +23,7 @@ $ARGUMENTS
 6. 문서 리뷰는 가능한 병렬로 진행하고, 특히 `software-reviewer`를 사용한다. 문서 검증 명령, prompt flow smoke check, 정합성 확인이 있으면 `software-qa`도 함께 사용한다.
 7. 리뷰에서 findings 또는 blocker가 나오면 피드백을 반영해 문서를 다시 수정하고 검증/리뷰를 반복한다.
 8. findings와 blocker가 없어질 때까지 반복한다.
-9. 모든 명시 변경 요청이 수정된 파일, diff, 검증 명령 결과, 리뷰 결과 같은 fresh evidence에 매핑되기 전에는 종료하지 않는다.
+9. 모든 명시 변경 요청이 수정된 파일, diff, 검증 명령 결과, 리뷰 결과 같은 current evidence에 매핑되기 전에는 종료하지 않는다.
 
 실행 지침:
 - 의존 단계는 `subagent` chain mode를 우선 사용하고, 독립 리뷰/검증은 parallel stage를 우선 사용한다.
@@ -33,7 +33,7 @@ $ARGUMENTS
 - 용어, workflow, 예시, acceptance criteria가 바뀌면 인접 문서도 함께 갱신한다.
 - policy 문서를 다루면 `visibility`/`mutability` 2축 계약, bridge-visible ancestor, hidden `ENOENT` precedence, mutability `EROFS`, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, same-specificity conflict fail-fast, unprovable nested glob containment fail-fast를 함께 점검한다.
 - path-like rule 입력을 다루면 exact path 입력과 glob grammar를 분리하고, supported prefixed glob 예시와 broader unsupported wildcard forms, `HOME`/`source_root`/`~user` fail-fast 조건을 문서 간 일관되게 맞춘다.
-- `visibility.hidden`/`visibility.visible`/`mutability.readonly`/`mutability.writable`가 같은 normalization contract를 재사용하는지, legacy CLI/config aliases와 compatibility shims가 current contract로 남지 않는지, historical artifacts는 archival-only evidence로 분리되는지 확인한다.
+- `visibility.hidden`/`visibility.visible`/`mutability.readonly`/`mutability.writable`가 같은 normalization contract를 재사용하는지, removed CLI/config mappings와 compatibility shims가 current contract로 남지 않는지, recorded artifacts가 current contract와 일치하는지 확인한다.
 - 다이어그램 관련 변경이면 `README.md`, `docs/architecture.md`, `docs/design.md`, `docs/operations.md`, `docs/diagrams/README.md` 사이의 렌더링 규칙 문구가 일치하는지 확인한다.
 - 문서, 리뷰, 검증이 모두 정리될 때까지 반복한다.
 

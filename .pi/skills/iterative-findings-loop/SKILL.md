@@ -1,6 +1,6 @@
 ---
 name: iterative-findings-loop
-description: Repeat implementation or documentation updates through subagent QA and review until findings and blockers are cleared with fresh evidence.
+description: Repeat implementation or documentation updates through subagent QA and review until findings and blockers are cleared with current evidence.
 ---
 
 # Iterative Findings Loop
@@ -11,7 +11,7 @@ description: Repeat implementation or documentation updates through subagent QA 
 
 - subagent 기반 구현 workflow에서 QA 또는 리뷰 피드백을 반영해 반복 수정해야 할 때
 - 코드, 테스트, 문서, prompt, skill 변경이 한 번의 pass로 끝나지 않을 가능성이 높을 때
-- 완료 전에 모든 명시 요구사항을 fresh evidence에 매핑해야 할 때
+- 완료 전에 모든 명시 요구사항을 current evidence에 매핑해야 할 때
 
 ## Procedure
 
@@ -25,7 +25,7 @@ description: Repeat implementation or documentation updates through subagent QA 
 6. 그 다음 `software-qa`와 `software-reviewer`를 가능하면 병렬로 다시 실행한다.
 7. 새 findings가 나오면 원인과 영향 범위를 갱신하고, 필요한 단계만 다시 반복한다.
 8. 모든 blocker가 사라지고 non-blocking 항목도 수용 가능하게 정리될 때까지 반복한다.
-9. 종료 직전에 모든 명시 요구사항을 파일, diff, 명령 출력, 테스트, 리뷰 결과 같은 fresh evidence에 매핑한다.
+9. 종료 직전에 모든 명시 요구사항을 파일, diff, 명령 출력, 테스트, 리뷰 결과 같은 current evidence에 매핑한다.
 
 ## Parallel Guidance
 
@@ -38,12 +38,12 @@ description: Repeat implementation or documentation updates through subagent QA 
 - findings를 단순 나열만 하고 수정 루프로 연결하지 않는다.
 - 실패한 검증 상태에서 완료로 표시하지 않는다.
 - 같은 shared file을 여러 lane에 동시에 배정하지 않는다.
-- 오래된 QA/review 결과를 fresh evidence처럼 취급하지 않는다.
+- 오래된 QA/review 결과를 current evidence처럼 취급하지 않는다.
 - blocker가 남아 있는데 문구만 완화해서 종료하지 않는다.
 
 ## Verification
 
 - 최신 QA 결과에 blocking issue가 없다.
 - 최신 리뷰 결과에 request changes가 없다.
-- 요구사항의 모든 명시 항목이 fresh evidence에 매핑된다.
+- 요구사항의 모든 명시 항목이 current evidence에 매핑된다.
 - 필요한 코드/문서/테스트 변경이 실제 파일 diff에 반영되어 있다.

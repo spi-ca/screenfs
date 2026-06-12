@@ -87,7 +87,7 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
 - `iterative-findings-loop`
   - QA/리뷰 findings, blocker를 blocking/non-blocking으로 분류
   - 구현·문서 수정 후 focused validation → QA → review를 반복
-  - fresh evidence가 확보될 때까지 반복 루프를 유지
+  - current evidence가 확보될 때까지 반복 루프를 유지
 
 ### 3. Prompt template
 
@@ -136,7 +136,6 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
   - version: `0.9.0-20260327`
   - allowedPaths: `~/.cargo/`, `/dev/fuse`, `/proc/filesystems`
 - `guardrails.v0.json`
-  - legacy/비교용 구 guardrail 파일
   - allowedPaths: `~/.cargo/`만 포함
 
 운영 기준으로는 현재 더 최신이고 범위가 넓은 `guardrails.json`을 우선 참고한다. `guardrails.v0.json`은 과거 제약을 비교하거나 이력 확인이 필요할 때만 읽는다.
@@ -152,7 +151,7 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
   - `software-role-workflow`, `software-developer-parallel` prompt
 - 중복/병행 관리 주의
   - guardrail 파일이 `guardrails.json`, `guardrails.v0.json` 두 개 존재한다.
-  - 문서에서는 현재값과 legacy 값을 구분해서 적고, 새 작업 기준은 `guardrails.json`을 우선 본다.
+  - 새 작업 기준은 `guardrails.json`을 우선 본다.
 - 설정상 특이점
   - project-local `settings.json`은 없다.
   - repo-local discovery만으로 현재 Pi 리소스가 로드되도록 구성돼 있다.
@@ -160,10 +159,10 @@ Project-local subagent는 repo-controlled prompt이므로 trusted project에서�
 ## 완료 기준
 
 - 모든 적용 대상 역할의 산출물이 있거나, 작은 작업에서는 root agent가 각 적용 대상 역할 관점 결과를 분리해 보고한다.
-- `software-developer`는 독립 work package가 있을 때 적용 대상이다. 사용한 경우 각 lane의 allowed files, changed files, validation, conflict 여부가 fresh evidence로 남아 있고, 사용하지 않은 경우 안전하게 분리할 package가 없다는 근거가 남아 있다.
-- 사용자 요구사항, 시스템 제약, 설계, 구현, QA, 리뷰가 fresh evidence로 연결된다.
-- 목표 계약과 현재 구현 evidence를 섞지 않는다. pre-removal global `--readonly` transcript는 archival evidence로만 분리 표기하고, 현재 구현/검증은 `visibility`/`mutability` two-axis surface 기준으로 적는다.
-- mutability policy 문서를 갱신하면 visibility/mutability 축 구분, bridge-visible ancestor, hidden-before-`EROFS`, shared rule grammar, same-specificity conflict fail-fast, unprovable nested glob containment fail-fast, `copy_file_range` source/destination 분리, no legacy aliases/shims를 함께 점검한다.
+- `software-developer`는 독립 work package가 있을 때 적용 대상이다. 사용한 경우 각 lane의 allowed files, changed files, validation, conflict 여부가 current evidence로 남아 있고, 사용하지 않은 경우 안전하게 분리할 package가 없다는 근거가 남아 있다.
+- 사용자 요구사항, 시스템 제약, 설계, 구현, QA, 리뷰가 current evidence로 연결된다.
+- 목표 계약과 현재 구현 evidence를 섞지 않는다. 현재 구현/검증은 `visibility`/`mutability` two-axis surface 기준으로 적는다.
+- mutability policy 문서를 갱신하면 visibility/mutability 축 구분, bridge-visible ancestor, hidden-before-`EROFS`, shared rule grammar, same-specificity conflict fail-fast, unprovable nested glob containment fail-fast, `copy_file_range` source/destination 분리, no compatibility mappings/shims를 함께 점검한다.
 - path/input grammar 변경이면 supported exact path forms, supported prefixed-glob grammar, broader unsupported wildcard forms, `HOME`/`source_root`/`~user` fail-fast semantics가 문서와 prompt/skill에 일관되게 반영된다.
 - policy rule surface를 다루면 visibility/mutability 네 rule list가 같은 normalization contract를 재사용한다는 점을 current implementation evidence와 함께 기록한다.
 - CLI/config contract를 다루면 축별 CLI option이 해당 config block을 대체하고, CLI option이 없는 축은 config block 또는 default가 source of truth라는 규칙을 함께 반영한다.

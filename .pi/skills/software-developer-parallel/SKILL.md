@@ -45,7 +45,7 @@ description: Split approved software work into independent packages and run para
 7. 공유 파일 통합, 문서 정합성, 최종 검증은 root agent나 별도 순차 step에서 수행한다.
 8. `software-qa`와 `software-reviewer`로 검증·리뷰를 수행한다.
 9. findings 또는 blocker가 있으면 package 재분할 또는 수정 계획을 갱신하고 필요한 lane만 다시 실행한다.
-10. 모든 requirement가 fresh evidence에 매핑되고 blocker가 없을 때만 완료한다.
+10. 모든 requirement가 current evidence에 매핑되고 blocker가 없을 때만 완료한다.
 
 ## Parallel Subagent Template
 

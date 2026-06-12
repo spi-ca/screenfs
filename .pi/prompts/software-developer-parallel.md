@@ -58,4 +58,4 @@ Recommended verification shape:
 
 If project-local subagent confirmation is required, do not try to bypass it. Ask for confirmation or perform the same role-by-role workflow in the root agent.
 
-Do not finish until every explicit requirement is mapped to fresh evidence from files, commands, diffs, tests, logs, or artifacts. If validation or review finds blockers, update the plan, fix the cause, and re-run the relevant checks.
+Do not finish until every explicit requirement is mapped to current evidence from files, commands, diffs, tests, logs, or artifacts. If validation or review finds blockers, update the plan, fix the cause, and re-run the relevant checks.

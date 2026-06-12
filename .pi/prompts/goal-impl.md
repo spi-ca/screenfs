@@ -21,7 +21,7 @@ $ARGUMENTS
 8. 생성된 코드, 테스트, 문서에 대해 `software-qa`와 `software-reviewer`를 병렬 실행한다.
 9. QA/리뷰에서 findings 또는 blocker가 나오면 피드백을 계획에 반영하고 필요한 구현·테스트·문서 단계를 다시 실행한다.
 10. findings와 blocker가 없어질 때까지 반복한다.
-11. 모든 명시 요구사항이 파일, diff, 명령 결과, 테스트, 리뷰 결과 같은 fresh evidence에 매핑되기 전에는 종료하지 않는다.
+11. 모든 명시 요구사항이 파일, diff, 명령 결과, 테스트, 리뷰 결과 같은 current evidence에 매핑되기 전에는 종료하지 않는다.
 
 실행 지침:
 - 의존 단계는 `subagent` chain mode를 우선 사용하고, 독립 단계는 parallel stage를 우선 사용한다.

@@ -175,12 +175,12 @@ description: Run a software-writing workflow with Pi subagents for user represen
 
 - 모든 적용 대상 역할의 산출물이 존재하거나, 작은 작업이면 root agent가 각 적용 대상 역할 관점의 결과를 보고했다.
 - `software-developer`는 독립 work package가 있을 때 적용 대상이다. 사용했다면 각 lane의 allowed files, changed files, validation, conflict 여부가 보고되었고, 사용하지 않았다면 안전하게 분리할 package가 없다는 근거가 보고되었다.
-- 사용자 요구사항의 모든 명시 항목이 파일 내용, command output, diff, test, log 같은 fresh evidence에 매핑되었다.
+- 사용자 요구사항의 모든 명시 항목이 파일 내용, command output, diff, test, log 같은 current evidence에 매핑되었다.
 - 시스템 제약과 운영 위험이 검토되었다.
 - 기존 동작과 사용자 변경을 보존했다.
 - path/input grammar 변경이면 current implementation과 target contract, supported exact path forms, supported prefixed-glob grammar, unsupported wildcard forms, fail-fast semantics가 분리 기록되었다.
 - policy 변경이면 `visibility`/`mutability` 2축 계약, bridge-visible ancestor, hidden `ENOENT` precedence, mutability `EROFS`, affected-coordinate-wide writable requirement, `copy_file_range` source/destination 분리, same-specificity conflict fail-fast, unprovable nested glob containment fail-fast가 일관되게 기록되었다.
-- rule surface 변경이면 `visibility.hidden`/`visibility.visible`/`mutability.readonly`/`mutability.writable`가 같은 normalization contract를 재사용하고, legacy CLI/config aliases나 compatibility shims가 current contract로 남지 않으며, historical artifacts는 archival-only evidence로 분리되었다.
+- rule surface 변경이면 `visibility.hidden`/`visibility.visible`/`mutability.readonly`/`mutability.writable`가 같은 normalization contract를 재사용하고, removed CLI/config mappings나 compatibility shims가 current contract로 남지 않으며, recorded artifacts가 current contract와 일치한다.
 - 변경 유형에 맞는 저장소 검증 명령을 실행했다. 문서/Pi resource 전용 변경은 `AGENTS.md`와 `docs/operations.md`의 문서 변경 검증을 따르고, Rust 코드 변경이 포함되면 fmt/clippy/test 같은 코드 검증을 추가한다.
 - 미승인 shortcut, 임시 미완성 표식, dead code, duplicated logic, 숨은 가정, 문서화되지 않은 behavior change가 없다.
 - QA와 리뷰어 결과가 blocking issue 없이 완료 가능하다고 판단했다.
