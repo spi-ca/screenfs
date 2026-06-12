@@ -232,8 +232,8 @@ hidden path semantics:
 - `readdir`, `readdirplus` → omit entry
 - symlink whose own path is hidden → `ENOENT`
 - symlink readlink/dereference is allowed only when the resolved virtual target is fully visible; hidden target이거나 bridge-visible/non-fully-visible target이면 `ENOENT`
-- symlink target visibility fast path는 compiled policy가 그 entry를 숨길 수 없음을 보일 때만 lexical target 재평가를 생략할 수 있다.
-- 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 lexical resolved target을 다시 확인해야 하며, prior listing success·symlink decision cache·direct-path-only memoized result는 면제 근거가 아니다.
+- symlink target visibility fast path는 compiled policy가 그 entry를 숨길 수 없음을 보일 때만 resolved final virtual target 재평가를 생략할 수 있다.
+- 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 multi-hop symlink와 ancestor symlink를 반영한 resolved final virtual target을 다시 확인해야 하며, prior listing success·symlink decision cache·direct-path-only memoized result는 면제 근거가 아니다.
 
 ### 7.3 `visibility.visible` current category
 
@@ -435,7 +435,7 @@ Policy:
 - `visibility.visible` reachability는 discovery-free여야 한다. subtree visible rule은 정적 ancestor chain만 사용하고, direct-child visible rule은 normalized anchor ancestor와 immediate child evaluation만 사용한다.
 - `readdir`/`readdirplus` fast path는 현재 directory/parent와 무관한 matcher bucket을 건너뛰는 보수적 형태로만 허용된다. recursive scan, background index, stable listing result cache는 current contract가 아니다.
 - startup recursive bridge scan, lazy recursive bridge discovery, dynamic bridge ancestor index는 current contract가 아니다. recursive indexing이 필요하면 hidden/readonly/writable의 recursive family에만 국한한다. recursive literal directory shorthand는 canonical recursive literal descriptor에 normalize될 뿐 별도 discovery/index family를 만들면 안 된다.
-- symlink target visibility check는 policy가 hide 가능성을 배제할 때만 생략할 수 있다. 그 외 point-of-use check는 symlink decision cache로 대체할 수 없고, bridge-visible 및 symlink-dependent visibility check에 stale direct-path-only cache를 재사용하면 안 된다
+- symlink target visibility check는 policy가 hide 가능성을 배제할 때만 생략할 수 있다. 그 외 point-of-use check는 symlink decision cache로 대체할 수 없고, bridge-visible 및 symlink-dependent visibility check에 stale direct-path-only cache를 재사용하면 안 된다. multi-hop symlink와 ancestor symlink를 실제 resolved virtual target 기준으로 다시 확인해 hidden 또는 bridge-visible final target은 `ENOENT`로 막아야 한다.
 - recursive literal directory shorthand 추가는 normalization/path-matcher-only여야 하며 recursive bridge discovery, lazy discovery, startup scan, background indexing, stable listing result cache, symlink decision cache, 기타 새로운 filesystem discovery를 도입하면 안 된다. matcher cost는 기존 canonical `**/.../**` recursive literal subtree rule과 같아야 한다.
 - 위 fast path들은 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 된다
 
@@ -452,7 +452,7 @@ Reference targets:
 - `readdirplus` on large directory completes without unbounded memory growth
 - visible direct-child rule(`/tmp/*` 또는 동등형)는 anchor subtree를 재귀 순회하지 않아야 하며, smoke/계측은 현재 directory/parent 기준 unrelated matcher bucket skip과 결과 불변을 함께 보여줘야 한다
 - recursive literal directory shorthand는 canonical `**/.../**` recursive literal subtree rule과 같은 matcher cost를 유지해야 하며, `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 multi-recursive 또는 broader form은 discovery, ambiguous containment, broader glob compatibility를 피하기 위해 fail-fast 해야 한다
-- symlink-heavy workload에서도 target visibility check는 policy가 hide 가능성을 배제하지 못하면 point-of-use에서 다시 수행돼야 하며, prior listing success나 direct-path-only memoization에 기대면 안 된다
+- symlink-heavy workload에서도 target visibility check는 policy가 hide 가능성을 배제하지 못하면 resolved final target 기준으로 point-of-use에서 다시 수행돼야 하며, prior listing success나 direct-path-only memoization에 기대면 안 된다
 
 Implementation priorities:
 
@@ -462,6 +462,7 @@ Implementation priorities:
 - keep exact/prefix/glob matcher tiers bounded
 - keep visible bridge derivation subtree/direct-child bounded and discovery-free
 - keep visible file data path close to underlying filesystem
+- keep metadata/xattr delegation fd-based or dirfd-relative where possible after openat2 confinement
 
 ## 16. CLI / config shape
 

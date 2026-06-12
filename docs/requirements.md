@@ -111,7 +111,7 @@ bridge-visible ancestor 규칙:
 - bridge-visible은 traversal/listing 전용 상태다. symlink entry의 resolved virtual target이 fully visible이 아니고 hidden이거나 bridge-visible/non-fully-visible이면 `readlink`와 symlink dereference `open`은 `ENOENT`다.
 - hidden path 자체는 계속 hidden이며 `ENOENT`다.
 - symlink entry는 resolved virtual target이 fully visible일 때만 export된다. target이 hidden 또는 bridge-visible이면 listing에서 제외하고 `lookup`/`getattr`/`open`/`readlink`/dereference는 `ENOENT`다.
-- symlink target visibility fast path는 compiled policy가 그 entry를 숨길 수 없음을 보일 때만 lexical target 재평가를 생략할 수 있다. 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 lexical resolved target을 다시 확인해야 한다.
+- symlink target visibility fast path는 compiled policy가 그 entry를 숨길 수 없음을 보일 때만 target 재평가를 생략할 수 있다. 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 multi-hop symlink와 ancestor symlink를 반영한 resolved final virtual target이 fully visible인지 다시 확인해야 한다.
 - symlink 판단은 cache contract가 아니다. prior listing success는 이후 point-of-use check 면제가 아니며, direct-path-only memoized result를 symlink-dependent check에 재사용하면 안 된다.
 
 예시:
@@ -324,12 +324,14 @@ CLI/config semantics:
 - rule 증가 시 성능 저하 최소화
 - visible file data path는 최대한 underlying filesystem으로 pass-through
 - `visibility.visible` bridge-visible reachability는 discovery-free여야 한다. subtree visible rule은 정적 ancestor chain만 사용하고, direct-child visible rule은 normalized anchor ancestor와 immediate child evaluation만 사용해야 한다. startup recursive scan, lazy recursive discovery, dynamic bridge ancestor index 같은 discovery mechanism을 current contract로 추가하지 않는다.
+- Matcher implementation은 grammar parsing, descriptor/specificity, containment/overlap, and candidate index responsibilities를 분리해 grammar 확장 시 unrelated reasoning/index logic을 동시에 수정하지 않도록 유지한다.
+- xattr/setattr 같은 metadata operation은 policy check 후 path 문자열을 다시 해석하는 syscall보다 openat2-confined fd 기반 또는 dirfd-relative operation을 우선 사용한다. fd 기반으로 만들 수 없는 syscall이 있으면 안전 근거를 문서화하고 테스트로 보강한다.
 - recursive literal directory shorthand 추가는 normalization/path-matcher-only delta여야 한다. `**/.git/hooks`, `~/**/aaa/hook` 같은 supported shorthand는 compile/match cost가 각각 `**/.git/hooks/**`, `~/**/aaa/hook/**`와 동일해야 하며, shorthand 때문에 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery를 추가하면 안 된다.
 - `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 multi-recursive 또는 broader form은 discovery, ambiguous containment, broader glob compatibility를 피하기 위해 fail-fast 해야 한다.
 - directory-entry filtering fast path는 `readdir`/`readdirplus`에서 현재 directory/parent 기준 관련 matcher bucket만 보고 unrelated bucket을 건너뛸 수 있어야 한다. 다만 hidden sibling 비노출과 결과 의미론은 그대로 유지해야 하며, recursive scan·background indexing·listing 결과 cache를 계약으로 요구하지 않는다.
 - `/tmp/*` 같은 direct-child visible rule은 `/tmp` 전체를 재귀 순회하지 않아야 하며, 운영 검증에서 counter/trace/perf smoke 또는 동등한 계측으로 unrelated bucket skip과 결과 불변을 함께 증명해야 한다.
 - recursive glob indexing은 `visibility.hidden`, `mutability.readonly`, `mutability.writable`에서만 family별로 유지할 수 있다. 이때도 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 분리하고 same-polarity identical descriptor dedup을 보장해야 한다. recursive literal directory shorthand는 canonical descriptor에 normalize될 뿐 별도 discovery/index family를 만들면 안 된다.
-- symlink target visibility fast path는 policy가 target check를 생략해도 entry 비가시성이 생기지 않음을 증명할 때만 허용된다. 그 외에는 listing/lookup/getattr/readlink/dereference/open 시점마다 lexical resolved target을 다시 확인해야 하고, symlink decision cache나 direct-path-only memoized result 재사용은 current contract가 아니다.
+- symlink target visibility fast path는 policy가 target check를 생략해도 entry 비가시성이 생기지 않음을 증명할 때만 허용된다. 그 외에는 listing/lookup/getattr/readlink/dereference/open 시점마다 resolved final virtual target을 다시 확인해야 하고, symlink decision cache나 direct-path-only memoized result 재사용은 current contract가 아니다.
 - raw symlink target이 lexical virtual visibility 기준으로 fully visible하지만 host resolution에서 `source_root` 밖으로 escape하면 `readlink`는 raw target을 반환할 수 있고, dereference/open/access는 confinement 단계에서 `ENOENT`로 실패해야 함
 - live mount smoke와 performance smoke는 visible recursive rejection, direct-child no-recursive-traversal, symlink point-of-use check 계약의 계속된 증거여야 함
 - 위 fast path들은 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 됨

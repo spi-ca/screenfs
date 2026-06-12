@@ -100,7 +100,7 @@ mutability:
 - recursive descendant visible glob/shorthand(`**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, `./repo/**/*.pem`, `~/repo/**/.git/hooks/**`, `~/repo/**/.git/hooks`)은 recursive bridge discovery가 필요하므로 current contract에서 shorthand와 canonical recursive literal form 모두 unsupported/fail-fast다. 같은 recursive family와 recursive literal directory shorthand는 `visibility.hidden`, `mutability.readonly`, `mutability.writable`에서만 계속 사용할 수 있다.
 - bridge-visible ancestor는 `stat`/`lookup`/`getattr`/읽기 의도 `access`/`opendir`/`readdir`/`readdirplus`/traversal만 허용하고 mutation은 `EROFS`다.
 - hidden path와 fully visible이 아닌 symlink target(숨겨졌거나 bridge-visible인 target)은 mutability보다 먼저 처리되며 항상 `ENOENT`가 우선한다.
-- symlink target visibility check는 policy가 그 entry를 숨길 수 없음을 증명할 때만 생략할 수 있다. 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 lexical resolved target을 다시 보고, prior listing success·symlink decision cache·direct-path-only memoized result를 면제 근거로 쓰면 안 된다.
+- symlink target visibility check는 policy가 그 entry를 숨길 수 없음을 증명할 때만 생략할 수 있다. 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 multi-hop symlink와 ancestor symlink를 반영한 resolved final virtual target을 다시 보고, prior listing success·symlink decision cache·direct-path-only memoized result를 면제 근거로 쓰면 안 된다.
 - bridge-visible directory는 hidden sibling을 노출하지 않으며 visible descendant로 이어지는 entry만 보여준다.
 - 각 축에서는 가장 구체적인 매치가 이기고, 같은 축의 반대 rule이 같은 normalized anchor/specificity에서 충돌하면 invalid configuration이다.
 - 이 목표 계약에는 제거된 CLI/config surface를 위한 compatibility mapping이나 shim이 없다.

@@ -49,11 +49,11 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 - `src/cli.rs`: launch input 파싱, default/override 관계 검증, help text와 fail-fast 진입점
 - `src/config.rs`: `RuntimeConfig` 구성, mount-root recursion exclusion internal hidden rule 주입, visibility/mutability source 기록, matcher compilation, config/launch precedence 조립
 - `src/path.rs`: lexical virtual path normalization, symlink target lexical resolution, source-root confinement 보조, relative/`~` exact·prefixed-glob rule input rebasing helper
-- `src/matcher.rs`: `PathRuleMatcher`와 `MatcherScope`를 제공한다. 목표 계약에서는 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 family별로 compile하고, `visibility.visible` validator가 subtree/direct-child current subset만 통과시켜야 한다. recursive literal directory shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`만 허용하고 canonical trailing `/**` descriptor로 normalize되어 same-specificity conflict/dedup/containment 결과와 matcher cost가 동일해야 한다. `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 form은 fail-fast 대상이다. dynamic bridge scan root나 recursive visible glob support를 추가하지 않는다.
+- `src/matcher.rs`: `PathRuleMatcher`와 `MatcherScope`를 제공하는 facade다. matcher internals는 `src/matcher/grammar.rs`(supported grammar parsing과 glob compilation), `src/matcher/descriptor.rs`(descriptor, specificity ordering, containment/overlap reasoning), `src/matcher/index.rs`(candidate ordering/index와 descendant metadata)로 나뉜다. 목표 계약에서는 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 family별로 compile하고, `visibility.visible` validator가 subtree/direct-child current subset만 통과시켜야 한다. recursive literal directory shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`만 허용하고 canonical trailing `/**` descriptor로 normalize되어 same-specificity conflict/dedup/containment 결과와 matcher cost가 동일해야 한다. `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 form은 fail-fast 대상이다. dynamic bridge scan root나 recursive visible glob support를 추가하지 않는다.
 - `src/fs.rs`: `ScreenFs` FUSE 구현의 module root/orchestrator. request entrypoint를 `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`와 조합한다.
 - `src/fs/state.rs`: inode/path map, lookup/open refcount, optional per-handle directory iteration state를 관리한다.
-- `src/fs/guards.rs`: hidden guard, bridge-visible guard, symlink target guard, mutation coordinate guard, directory filtering과 reply-building 전 검사를 담당한다.
-- `src/fs/backing.rs`: `source_root` confinement 하의 host delegation, open/statfs/xattr/setattr helper를 담당한다.
+- `src/fs/guards.rs`: hidden guard, bridge-visible guard, symlink final-target visibility guard, mutation coordinate guard, directory filtering과 reply-building 전 검사를 담당한다. bridge-visible/fully-visible/readability semantics는 `RuntimeConfig` helper를 통해 적용하며 guard마다 `visibility_decision`을 재해석하지 않는다.
+- `src/fs/backing.rs`: `source_root` confinement 하의 host delegation, open/statfs/fd-based xattr/setattr helper를 담당한다.
 - `src/errors.rs`: hidden 우선 `ENOENT`, mutation 차단 `EROFS`, host errno 보존 규칙을 담당한다.
 
 구현 파일 바로가기: `src/main.rs`, `src/cli.rs`, `src/config.rs`, `src/path.rs`, `src/matcher.rs`, `src/errors.rs`, `src/fs.rs`, `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`
@@ -66,9 +66,9 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 2. `visibility.hidden` / `visibility.visible` 평가
 3. subtree/direct-child visible rule metadata만으로 bridge-visible ancestor를 합성하고 recursive bridge discovery는 수행하지 않음
 4. `readdir`/`readdirplus`라면 현재 directory/parent와 관련된 matcher bucket만 보고 unrelated bucket은 건너뛰는 보수적 filtering 수행
-5. 필요 시 symlink target이 fully visible인지 point-of-use에서 검사
+5. 필요 시 symlink chain과 ancestor symlink를 반영한 resolved virtual target이 fully visible인지 point-of-use에서 검사
 6. mutation이면 `mutability.default` + 더 구체적인 readonly/writable override 평가
-7. hidden이 아니고 mutation이 허용되면 host filesystem delegation
+7. hidden이 아니고 mutation이 허용되면 confined fd 또는 fd-relative host filesystem delegation
 
 ![ScreenFS request decision flow](diagrams/request-decision-flow.svg)
 
