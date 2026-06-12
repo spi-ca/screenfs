@@ -1,17 +1,13 @@
 # 운영 및 검증
 
-이 문서는 현재 목표 계약과 verified evidence를 구분해 적는다. 정책 surface는 `visibility.*` / `mutability.*` 두 축이며, bare slashless glob의 cwd-anchored `./<pattern>` direct-child semantics와 prefixless recursive shorthand(`**/*.pem`, `**/.env.*`, `**/id_*`)의 cwd-anchored target semantics는 현재 source/test/live-smoke evidence가 있다. 특히 current source/live evidence는 `**/*.pem`이 같은 cwd anchor의 `./**/*.pem`과 동등하고 explicit root-anchor `/**/*.pem`과는 다른 family임을 구분해 증명한다. goal 612c03c6의 anchored direct-child wildcard-all(`/dir/*`, `./dir/*`, `~/dir/*`)과 trailing subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`)도 현재 source/test/live-smoke evidence가 있다. 일부 transcript filename이나 본문 command/log에는 historical label이 남아 있을 수 있지만, CLI/config reference는 two-axis surface만 사용한다.
+이 문서는 현재 목표 계약과 verified evidence를 구분해 적는다. 정책 surface는 `visibility.*` / `mutability.*` 두 축이며, shared matcher는 bare slashless direct-child, anchored direct-child, subtree shorthand, recursive glob family를 함께 정규화한다. 다만 current `visibility.visible` surface는 recursive bridge discovery가 필요 없는 subtree/direct-child category만 허용한다. 따라서 `**/*.pem`, `/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `~/**/aaa/hook/**`, `~/**/aaa/hook` 같은 recursive canonical/shorthand family는 `visibility.hidden`, `mutability.readonly`, `mutability.writable`에서만 current일 수 있고 `visibility.visible`에서는 current contract가 아니다. recursive literal directory shorthand는 canonical trailing `/**` form과 동일 descriptor/semantics를 가져야 하지만 normalization/path-matcher-only delta여야 하며 새로운 discovery/scanning contract를 만들면 안 된다. 이는 subtree shorthand(`/dir/**`=`/dir`, `~/aa/**`=`~/aa`)와 다른 문법이다. CLI/config reference는 two-axis surface만 사용하며, recorded artifact도 current contract baseline만 유지한다.
 
 artifact 분류 quick map:
 
-- current two-axis repo-local live smoke baseline: `docs/artifacts/current-two-axis-smoke-transcript.md`
-- current two-axis whole-root/chroot live smoke baseline: `docs/artifacts/current-whole-root-chroot-smoke-transcript.md`
+- current policy whole-root/chroot live smoke baseline: `docs/artifacts/current-whole-root-chroot-smoke-transcript.md`
 - current default-writable live smoke baseline: `docs/artifacts/current-default-writable-smoke-transcript.md`
-- current dynamic visible-glob whole-root startup smoke baseline: `docs/artifacts/current-dynamic-whole-root-smoke-transcript.md`
-- current canonical 4-family glob repo-local smoke transcript: `docs/artifacts/current-four-family-glob-smoke-transcript.md` (goal 38ca1993 target semantics current live baseline; `**/*.pem` cwd-anchor recursive shorthand vs `/**/*.pem` explicit root-anchor distinction 포함)
-- current bare slashless cwd-anchor repo-local live smoke baseline: `docs/artifacts/current-bare-basename-glob-smoke-transcript.md` (bare direct-child current; same-anchor recursive/root-anchor distinction은 canonical 4-family transcript가 별도 보강)
-- current compatibility path-pattern smoke baseline: `docs/artifacts/current-compatibility-pattern-smoke-transcript.md` (`/dir/*`, `./dir/*`, `~/dir/*`, `/dir/**`, `./dir/**`, `~/dir/**`, and `*`/`**/*` fail-fast)
-- archival-only historical transcripts: `docs/artifacts/whole-root-family-smoke-transcript.md`, `docs/artifacts/whole-mount-readonly-smoke-transcript.md`, `docs/artifacts/future-mutability-smoke-transcript.md`, `docs/artifacts/fuse-smoke-transcript.md`
+- current bare slashless cwd-anchor repo-local live smoke baseline: `docs/artifacts/current-bare-basename-glob-smoke-transcript.md` (`*.pem`=`./*.pem` direct-child baseline)
+- current visible direct-child/subtree compatibility smoke baseline: `docs/artifacts/current-compatibility-pattern-smoke-transcript.md` (`/dir/*`, `./dir/*`, `~/dir/*`, `/dir/**`, `./dir/**`, `~/dir/**`, and `*`/`**/*` fail-fast)
 
 ## 환경 전제
 
@@ -53,18 +49,20 @@ cargo clippy --all-targets --all-features
 
 - recorded evidence는 visibility/mutability policy axis 기준으로 정리한다.
 - `cargo fmt --check`, `cargo check`, `cargo test --all-targets --all-features`, `cargo clippy --all-targets --all-features` pass 기록이 남아 있다.
-- latest recorded full-suite `cargo test --all-targets --all-features` 결과는 108 tests 통과이며, visibility/mutability axis regressions, bare slashless cwd-anchor/direct-child regressions, goal 38ca1993 canonical family matcher/runtime-config coverage, goal 612c03c6 compatibility pattern coverage를 포함한다.
-- 현재 mount-free test coverage에는 다음 축별 확인이 포함된다.
+- latest recorded full-suite `cargo test --all-targets --all-features` 결과는 114 tests 통과이며, visibility/mutability axis regressions, bare slashless cwd-anchor/direct-child regressions, shared recursive-family coverage, direct-child/subtree compatibility coverage, recursive literal directory shorthand coverage, recursive `visibility.visible` rejection, matcher bucket indexing, symlink fast-path safety를 포함한다.
+- current mount-free/source coverage는 최소한 다음을 포함한다.
   - `visibility.hidden`: hidden entry filtering, direct read/stat/access/open `ENOENT`, hidden symlink target `ENOENT`
-  - `visibility.visible`: default-hidden carve-out, bridge-visible ancestor, nested listing
+  - `visibility.visible`: default-hidden carve-out, subtree/direct-child bridge-visible ancestor, hidden sibling 비노출, recursive visible glob rejection
+  - directory-entry filtering fast path: `readdir`/`readdirplus`가 현재 directory/parent 기준 관련 matcher bucket만 보고 unrelated bucket을 건너뛰어도 결과가 바뀌지 않는지 확인
   - `mutability.default=writable`: rule-match mutation `EROFS`, non-match visible mutation 허용
   - `mutability.default=readonly`: writable carve-out success, carve-out 밖 visible mutation `EROFS`
   - `mutability.readonly` re-block: 더 구체적인 readonly override precedence
   - hidden-before-mutability: hidden path/target이 mutation 좌표에 섞이면 mutability 판정보다 먼저 `ENOENT`
   - affected-coordinate-wide writable requirement, `copy_file_range` source visibility / destination writability 분리
   - bare slashless cwd-anchor/direct-child delta: `cwd` rebasing, cwd-outside-`source_root` fail-fast, `*.pem`=`./*.pem` equivalence
-  - canonical family source coverage: `**/*.pem`=`./**/*.pem` same-anchor equivalence, `**/*.pem` vs `/**/*.pem` explicit root-anchor distinction, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`를 포함한다
+  - shared recursive-family coverage: `**/*.pem`=`./**/*.pem` same-anchor equivalence, `**/*.pem` vs `/**/*.pem` explicit root-anchor distinction, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`
   - goal 612c03c6 compatibility patterns: `/dir/*`, `./dir/*`, `~/dir/*` anchored direct-child wildcard-all, `/dir/**`, `./dir/**`, `~/dir/**` same-anchor subtree shorthand, unanchored `*`/`**/*` fail-fast
+  - current visible rejection set: `visibility.visible`에서 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form이 fail-fast 되는지 확인
   - unsupported glob fail-fast, same-specificity conflict fail-fast, config load/axis override
 - 문서 정합성 확인으로 변경된 문서 구간은 상호 일관성을 위해 다시 읽어 확인한다.
 
@@ -105,23 +103,26 @@ file docs/diagrams/*.png
 
 ## 최신 live FUSE smoke evidence
 
-`docs/artifacts/current-two-axis-smoke-transcript.md`는 visibility/bridge-visible/mutability 동작에 대한 repo-local live baseline이다. 그 artifact 안의 `--hidden '*.pem'` invalid-glob line만 bare slashless 지원 이전 historical capture로 남아 있으며, bare slashless semantics는 refreshed current baseline인 `docs/artifacts/current-bare-basename-glob-smoke-transcript.md`를 따른다. `docs/artifacts/current-four-family-glob-smoke-transcript.md`는 refreshed current capture로서 `**/*.pem` cwd-anchor recursive shorthand, explicit root-anchor `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`를 모두 담는다. `docs/artifacts/current-compatibility-pattern-smoke-transcript.md`는 `/dir/*`, `./rel/*`, `~/homeglob/*`, `/dir/**`, `./rel/**`, `~/homesub/**`, `*`/`**/*` fail-fast를 담는다. `docs/artifacts/current-whole-root-chroot-smoke-transcript.md`는 bare slashless shorthand나 prefixless recursive shorthand에 의존하지 않는 `source_root=/` whole-root/chroot baseline으로 계속 current다. 과거 transcript는 historical 참고 자료로만 사용한다.
+`docs/artifacts/current-whole-root-chroot-smoke-transcript.md`는 bare slashless shorthand나 prefixless recursive shorthand에 의존하지 않는 `source_root=/` whole-root/chroot baseline이다.
 
 현재 bare slashless glob 상태:
-  - `current-bare-basename-glob-smoke-transcript.md`는 cwd-anchored `./<pattern>` direct-child semantics의 current repo-local live baseline이다.
-  - artifact는 `visibility.hidden`/`mutability.readonly`, `visibility.visible`/`mutability.writable`, cwd-outside-`source_root` fail-fast, unsupported bare wildcard fail-fast, `*.pem` vs `./*.pem` same-normalized-specificity conflict를 캡처한다.
-  - 이 transcript는 bare direct-child shorthand에 집중한다. same-anchor recursive shorthand(`**/*.pem`=`./**/*.pem`)와 explicit root-anchor `/**/*.pem` distinction은 `current-four-family-glob-smoke-transcript.md`가 별도로 기록한다. whole-root consumer에서 트리 전체 secret coverage가 필요하면 `/**/*.pem`, `/**/*.key`, `/**/.env.*`, `/**/id_*` 또는 absolute recursive anchor를 사용한다.
 
-현재 canonical 4-family glob 상태:
-  - target contract의 canonical 4-family 비교는 `**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`다.
-  - `current-four-family-glob-smoke-transcript.md`는 current canonical set(`**/*.pem`, `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`)을 live session으로 캡처하며, prefixless recursive cwd-anchor와 explicit root-anchor distinction을 직접 보여준다.
-  - transcript에 포함된 `startup_ms`, `VmRSS`, `fd_count`는 각 rule family가 의도한 anchor에서 시작함을 보여주는 smoke evidence이며 formal benchmark는 아니다.
+- `current-bare-basename-glob-smoke-transcript.md`는 cwd-anchored `./<pattern>` direct-child semantics의 current repo-local live baseline이다.
+- artifact는 `visibility.hidden`/`mutability.readonly`, `visibility.visible`/`mutability.writable`, cwd-outside-`source_root` fail-fast, unsupported bare wildcard fail-fast, `*.pem` vs `./*.pem` same-normalized-specificity conflict를 캡처한다.
+- same-anchor recursive shorthand(`**/*.pem`=`./**/*.pem`)와 explicit root-anchor `/**/*.pem` distinction은 source tests가 기록한다.
 
-현재 goal 612c03c6 compatibility pattern 상태:
-  - target contract는 `/dir/*`, `./dir/*`, `~/dir/*`를 anchored direct-child wildcard-all family로, `/dir/**`, `./dir/**`, `~/dir/**`를 same-anchor subtree shorthand로 정의한다.
-  - source tests는 matcher/config/fs 계층에서 absolute/relative/home anchored forms, subtree shorthand equivalence, unsupported `*`/`**/*` fail-fast를 검증한다.
-  - `current-compatibility-pattern-smoke-transcript.md`는 repo-local live session에서 `/dir/*`, `./rel/*`, `~/homeglob/*`, `/dir/**`, `./rel/**`, `~/homesub/**`, and `*`/`**/*` fail-fast를 캡처한다.
-- startup log 문자열은 캡처 시각 기준으로 읽는다. transcript 본문에 남은 field명은 capture-time implementation detail이지 current contract 명명법이 아니다.
+현재 shared recursive-family 상태:
+
+- target contract의 canonical 4-family 비교는 `**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`다.
+- Source tests는 current canonical set(`**/*.pem`, `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`)의 prefixless recursive cwd-anchor와 explicit root-anchor distinction을 직접 검증한다.
+- transcript에 포함된 `startup_ms`, `VmRSS`, `fd_count`는 shared matcher family가 어떤 anchor를 쓰는지 보여주는 smoke evidence이며 formal benchmark는 아니다.
+
+현재 visible direct-child/subtree 상태:
+
+- target contract는 `/dir/*`, `./dir/*`, `~/dir/*`를 anchored direct-child wildcard-all family로, `/dir/**`, `./dir/**`, `~/dir/**`를 same-anchor subtree shorthand로 정의한다.
+- source tests는 matcher/config/fs 계층에서 absolute/relative/home anchored forms, subtree shorthand equivalence, unsupported `*`/`**/*` fail-fast를 검증해야 한다.
+- `current-compatibility-pattern-smoke-transcript.md`는 repo-local live session에서 `/dir/*`, `./rel/*`, `~/homeglob/*`, `/dir/**`, `./rel/**`, `~/homesub/**`, and `*`/`**/*` fail-fast를 캡처한다.
+- `visibility.visible` recursive descendant glob rejection(`**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive canonical/shorthand form)은 current contract의 필수 검증 항목이며, compatibility baseline과 별도로 다뤄야 한다.
 
 중요: 현재 운영/검증 문서의 해석 축은 다음뿐이다.
 
@@ -147,14 +148,19 @@ file docs/diagrams/*.png
   - 후속 `ls`/`stat`/`cat`/mutation 명령
   - stderr/stdout 발췌
   - unmount 결과
-- startup log 문자열이 바뀌면 transcript의 기존 log line은 historical artifact로 남기고, current startup-string evidence는 해당 세션의 fresh stderr/stdout 발췌나 현재 소스 기준으로 별도 구분해 적는다.
+- startup log 문자열이 바뀌면 current startup-string evidence는 해당 세션의 current-session stderr/stdout 발췌나 현재 소스 기준으로 갱신한다.
 - repo-local fixture mount evidence는 normalization, `visibility.hidden`, `mutability.default` regression 확인에 유용하지만, whole-view와 chroot 관련 결론은 `source-root=/` 또는 동등한 전체 view 환경의 별도 증거로 보강해야 한다.
 - `mutability.default=writable`를 주장하려면 rule-match path와 non-match path를 모두 포함한 별도 evidence가 필요하다.
 - `mutability.default=readonly`를 주장하려면 writable carve-out 성공과 carve-out 밖 `EROFS`를 같은 세션에 남겨야 한다. whole-mount readonly baseline은 empty `mutability.writable`의 별도 케이스로 분리한다.
 - `mutability.readonly` re-block를 주장하려면 더 넓은 `mutability.writable` 아래 더 구체적인 readonly override와 그 반대 polarity conflict/fail-fast를 함께 기록한다.
 - `visibility.visible` carve-out을 주장하려면 hidden ancestor 아래 visible descendant에 도달하기 위한 bridge-visible listing/traversal 결과를 함께 기록한다.
-- rule-input normalization 변화를 주장하려면 already-absolute, relative, `~` success case를 분리해 기록하고, bare slashless shorthand의 launch cwd / normalized anchor / cwd-outside-`source_root` fail-fast / `*.pem`=`./*.pem` equivalence, prefixless recursive shorthand의 same-anchor `**/*.pem`=`./**/*.pem` equivalence / same-anchor `*.pem` containment / explicit root-anchor `/**/*.pem` whole-tree distinction, anchored direct-child wildcard-all(`/dir/*`, `./dir/*`, `~/dir/*`)의 immediate-child-only scope와 `/dir/*.pem` containment 및 `/dir/**/*.pem` partial-overlap behavior, same-anchor subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`)의 `/dir` equivalence, descendant-subtree success/fail-fast, broader unsupported wildcard fail-fast stderr도 별도로 남긴다.
-- 문서상 current contract surface와 current verified evidence를 구분한다. transcript filename이 historical label을 포함하더라도 설명은 two-axis semantics로 적는다.
+- rule-input normalization 변화를 주장하려면 already-absolute, relative, `~` success case를 분리해 기록하고, bare slashless shorthand의 launch cwd / normalized anchor / cwd-outside-`source_root` fail-fast / `*.pem`=`./*.pem` equivalence, shared recursive family의 same-anchor `**/*.pem`=`./**/*.pem` equivalence / same-anchor `*.pem` containment / explicit root-anchor `/**/*.pem` distinction, anchored direct-child wildcard-all(`/dir/*`, `./dir/*`, `~/dir/*`)의 immediate-child-only scope와 `/dir/*.pem` containment, same-anchor subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`)의 `/dir` equivalence, recursive literal directory shorthand(`**/.git`, `**/.git/hooks`, `/repo/**/.git/hooks`, `~/**/aaa/hook`, `**/node_modules`, `**/target`, `**/dist`, `**/build`)의 canonical trailing `/**` form equivalence를 별도로 남긴다. 여기서 shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`만 허용되고 `/**/`는 최대 한 번만 쓸 수 있으며 tail component는 모두 literal이어야 한다.
+- current `visibility.visible` contract를 주장하려면 recursive visible glob rejection(`**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive form) stderr와 권장 대안(`/dir`, `/dir/**`)을 함께 남긴다.
+- non-visible recursive literal directory shorthand contract를 주장하려면 shorthand와 canonical form이 hidden `ENOENT`, readonly `EROFS`, writable override success, same-polarity dedup, opposite-polarity conflict, containment 결과까지 동일하다는 evidence를 함께 남긴다.
+- recursive literal directory shorthand를 current contract evidence로 삼으려면 source diff/trace/counter/perf smoke로 normalization/path-matcher-only임을 보여야 한다. 즉 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery가 추가되지 않았고 matcher cost도 기존 canonical `**/.../**` recursive literal subtree rule과 같아야 한다. `**/.git/hooks`, `~/**/aaa/hook` 같은 supported shorthand는 각각 canonical `**/.git/hooks/**`, `~/**/aaa/hook/**`와 같은 비용이어야 한다.
+- direct-child visible rule(`/tmp/*` 또는 동등형)을 current contract evidence로 삼으려면 startup/lookup/readdir 단계에서 anchor subtree 재귀 순회가 없고 현재 directory/parent와 무관한 matcher bucket을 건너뛴다는 성능-oriented smoke, counter, trace, 또는 동등한 계측을 함께 남긴다. recursive literal directory shorthand 목표를 함께 건드렸다면 shorthand 추가가 이 경로에 새로운 recursive discovery/scanning 코드를 끼워 넣지 않았다는 근거도 같은 세션 또는 source diff로 남긴다.
+- symlink-dependent visibility contract를 주장하려면 listing/lookup/getattr/readlink/dereference/open 시점 check가 prior listing success, symlink decision cache, direct-path-only memoized result로 대체되지 않는 evidence를 함께 남긴다.
+- 문서상 current contract surface와 current verified evidence를 구분하고, current baseline artifact만 유지한다.
 - mount 전에 실패했으면 상태는 `차단됨` 또는 `실패`로 적고, hidden/whole-view/mutability smoke를 `완료`로 승격하지 않는다.
 
 ## 운영 시나리오 번들
@@ -193,9 +199,9 @@ file docs/diagrams/*.png
 | `allowWrite` | `mutability.writable` |
 | `denyWrite` | `mutability.readonly` |
 
-Bare slashless pattern(`*.pem`, `*.key`, `.env.*`, `id_*`)을 supervisor가 그대로 전달하면 ScreenFS는 macOS sandbox-runtime matcher 전체를 복제하는 것이 아니라, 그런 supervisor가 쓰는 bare basename-oriented input shape를 보존하기 위해 launch cwd를 `source_root` 기준으로 rebase한 `./<pattern>` direct-child shorthand로 컴파일한다. recursive prefixless pattern(`**/*.pem`, `**/.env.*`, `**/id_*`)은 같은 cwd anchor의 `./**/<pattern>` recursive shorthand target이다. anchored direct-child wildcard-all(`/dir/*`, `./dir/*`, `~/dir/*`)은 normalized anchor directory의 모든 immediate child와 그 descendants를 대상으로 하지만 anchor 자체에는 적용되지 않는다. same-anchor subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`)은 `/dir`, `./dir`, `~/dir`와 정확히 동등하며 별도 recursive-any family를 만들지 않는다. macOS-style cwd-sensitive policy를 의도한 경우에만 bare/prefixless form을 쓰고, whole-root secret coverage가 목적이면 `/**/*.pem`, `/**/*.key`, `/**/.env.*`, `/workspace/**/*.lock` 같은 explicit root-anchored/absolute recursive form을 생성한다. unanchored `*`와 `**/*`는 계속 fail-fast다.
+Bare slashless pattern(`*.pem`, `*.key`, `.env.*`, `id_*`)을 supervisor가 그대로 전달하면 ScreenFS는 macOS sandbox-runtime matcher 전체를 복제하는 것이 아니라, 그런 supervisor가 쓰는 bare basename-oriented input shape를 보존하기 위해 launch cwd를 `source_root` 기준으로 rebase한 `./<pattern>` direct-child shorthand로 컴파일한다. recursive prefixless pattern(`**/*.pem`, `**/.env.*`, `**/id_*`)은 같은 cwd anchor의 `./**/<pattern>` recursive shorthand target이다. anchored direct-child wildcard-all(`/dir/*`, `./dir/*`, `~/dir/*`)은 normalized anchor directory의 모든 immediate child와 그 descendants를 대상으로 하지만 anchor 자체에는 적용되지 않는다. same-anchor subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`)은 `/dir`, `./dir`, `~/dir`와 정확히 동등하며 `~/aa/**`=`~/aa` 의미도 그대로다. recursive literal directory shorthand는 non-visible surface에서만 지원되는 별도 문법이며 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`만 허용한다. `/**/`는 최대 한 번만 허용되고 tail component는 모두 literal이어야 하며 내부적으로 `<prefix>/**/<literal-tail>/**`로 normalize된다. 예: `**/.git`=`**/.git/**`, `**/.git/hooks`=`**/.git/hooks/**`, `~/**/aaa/hook`=`~/**/aaa/hook/**`. 다만 `visibility.visible`은 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive descendant form 같은 recursive visible rule을 shorthand와 canonical form 모두 허용하지 않는다. visible carve-out이 필요하면 subtree(`/dir`, `/dir/**`)나 direct-child family만 사용해야 한다. shorthand 추가는 normalization/path-matcher-only여야 하고 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery를 만들면 안 된다. `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 multi-recursive 또는 broader form은 discovery, ambiguous containment, broader glob compatibility를 피하기 위해 fail-fast다. macOS-style cwd-sensitive policy를 의도한 경우에만 bare/prefixless form을 쓰고, whole-root secret coverage가 목적이면 `/**/*.pem`, `/**/*.key`, `/**/.env.*`, `/workspace/**/*.lock`, `**/.git/hooks`, `**/node_modules` 같은 non-visible recursive form을 생성한다. unanchored `*`와 `**/*`는 계속 fail-fast다.
 
-The integration must emit ScreenFS YAML/CLI in the current two-axis model, not legacy ScreenFS CLI options.
+The integration must emit ScreenFS YAML/CLI in the current policy model.
 
 ## `visibility.hidden` smoke checks
 
@@ -222,7 +228,94 @@ cat /tmp/screenfs-root/home/spi-ca/.ssh/id_rsa
 - bridge-visible parent는 존재를 감추면 안 되지만, carve-out 밖 hidden sibling은 계속 listing에서 제외돼야 한다.
 - `stat`/`open`/`read`는 visible carve-out descendant에서 성공하고, carve-out 밖 sibling 직접 접근은 계속 `ENOENT`여야 한다.
 - `readdir`와 `readdirplus` 모두 같은 bridge-visible 결과를 보여야 한다.
+- direct-child visible rule에서는 immediate child evaluation 결과에 없는 sibling을 노출하지 않아야 한다.
 - artifact에는 parent listing, descendant `stat`, descendant read, hidden sibling `ENOENT`를 한 세션에 함께 남긴다.
+
+## directory-entry filtering fast-path checklist
+
+`readdir`/`readdirplus` fast path를 current contract evidence로 삼으려면 다음을 함께 남긴다.
+
+- filtering은 현재 directory/parent 기준으로만 평가되고, 그 directory와 무관한 matcher bucket은 건너뛴다는 counter/trace/perf evidence가 있어야 한다.
+- unrelated bucket skip이 listing 결과를 바꾸지 않아야 한다. hidden sibling 비노출, bridge-visible next-hop only, `readdir`=`readdirplus` 의미론은 그대로 유지돼야 한다.
+- recursive scan, background index, stable listing result cache를 요구하지 않는다는 점이 드러나야 한다.
+- 필요하면 per-handle iteration state를 둘 수 있지만, prior listing 결과 snapshot을 다음 symlink/path 판정 면제로 재사용하면 안 된다.
+
+## visible recursive rejection checklist
+
+current `visibility.visible` contract는 recursive bridge discovery가 필요한 form을 거부해야 한다. 최소한 아래 예시를 별도 검증으로 남긴다.
+
+```bash
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '**/*.pem'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '/**/*.pem'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '/dir/**/*.pem'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '**/.git/hooks/**'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '**/.git/hooks'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '/repo/**/.git/hooks/**'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '/repo/**/.git/hooks'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible './repo/**/.git/hooks/**'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible './repo/**/.git/hooks'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible './repo/**/*.pem'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '~/repo/**/.git/hooks/**'
+screenfs / /tmp/screenfs-root --visibility-default hidden --visible '~/repo/**/.git/hooks'
+```
+
+기대 결과:
+
+- mount 전에 fail-fast 한다.
+- stderr는 unsupported reason이 `visibility.visible`용 recursive bridge discovery 필요성임을 드러내야 한다.
+- 권장 대안(`/dir`, `/dir/**`)이 함께 안내되면 가장 좋다.
+- canonical form과 shorthand form이 모두 같은 unsupported reason으로 거부되는지 확인한다.
+
+## non-visible recursive literal directory shorthand checklist
+
+recursive literal directory shorthand는 canonical trailing `/**` form과 완전히 같은 의미론이어야 한다. shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`만 허용되고 `/**/`는 최대 한 번만 쓸 수 있으며 tail component는 모두 literal이어야 한다. 최소한 아래 예시를 별도 검증으로 남긴다.
+
+```bash
+screenfs / /tmp/screenfs-root --hidden '**/.git/hooks'
+screenfs / /tmp/screenfs-root --hidden '**/.git/hooks/**'
+screenfs / /tmp/screenfs-root --hidden '/repo/**/.git/hooks'
+screenfs / /tmp/screenfs-root --readonly '**/node_modules'
+screenfs / /tmp/screenfs-root --readonly '**/node_modules/**'
+screenfs / /tmp/screenfs-root --writable '**/dist'
+screenfs / /tmp/screenfs-root --writable '**/dist/**'
+```
+
+기대 결과:
+
+- `**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**`, `**/node_modules`=`**/node_modules/**`, `**/.git`=`**/.git/**`, `**/target`=`**/target/**`, `**/dist`=`**/dist/**`, `**/build`=`**/build/**`로 normalize되어 directory 자체와 descendants를 함께 매치한다.
+- hidden surface에서는 shorthand/canonical direct access 결과가 모두 `ENOENT`이고 listing exclusion도 동일하다.
+- readonly surface에서는 shorthand/canonical mutation 결과가 모두 `EROFS`다.
+- writable carve-out에서는 shorthand/canonical override 결과가 모두 동일하다.
+- same-polarity shorthand/canonical 조합은 dedup/idempotent이고, opposite-polarity shorthand/canonical same-specificity 조합은 동일 conflict로 fail-fast다.
+- unsupported trailing `/**`-less broader/ambiguous form과 multi-recursive/broader form(`~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]`, `a*b`, `*secret*`)은 부분 해석 없이 fail-fast다.
+- source diff/trace/counter/perf smoke로 shorthand 추가가 normalization/path-matcher-only이며 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery를 추가하지 않았음을 보여야 한다.
+- matcher cost는 기존 canonical `**/.../**` recursive literal subtree rule과 동일해야 한다.
+
+## direct-child no-recursive-traversal checklist
+
+`/tmp/*` 같은 direct-child visible rule은 normalized anchor의 immediate child만 평가해야 한다. 아래와 같은 성능-oriented smoke 또는 동등한 계측을 남긴다.
+
+```bash
+strace -f -e getdents64,newfstatat \
+  -o /tmp/screenfs-visible-tmp-star.strace \
+  screenfs / /tmp/screenfs-root --visibility-default hidden --visible '/tmp/*'
+```
+
+기대 결과:
+
+- startup 또는 첫 `readdir` 전에 `/tmp` 아래 deeper descendant를 재귀 순회하는 흔적이 없어야 한다.
+- `/tmp`의 immediate child를 늘려도 deep subtree 크기에 비례한 recursive traversal이 나타나지 않아야 한다.
+- 현재 directory/parent와 무관한 matcher bucket이 건너뛰어졌다는 counter/trace/perf evidence가 있어야 한다.
+- 같은 결론을 다른 계측(내부 counter, perf trace, bounded startup log)으로 증명해도 된다.
+
+## symlink point-of-use fast-path checklist
+
+symlink target visibility fast path를 주장하려면 다음을 함께 남긴다.
+
+- policy가 target check 생략을 증명하지 못하는 경우 listing/lookup/getattr/readlink/dereference/open 시점마다 lexical resolved target을 다시 확인해야 한다.
+- prior listing success가 이후 symlink dereference 또는 `readlink`의 cached exemption이 아니어야 한다.
+- direct-path-only memoized result를 symlink-dependent check에 재사용하지 않는다는 trace/log/test evidence가 있어야 한다.
+- symlink decision cache를 current contract로 문서화하지 않는다.
 
 ## Whole-view baseline smoke checks
 
@@ -263,53 +356,38 @@ mkdir /tmp/screenfs-root/tmp/screenfs-mkdir-check
 
 현재 계약 vs 현재 근거 상태:
 
-- 현재 contract는 `visibility.hidden`/`visibility.visible`/`mutability.writable`/`mutability.readonly` shared normalization contract에 prefixless recursive shorthand(`**/*.pem`, `**/.env.*`, `**/id_*`, same as `./**/<pattern>` at the normalized cwd anchor), explicit root-anchor recursive form(`/**/*.pem`, `/**/.env.*`, `/**/id_*`), normalized-prefix recursive form(`./fixtures/**/*.pem`, `/a/**/*.txt`), same-anchor subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`), bare slashless direct-child shorthand, direct-child wildcard-all form(`/dir/*`, `./dir/*`, `~/dir/*`), direct-child basename-prefix/suffix subset, limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`)을 포함한다.
-- 현재 recorded source/live evidence는 descendant-subtree matcher-level absolute/relative/`~` matching, runtime-config shared-surface matching, nested specificity regression, hidden `ENOENT` precedence, bridge-visible traversal/listing, bare slashless cwd-anchor/direct-child delta, canonical 4-family glob 비교(`**/*.pem`, `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`)를 뒷받침한다.
-- goal 612c03c6의 same-anchor subtree shorthand(`/dir/**`)와 direct-child wildcard-all(`/dir/*`)은 source tests와 `docs/artifacts/current-compatibility-pattern-smoke-transcript.md` live smoke로 뒷받침된다.
-- current source/live evidence는 goal 38ca1993의 prefixless recursive shorthand target(`**/*.pem`=`./**/*.pem` at the same cwd anchor)과 explicit root-anchor `/**/*.pem` whole-tree distinction을 함께 확인한다.
+- shared matcher는 `visibility.hidden`/`visibility.visible`/`mutability.writable`/`mutability.readonly`에 exact/subtree family, direct-child glob family, recursive non-visible glob family, recursive literal non-visible subtree family를 제공한다. recursive literal family는 canonical trailing `/**` form과 recursive literal directory shorthand를 함께 받되 shorthand를 canonical descriptor로 normalize한다. 허용 shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`뿐이고 `/**/`는 최대 한 번만 허용되며 tail component는 모두 literal이다.
+- current `visibility.visible` contract는 subtree(`/dir`, `/dir/**`)와 direct-child anchor bridge(`/dir/*`, `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`, bare/cwd/HOME 동등형)만 허용한다.
+- recursive family(`**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form)는 `visibility.hidden`, `mutability.readonly`, `mutability.writable`에서는 계속 current일 수 있지만 `visibility.visible`에서는 fail-fast 대상이다.
 - absolute exact path와 absolute prefixed glob은 virtual-root anchored semantics를 유지한다.
-- prefixless recursive glob `**/*.pem`, `**/.env.*`, `**/id_*`는 launch process cwd를 먼저 host path로 정규화한 뒤 `source_root` relative normalized prefix로 rebase한 recursive shorthand다. 따라서 `**/*.pem`은 같은 cwd anchor에서 `./**/*.pem`과 동등하고, 같은 anchor 밖의 `*.pem`은 매치하지 않는다. whole-tree recursive intent는 `/**/*.pem`, `/**/.env.*`, `/**/id_*`처럼 explicit root-anchor form으로 표현한다.
-- bare slashless glob은 `/` component가 없는 glob pattern이며 launch process cwd를 먼저 host path로 정규화한 뒤 `source_root` relative normalized prefix로 rebase한 `./<pattern>` direct-child shorthand다. 따라서 `*.pem`은 같은 cwd anchor에서 `./*.pem`과 동등하고, 그 anchor 바로 아래 child basename과 matched child descendants에만 적용된다. same-anchor `**/*.pem` target set 안에 contained되지만 whole-tree alias는 아니다.
-- basename-prefix glob(`**/.env.*`, bare `.env.*`, `/home/<user>/.env.*`, literal example `~/.env.*`)은 recursive tail form인지 direct-child form인지 anchor 표현에 따라 갈린다. bare `.env.*`는 cwd-anchored direct-child shorthand이고, prefixless recursive `**/.env.*`는 cwd-anchored recursive shorthand이며, `/**/.env.*`는 explicit whole-tree recursive form이다.
+- prefixless recursive glob `**/*.pem`, `**/.env.*`, `**/id_*`는 launch process cwd를 먼저 host path로 정규화한 뒤 `source_root` relative normalized prefix로 rebase한 recursive shorthand다. 따라서 `**/*.pem`은 같은 cwd anchor에서 `./**/*.pem`과 동등하고, whole-tree recursive intent는 `/**/*.pem`, `/**/.env.*`, `/**/id_*`처럼 explicit root-anchor form으로 표현한다.
+- bare slashless glob은 `/` component가 없는 glob pattern이며 launch process cwd를 먼저 host path로 정규화한 뒤 `source_root` relative normalized prefix로 rebase한 `./<pattern>` direct-child shorthand다. 따라서 `*.pem`은 같은 cwd anchor에서 `./*.pem`과 동등하고, 그 anchor 바로 아래 child basename과 matched child descendants에만 적용된다.
 - direct-child wildcard-all glob(`/dir/*`, `./dir/*`, `~/dir/*`)은 normalized anchor directory의 모든 immediate child와 그 descendants에만 매치된다. anchor 자체에는 적용되지 않으며, immediate child를 먼저 매치하지 않고는 deeper non-child basename에 직접 매치하지 않는다.
-- direct-child basename-prefix/suffix glob(`./fixtures/*.pem`, bare `*.pem`, `~/*.pem`, `/home/<user>/*.pem`, bare `id_*`, `~/.env.*`, `/home/<user>/id_*`)은 normalized prefix 바로 아래 child와 그 descendants에만 매치된다. 예를 들어 `/a/*.txt`는 `/a/file.txt`와 `/a/file.txt/child`에는 매치하지만 `/a/b/file.txt`에는 매치하지 않는다. same-anchor `/a/*` target set 안에 contained되고, `/a` 또는 `/a/**` target set 안에도 contained된다. 반대로 recursive form `./fixtures/**/*.pem`, `/a/**/*.txt`, `**/*.pem`은 각 anchor 아래 임의 깊이의 basename에 매치한다.
 - same-anchor subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`)은 `/dir`, `./dir`, `~/dir`와 정확히 동등한 subtree rule이다.
-- relative exact path와 relative prefixed glob prefix는 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 rebase된다.
-- `~`/`~/...` exact path와 prefixed glob은 `HOME` 기준으로 expand된 뒤 같은 rebasing 규칙을 따른다.
-- broader unsupported wildcard forms, prefix 내부 wildcard, unanchored `**/*`, one-sided basename-prefix/suffix subset 밖의 bare wildcard form(`*`, `a*b`, `*secret*`), `HOME` 없음, outside-`source_root`, `~user`는 계속 fail-fast다. descendant-subtree broader forms(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`, trailing `/**` 없는 `**/.git/hooks`)도 부분 해석 없이 fail-fast 대상으로 유지한다.
-- existing repo-local transcript `docs/artifacts/future-mutability-smoke-transcript.md`는 relative exact path, relative prefixed-glob, `~/...` prefixed-glob archival evidence를 포함한다. Current live coverage는 `docs/artifacts/current-two-axis-smoke-transcript.md`, `docs/artifacts/current-bare-basename-glob-smoke-transcript.md`, `docs/artifacts/current-default-writable-smoke-transcript.md`, `docs/artifacts/current-whole-root-chroot-smoke-transcript.md`, `docs/artifacts/current-dynamic-whole-root-smoke-transcript.md`, `docs/artifacts/current-four-family-glob-smoke-transcript.md`, `docs/artifacts/current-compatibility-pattern-smoke-transcript.md`에 분리해 기록한다.
+- matcher/indexing은 family와 normalized anchor를 기준으로 분리하고, same-polarity identical descriptor는 dedup/idempotent 처리해야 한다. `/dir/**`는 `/dir`와 같은 descriptor로 compile된다.
+- broader unsupported wildcard forms, prefix 내부 wildcard, unanchored `**/*`, one-sided basename-prefix/suffix subset 밖의 bare wildcard form(`*`, `a*b`, `*secret*`), `HOME` 없음, outside-`source_root`, `~user`는 계속 fail-fast다. descendant-subtree broader forms(`~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]`, shorthand subset 밖 trailing `/**`-less broader/ambiguous form)도 부분 해석 없이 fail-fast 대상으로 유지한다.
 
-### Canonical 4-family glob table and current coverage note
+### current `visibility.visible` category table
 
-아래 표는 goal 38ca1993 target contract/design summary다. canonical 4-family 비교에 대한 dedicated source/live evidence 매핑은 바로 아래 note를 따른다.
-
-| Syntax / family | Anchor normalization | Matching scope | Matched entry + descendants | Representative non-match | Specificity / conflict / containment | `visibility.visible` bridge-visible startup/performance impact |
-| --- | --- | --- | --- | --- | --- | --- |
-| `**/*.pem`<br>prefixless recursive suffix shorthand | prefix에 explicit anchor가 없다. launch cwd host path를 `source_root` 내부 virtual prefix로 rebase해 recursive anchor로 사용하며, 같은 normalized cwd anchor에서 `./**/*.pem`과 동등하다. cwd가 `source_root` 밖이면 fail-fast다. | normalized cwd anchor 아래 임의 깊이의 `*.pem` basename | 각 matched entry 자체에 적용되고, matched entry가 directory면 descendants도 함께 포함된다. | normalized cwd anchor 밖의 `cert.pem` | 같은 normalized cwd anchor의 opposite-polarity `**/*.pem`/`./**/*.pem`과는 same-specificity conflict가 가능하다. 같은 anchor의 `*.pem`/`./*.pem` direct-child target set을 포함하는 더 넓은 recursive rule이고, explicit root-anchor `/**/*.pem`과는 다른 anchor family다. | scan root는 normalized cwd anchor다. `visibility.visible` bridge index도 그 anchor subtree만 재귀 탐색하면 되고, whole-root scan은 explicit `/**/*.pem`에서만 필요하다. |
-| `./fixtures/**/*.pem`<br>cwd-rebased anchored recursive suffix | `./fixtures` prefix를 launch cwd host path에서 해석한 뒤 `source_root` 내부 virtual prefix로 rebase한다. | normalized `./fixtures` anchor 아래 임의 깊이의 `*.pem` basename | 각 matched entry 자체에 적용되고, matched entry가 directory면 descendants도 함께 포함된다. | `<normalized ./fixtures anchor 밖>/local.pem` | 같은 normalized anchor의 opposite-polarity recursive `.pem` rule과는 same-specificity conflict가 가능하다. 같은 anchor의 `./fixtures/*.pem` direct-child family는 더 specific하며 target set이 그 안에 포함된다. | scan root는 normalized `./fixtures` anchor다. recursive family라 direct-child `./fixtures/*.pem`보다 discovery 범위는 넓지만 whole-root로 퍼지지는 않는다. |
-| `/a/*.txt`<br>absolute anchored direct-child suffix | virtual-root anchored absolute prefix `/a`; cwd rebasing 없음 | `/a` 바로 아래 immediate child basename만 | 각 matched immediate child 자체와 그 descendants | `/a/b/file.txt` | 같은 `/a` direct-child `.txt` normalized anchor와 same-specificity conflict/duplicate가 된다. `/a/**/*.txt`보다 more-specific하고 target set은 그 안에 포함된다. | anchored direct-child라 scan root는 `/a`로 제한된다. 다만 current bridge-index walk는 startup에서 `/a` 아래를 재귀 탐색할 수 있어 direct-child matcher 자체보다 넓은 discovery cost가 남는다. |
-| `/a/**/*.txt`<br>absolute anchored recursive suffix | virtual-root anchored absolute prefix `/a`; cwd rebasing 없음 | `/a` 아래 임의 깊이의 `*.txt` basename | 각 matched entry 자체와 그 descendants | `/b/file.txt` | `/a/*.txt` target set을 포함하는 broader recursive rule이다. 같은 `/a` recursive `.txt` form opposite-polarity rule과 same-specificity conflict가 가능하다. | scan root는 `/a`지만 recursive family라 `/a/*.txt`보다 훨씬 넓은 startup discovery가 가능하다. 그래도 explicit root-anchor `/**/*.pem`처럼 root 전체로 퍼지는 형태와는 다르다. |
-
-현재 recorded source/live evidence note:
-
-- current recorded source/live evidence는 `current-four-family-glob-smoke-transcript.md`와 full-suite source tests를 통해 첫 세 family(`**/*.pem`, `/**/*.pem`, `./fixtures/**/*.pem`)와 absolute `/a` pair를 모두 뒷받침한다.
-- 특히 `**/*.pem`은 same-anchor `./**/*.pem`와 동등한 prefixless recursive cwd-anchor shorthand이고, `/**/*.pem`은 별도의 explicit root-anchor recursive family임이 source/live evidence에서 함께 드러난다.
-- `docs/artifacts/current-bare-basename-glob-smoke-transcript.md`는 bare direct-child shorthand(`*.pem`=`./*.pem`) baseline으로 계속 current이며, `*.pem`가 same-anchor `**/*.pem` target set 안에 contained되는 더 구체적인 rule이라는 해석을 보완한다.
-- goal 612c03c6의 `/dir/*` direct-child wildcard-all 및 `/dir/**` subtree shorthand는 `current-compatibility-pattern-smoke-transcript.md`와 full-suite source tests가 current evidence로 캡처한다.
-- whole-root coverage/latency 판단은 계속 `current-whole-root-chroot-smoke-transcript.md`, `current-dynamic-whole-root-smoke-transcript.md`, 또는 별도 benchmark task로 보강한다. whole-root recursive intent는 `/**/*.pem` 같은 explicit root-anchor rule 기준으로 읽는다.
+| category | syntax 예 | current status | bridge / indexing note |
+| --- | --- | --- | --- |
+| static subtree bridge | `/dir`, `/dir/**`, `./dir`, `~/dir` | 지원 | 정적 ancestor chain만 bridge-visible, `/dir/**`=`/dir` descriptor dedup |
+| direct-child anchor bridge | `/dir/*`, `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`, `*.pem`, `./dir/*`, `~/dir/*` | 지원 | normalized anchor ancestor만 bridge-visible candidate, immediate child만 평가, recursive traversal 금지 |
+| recursive visible glob | `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, `./repo/**/*.pem`, `~/repo/**/.git/hooks/**`, `~/repo/**/.git/hooks` | 거부 | recursive bridge discovery 필요, `/dir` 또는 `/dir/**` 권장 |
 
 문서화된 current contract checklist:
 
 - relative exact path는 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 virtual absolute path로 rebase된다.
 - relative prefixed glob도 process cwd 기준 host path로 해석된 뒤 `source_root` 내부일 때만 virtual glob prefix로 rebase된다.
 - `~`/`~/...` exact path와 prefixed glob은 `HOME` 기준으로 expand된 뒤 같은 rebasing 규칙을 따른다.
-- implementation evidence가 검증해야 하는 glob 범위는 prefixless recursive tail(`**/<basename>`, `**/*.<suffix>`, `**/<basename-prefix>*`, each equivalent to `./**/<pattern>` after cwd rebasing), explicit root-anchor recursive form(`/**/<basename>`, `/**/*.<suffix>`, `/**/<basename-prefix>*`), same-anchor subtree shorthand(`<normalized-prefix>/**`, exactly equivalent to `<normalized-prefix>`), bare slashless glob shorthand(`*.pem`, `*.key`, `.env.*`, `id_*`, each equivalent to `./<pattern>` after cwd rebasing), normalized-prefix direct-child wildcard-all form(`<normalized-prefix>/*`), normalized-prefix direct-child basename-prefix/suffix form(`<normalized-prefix>/<basename-prefix>*`, `<normalized-prefix>/*.<suffix>`), limited recursive literal descendant-subtree glob(`<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`)까지다.
-- descendant-subtree glob은 첫 literal component 앞에 recursive gap이 있고, literal tail subtree root 자체와 그 descendants 전체에 매치된다.
-- nested override와 specificity 검증은 normalized target set 기준으로 수행한다. `**/*.pem`는 같은 normalized cwd anchor에서 `./**/*.pem`과 같은 normalized anchor/specificity로 취급한다. `*.pem`는 같은 anchor에서 `./*.pem`과 같은 normalized anchor/specificity로 취급되며 same-anchor `**/*.pem` target set 안에 contained되는 더 구체적인 direct-child rule이다. same-anchor `/dir/**`는 `/dir`와 같은 descriptor/specificity로 취급한다. `/dir/*`는 same-anchor `/dir/*.pem` 같은 direct-child basename family보다 넓고 `/dir`/`/dir/**` target set 안에 contained되는 direct-child wildcard-all rule이며, `/dir/**/*.pem` 같은 anchored recursive family와는 containment가 증명되는 경우에만 override 관계가 성립한다. descendant-subtree glob끼리는 literal tail component 수가 더 많을수록, 그다음으로 normalized prefix가 더 길수록 더 구체적이다.
+- implementation evidence가 검증해야 하는 family는 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree다.
+- nested override와 specificity 검증은 normalized target set 기준으로 수행한다. `**/*.pem`는 같은 normalized cwd anchor에서 `./**/*.pem`과 같은 descriptor/specificity로 취급한다. `*.pem`는 같은 anchor에서 `./*.pem`과 같은 direct-child descriptor/specificity로 취급되며 same-anchor `**/*.pem` target set 안에 contained된다. same-anchor `/dir/**`는 `/dir`와 같은 descriptor/specificity로 취급한다. `/dir/*`는 same-anchor `/dir/*.pem` 같은 direct-child basename family보다 넓고 `/dir`/`/dir/**` target set 안에 contained된다. recursive literal descendant-subtree shorthand도 canonical form과 같은 descriptor/specificity로 취급한다. 즉 `**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**`이고 dedup/conflict/containment 결과가 동일하다.
+- `visibility.visible`에 recursive family나 그 shorthand가 들어오면 overlap resolution 전에 fail-fast 한다.
+- family/anchor bucket fast path는 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 된다. shorthand 추가는 normalization/path-matcher-only여야 하고 새로운 discovery/scanning contract를 만들면 안 된다.
 - `HOME`이 없으면 fail-fast 한다.
 - expanded host path가 `source_root` 밖이면 fail-fast 한다.
 - `~user`는 unsupported fail-fast다.
-- broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, unanchored `**/*`, one-sided subset 밖의 bare wildcard `a*b`, brace/env/command expansion`)과 descendant-subtree literal tail 내부 wildcard(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`) 또는 trailing `/**` 없는 form(`**/.git/hooks`)은 부분 expansion 없이 fail-fast 한다.
+- broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, unanchored `**/*`, one-sided subset 밖의 bare wildcard `a*b`, brace/env/command expansion`)과 descendant-subtree literal tail 내부 wildcard(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`) 또는 shorthand subset 밖 trailing `/**`-less broader/ambiguous form은 부분 expansion 없이 fail-fast 한다.
 - `visibility.hidden`, `visibility.visible`, `mutability.writable`, `mutability.readonly`는 같은 normalization contract를 재사용해야 한다.
 
 ## Mutability axis checklist
@@ -326,7 +404,7 @@ mkdir /tmp/screenfs-root/tmp/screenfs-mkdir-check
 - 더 구체적인 `mutability.writable` carve-out이 있으면 해당 descendant subtree에서는 `EROFS`가 해제된다.
 - hidden path 또는 fully visible이 아닌 symlink target이 관여하면 결과는 계속 `ENOENT`다.
 - 동일 연산에서 hidden-before-mutability 우선순위가 유지된다.
-- fresh artifact에는 rule-match `EROFS`, carve-out success, non-match visible mutation success, hidden `ENOENT`, same-specificity conflict fail-fast, unsupported glob fail-fast를 함께 기록한다.
+- current-session artifact에는 rule-match `EROFS`, carve-out success, non-match visible mutation success, hidden `ENOENT`, same-specificity conflict fail-fast, unsupported glob fail-fast를 함께 기록한다.
 
 ### `mutability.default=readonly`
 
@@ -343,7 +421,7 @@ mkdir /tmp/screenfs-root/tmp/screenfs-mkdir-check
 - `create`, `mkdir`, `mknod`, `unlink`, `rmdir`는 mutated path와 parent 둘 다 writable이어야 한다.
 - `rename`, `link`, `symlink`는 source/target/parent 전체를 기준으로 판정하며, mutation에 관여하는 모든 write-requiring coordinate가 writable이어야 한다.
 - destination mutation이 있는 `copy_file_range`는 source visibility와 destination writability를 분리한다. source는 hidden/read visibility 대상이고, destination path와 destination parent는 writable이어야 한다.
-- fresh artifact에는 writable carve-out success, carve-out 밖 `EROFS`, nested readonly re-block `EROFS`, hidden `ENOENT`, same-specificity conflict fail-fast, unsupported glob fail-fast를 함께 기록한다.
+- current-session artifact에는 writable carve-out success, carve-out 밖 `EROFS`, nested readonly re-block `EROFS`, hidden `ENOENT`, same-specificity conflict fail-fast, unsupported glob fail-fast를 함께 기록한다.
 
 ## Unmount
 
@@ -355,42 +433,55 @@ fusermount3 -u /tmp/screenfs-root
 
 ## Requirement-linked verification matrix
 
-현재 문서는 archival evidence와 latest recorded evidence를 구분해 적는다.
+현재 문서는 latest recorded evidence를 current contract 기준으로 적는다.
 
 | 항목 | 현재 상태 | 근거 |
 | --- | --- | --- |
 | Rust formatting | 통과 | 최신 recorded evidence 기준 `cargo fmt --check` pass 기록 |
 | Rust compile check | 통과 | 최신 recorded evidence 기준 `cargo check` pass 기록 |
 | Rust lint | 통과 | 최신 recorded evidence 기준 `cargo clippy --all-targets --all-features` pass 기록 |
-| Mount-free unit tests | 통과 | latest recorded `cargo test --all-targets --all-features`는 108 tests 통과이며, visibility/mutability axis regressions, bare slashless cwd-anchor/direct-child regressions, canonical family matcher/runtime-config coverage, goal 612c03c6 compatibility pattern coverage를 포함한다. |
+| Mount-free unit tests | 통과 | latest recorded `cargo test --all-targets --all-features`는 114 tests 통과이며, recursive literal directory shorthand equivalence, visible recursive glob rejection, recursive bridge discovery guardrail, directory-entry matcher bucket indexing, symlink fast-path safety를 포함한다. |
 | `visibility.hidden` | source evidence 통과 / repo-local live smoke 통과 | mount-free tests는 direct access `ENOENT`와 listing exclusion을 검증; current smoke는 hidden `.git/config` `stat`/mutation `ENOENT`를 캡처 |
-| `visibility.visible` carve-out | source evidence 통과 / repo-local live smoke 통과 | current smoke는 default-hidden에서 `/workspace/**/.git/hooks/**`, `/tmp`, `/allowed` visible carve-out을 캡처 |
-| bridge-visible traversal/listing | source evidence 통과 / repo-local live smoke 통과 | current smoke는 `/workspace`, `/workspace/repo`, `/workspace/repo/.git` traversal/listing과 hidden sibling `ENOENT`를 캡처 |
+| `visibility.visible` subtree/direct-child carve-out | source evidence 통과 | current source tests는 `/dir`, `/dir/**`, `/dir/*`, `/dir/*.suffix`, cwd/HOME-relative direct-child forms가 recursive bridge discovery 없이 bridge ancestor/listing을 유지하고 hidden sibling을 노출하지 않음을 검증한다. recursive visible glob은 이 행이 아니라 별도 rejection 항목으로 읽는다. |
+| `visibility.visible` recursive glob rejection | source evidence 통과 | source tests는 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form이 recursive bridge discovery가 필요하다는 메시지와 함께 fail-fast 됨을 검증한다. live smoke stderr는 필요 시 별도 보강한다. |
+| bridge-visible traversal/listing | source evidence 통과 | current source tests는 recursive bridge discovery 없이 subtree/direct-child metadata만으로 traversal/listing과 hidden sibling `ENOENT`가 유지됨을 검증한다. |
+| directory-entry filtering fast path | source evidence 통과 | matcher source tests는 current path/parent의 family+normalized-anchor candidate bucket 수가 전체 descriptor 수보다 작고 unrelated descendant bucket을 건너뜀을 검증한다. FS visibility tests는 결과 불변과 hidden sibling 비노출을 검증한다. |
 | `mutability.default=writable` | source evidence 통과 / repo-local live smoke 통과 | `docs/artifacts/current-default-writable-smoke-transcript.md`가 default writable write success, readonly override `EROFS`, hidden-before-mutability `ENOENT`를 캡처 |
 | `mutability.default=readonly` | source evidence 통과 / repo-local 및 whole-root/chroot live smoke 통과 | current smokes는 readonly default 아래 writable carve-out success, bridge-visible mutation `EROFS`, whole-root `/etc` write `EROFS`를 캡처 |
 | `mutability.writable` carve-out | source evidence 통과 / repo-local live smoke 통과 | current smoke는 `/tmp/existing` 및 `/allowed/existing` write success를 캡처 |
 | `mutability.readonly` re-block | source evidence 통과 / repo-local live smoke 통과 | current smoke는 `/allowed/reblock/existing` write가 `EROFS`로 막히는 것을 캡처 |
 | hidden-before-mutability | source evidence 통과 / repo-local live smoke 통과 | current smoke는 hidden `.git/config` mutation이 readonly보다 먼저 `ENOENT`가 되는 것을 캡처 |
-| symlink fully-visible gate | source evidence 통과 / repo-local live smoke 통과 | current smoke는 bridge-visible target symlink `/link-to-bridge`의 `stat`/`readlink` 실패와 exit status를 캡처 |
-| bridge-visible reachability performance | source/design evidence 통과 / anchored whole-root dynamic startup smoke 통과 | code는 request-time recursive scan 없이 static subtree bridge query와 rule-anchor-bounded dynamic bridge index를 사용한다. `current-dynamic-whole-root-smoke-transcript.md`는 `/etc/**/*.conf` whole-root startup_ms/RSS/fd를 캡처한다. bare slashless rule은 cwd-scoped shorthand이므로 whole-root coverage와 성능 판단은 계속 explicit recursive/anchored rule 기준으로 읽는다. |
-| canonical 4-family glob comparison (`**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`) | source evidence 통과 / repo-local live smoke 통과 | requirements/design table은 goal 38ca1993 target semantics를 정의하고, latest source tests와 `current-four-family-glob-smoke-transcript.md`가 `**/*.pem` cwd-anchor recursive shorthand, explicit root-anchor `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`를 current evidence로 캡처한다. `startup_ms`, `VmRSS`, `fd_count`는 smoke evidence이며 formal benchmark가 아니다. |
-| anchored direct-child wildcard-all target semantics (`/dir/*`, `./dir/*`, `~/dir/*`) | source evidence 통과 / repo-local live smoke 통과 | requirements/design은 normalized anchor directory의 immediate child 전체와 각 child descendants에만 적용되는 semantics, `/dir/*.pem` containment, `/dir/**/*.pem` partial-overlap 주의를 정의한다. source tests와 `docs/artifacts/current-compatibility-pattern-smoke-transcript.md`가 absolute/relative/home anchored wildcard-all matching을 캡처한다. |
-| same-anchor subtree shorthand equivalence (`/dir/**`, `./dir/**`, `~/dir/**`) | source evidence 통과 / repo-local live smoke 통과 | requirements/design은 `/dir/**`가 `/dir` subtree rule과 정확히 동등하고 같은 descriptor/specificity를 공유한다고 정의한다. 별도 recursive-any family나 separate startup behavior를 만들지 않으며, source tests와 `docs/artifacts/current-compatibility-pattern-smoke-transcript.md`가 absolute/relative/home subtree shorthand matching을 캡처한다. |
-| bare slashless cwd-anchor/direct-child target semantics | source evidence 통과 / repo-local live smoke 통과 | `cargo test --all-targets --all-features`와 `current-bare-basename-glob-smoke-transcript.md`가 cwd rebasing, cwd-outside-`source_root` fail-fast, `*.pem`=`./*.pem` equivalence를 검증한다. same-anchor recursive shorthand(`**/*.pem`=`./**/*.pem`) 및 explicit root-anchor `/**/*.pem` distinction은 `current-four-family-glob-smoke-transcript.md`와 source tests가 별도로 보강한다. `current-two-axis-smoke-transcript.md`의 `--hidden '*.pem'` line만 historical pre-support capture다. |
-| unsupported glob fail-fast | source evidence 통과 / repo-local live smoke 통과 | current source tests는 `*`, `a*b`, `*secret*`, `**/secret?.pem`, `foo/*/bar.pem` 같은 still-unsupported form을 fail-fast로 검증한다. unanchored `**/*`도 source tests와 `current-compatibility-pattern-smoke-transcript.md`에서 직접 fail-fast로 캡처한다. `current-bare-basename-glob-smoke-transcript.md`는 bare slashless와 혼동될 수 있는 `*secret*` stderr를 current live evidence로 캡처한다. |
-| same-specificity conflict fail-fast | source evidence 통과 / repo-local live smoke 통과 | current two-axis smoke는 `--hidden /same --visible /same` exact-path conflict stderr를 캡처하고, `current-bare-basename-glob-smoke-transcript.md`는 `*.pem` vs `./*.pem` same-normalized-specificity conflict를 캡처한다. `*.pem` vs `**/*.pem`는 same-specificity conflict 예시가 아니라 containment/nested-override 예시다. |
-| unprovable overlapping glob fail-fast | source evidence pass / repo-local live smoke 통과 | current two-axis smoke는 hidden `/workspace/**/*.pem` vs visible `/workspace/**/.git/hooks/**` overlap stderr를 캡처 |
+| symlink fully-visible gate | source evidence 통과 | current source tests는 hidden/bridge-visible target symlink의 `lookup`/`open`/`readlink` `ENOENT`와 source-root escape handling을 검증한다. |
+| symlink point-of-use fast path | source evidence 통과 | source tests는 target visibility check 생략이 visibility policy가 target을 숨길 수 없을 때만 가능함을 검증하고, 기존 symlink tests는 hide 가능한 policy에서 point-of-use `ENOENT`가 유지됨을 검증한다. |
+| shared recursive-family comparison (`**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`) | source evidence 통과 | requirements/design table은 shared matcher target semantics를 정의하고, latest source tests가 `**/*.pem` cwd-anchor recursive shorthand, explicit root-anchor `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`를 검증한다. 이 evidence는 `visibility.visible` recursive allowlist가 아니다. |
+| anchored direct-child wildcard-all target semantics (`/dir/*`, `./dir/*`, `~/dir/*`) | source evidence 통과 / repo-local live smoke 통과 | requirements/design은 normalized anchor directory의 immediate child 전체와 각 child descendants에만 적용되는 semantics과 `/dir/*.pem` containment를 정의한다. source tests와 `docs/artifacts/current-compatibility-pattern-smoke-transcript.md`가 absolute/relative/home anchored wildcard-all matching을 캡처한다. |
+| same-anchor subtree shorthand equivalence (`/dir/**`, `./dir/**`, `~/dir/**`) | source evidence 통과 / repo-local live smoke 통과 | requirements/design은 `/dir/**`가 `/dir` subtree rule과 정확히 동등하고 같은 descriptor/specificity를 공유한다고 정의한다. source tests와 `docs/artifacts/current-compatibility-pattern-smoke-transcript.md`가 absolute/relative/home subtree shorthand matching을 캡처한다. |
+| bare slashless cwd-anchor/direct-child target semantics | source evidence 통과 / repo-local live smoke 통과 | `cargo test --all-targets --all-features`와 `current-bare-basename-glob-smoke-transcript.md`가 cwd rebasing, cwd-outside-`source_root` fail-fast, `*.pem`=`./*.pem` equivalence를 검증한다. same-anchor recursive shorthand(`**/*.pem`=`./**/*.pem`) 및 explicit root-anchor `/**/*.pem` distinction은 source tests가 별도로 보강한다. |
+| unsupported glob fail-fast | source evidence 통과 / repo-local live smoke 통과 | current source tests는 `*`, `a*b`, `*secret*`, `**/secret?.pem`, `foo/*/bar.pem` 같은 still-unsupported form을 fail-fast로 검증한다. unanchored `**/*`도 source tests와 `current-compatibility-pattern-smoke-transcript.md`에서 직접 fail-fast로 캡처한다. |
+| same-specificity conflict fail-fast | source evidence 통과 / repo-local live smoke 통과 | current source tests는 exact-path opposite-polarity conflict와 shorthand/canonical recursive literal directory conflict를 검증하고, `current-bare-basename-glob-smoke-transcript.md`는 `*.pem` vs `./*.pem` same-normalized-specificity conflict를 캡처한다. |
+| direct-child no-recursive-traversal performance | source evidence 통과 / live smoke 선택 보강 | source tests는 direct-child visible rule이 nested descendants를 사전 발견하지 않으며 matcher candidate bucket이 unrelated descriptors를 건너뜀을 검증한다. `/tmp/*` live smoke나 `strace` 계측은 필요 시 별도 보강한다. |
+| non-visible recursive literal directory shorthand equivalence | source evidence 통과 | latest source tests는 `**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**`, `**/node_modules`=`**/node_modules/**`, `**/.git`=`**/.git/**`, `~/**/aaa/hook`=`~/**/aaa/hook/**` equivalence와 hidden `ENOENT`, readonly `EROFS`, writable override, dedup/conflict identity를 검증한다. Config tests는 non-visible scope에서 generic `**/<literal-dir>` single-component shorthand도 수용함을 검증한다. |
+| recursive literal directory shorthand no-discovery/scanning guardrail | source evidence 통과 | latest source diff는 shorthand를 canonical recursive literal descriptor로 normalize하는 parser/matcher change만 추가했고, no-discovery grep은 `dynamic_bridge`, `bridge_visible_dirs`, `build_bridge_visible_dirs`, `needs_dynamic`, `startup scan`, `lazy discovery`, `background indexing`, listing-result cache, symlink-decision cache 추가가 없음을 확인했다. Supported shorthand(`**/.git/hooks`, `~/**/aaa/hook`)와 unsupported multi-recursive form(`~/**/bbb/**/ccc`) 구분도 source tests가 검증한다. |
 | user-namespace chroot smoke | current whole-root/chroot live smoke 통과 | `docs/artifacts/current-whole-root-chroot-smoke-transcript.md`가 `unshare -r -R <mount>`에서 `/etc/passwd` read, `/root` `ENOENT`, `/tmp` writable carve-out을 캡처 |
-| 성능/메모리 측정 | 제한적 live smoke 통과 | static whole-root/chroot, dynamic anchored-glob whole-root, current canonical 4-family repo-local transcripts가 startup/workload `startup_ms`를 캡처한다. 이 값들은 smoke evidence이며 formal benchmark가 아니다. whole-root coverage/성능 판단은 explicit root-anchored/absolute recursive rule smoke와 별도 benchmark로 보강한다. 일부 current transcripts는 `VmRSS`/fd count도 포함한다. |
+| 성능/메모리 측정 | source evidence 통과 / live smoke 선택 보강 | source tests가 startup/lazy recursive bridge discovery 없이 unrelated matcher bucket skip과 recursive literal directory shorthand no-discovery/scanning guardrail을 검증한다. supported shorthand(`**/.git/hooks`, `~/**/aaa/hook`)는 canonical recursive literal subtree와 같은 descriptor/matcher cost를 사용하고, `~/**/bbb/**/ccc` 같은 multi-recursive form은 fail-fast로 남는다. live performance smoke는 필요 시 별도 보강한다. |
 
 ## 문서 변경 검증
 
-문서만 변경했을 때 최소 검증:
+문서만 변경했을 때 최소 검증(AGENTS.md 기준):
 
 ```bash
 find README.md AGENTS.md docs -maxdepth 2 -type f -print
 find .pi/agents .pi/skills .pi/prompts -maxdepth 3 -type f -print | sort
 cargo check
 ```
+
+current `visibility.visible` contract를 건드렸다면 위 명령에 더해 다음도 반드시 남긴다.
+
+- visible recursive rejection checklist(`**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, cwd/HOME-relative recursive form)
+- non-visible recursive literal directory shorthand checklist(`**/.git/hooks`, `/repo/**/.git/hooks`, `**/node_modules`, `**/.git`, `**/target`, `**/dist`, `**/build`)
+- directory-entry filtering fast-path checklist
+- direct-child no-recursive-traversal checklist(`/tmp/*` 또는 동등형)
+- recursive literal directory shorthand no-discovery/scanning guardrail checklist
+- symlink point-of-use fast-path checklist
 
 추가로 `git diff -- README.md AGENTS.md docs .pi` 또는 추적 전 파일의 실제 내용을 확인해 요구사항 누락, 문서 간 모순, 미승인 임시 문구가 없는지 검토한다.

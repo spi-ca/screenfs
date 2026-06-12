@@ -10,7 +10,7 @@ Acceptance summary:
 - Bare slashless `*.pem`, `.env.*`, and `id_*` are launch-cwd anchored `./<pattern>` direct-child shorthands.
 - Session 1 verifies `visibility.hidden` and `mutability.readonly`: cwd immediate children and matched-child descendants are affected, while nested non-child matches are not.
 - Session 2 verifies `visibility.visible` and `mutability.writable`: cwd immediate children are exposed/writable as configured under default-hidden/default-readonly, while nested non-child matches stay hidden.
-- Fail-fast checks verify cwd outside `source_root`, still-unsupported wildcard, and `*.pem` vs `./*.pem` same-normalized-specificity conflict. This transcript stays focused on bare direct-child shorthand; same-anchor prefixless recursive shorthand(`**/*.pem`=`./**/*.pem`) and its distinction from explicit root-anchor `/**/*.pem` are covered by `current-four-family-glob-smoke-transcript.md`.
+- Fail-fast checks verify cwd outside `source_root`, still-unsupported wildcard, and `*.pem` vs `./*.pem` same-normalized-specificity conflict. This transcript stays focused on bare direct-child shorthand; same-anchor prefixless recursive shorthand(`**/*.pem`=`./**/*.pem`) and its distinction from explicit root-anchor `/**/*.pem` are covered by source tests.
 - Sandbox relevance: macOS-style cwd-sensitive bare patterns can be passed as bare forms only when launch cwd is the intended anchor; whole-root secret coverage should use explicit root-anchored or absolute recursive rules such as `/**/*.pem`.
 
 ```console

@@ -1,6 +1,6 @@
 # Documentation
 
-이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 현재 정책 모델은 `visibility`/`mutability` 두 축이며, launch-cwd anchored glob normalization contract(`*.pem` direct-child, `**/*.pem` recursive shorthand 포함)을 다룬다. bare slashless direct-child semantics의 최신 source/live evidence는 `operations.md`와 `artifacts/current-bare-basename-glob-smoke-transcript.md`에 정리되어 있고, prefixless recursive cwd-anchor semantics와 explicit root-anchor distinction(`/**/*.pem`)의 current source/live evidence는 `operations.md`와 `artifacts/current-four-family-glob-smoke-transcript.md`가 다룬다. 빠른 진입점은 아래 순서를 권장한다.
+이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 현재 정책 모델은 `visibility`/`mutability` 두 축이며, launch-cwd anchored glob normalization contract(`*.pem` direct-child, `**/*.pem` recursive shorthand 포함)을 다룬다. bare slashless direct-child semantics의 최신 source/live evidence는 `operations.md`와 `artifacts/current-bare-basename-glob-smoke-transcript.md`에 정리되어 있고, prefixless recursive cwd-anchor semantics와 explicit root-anchor distinction(`/**/*.pem`)의 current source evidence는 `operations.md`가 다룬다. 빠른 진입점은 아래 순서를 권장한다.
 
 ## Core documents
 
@@ -32,7 +32,7 @@ mutability:
 - `visibility.visible` descendant에 도달시키기 위해 필요한 ancestor directory는 bridge-visible이 될 수 있다.
 - `mutability.readonly`와 `mutability.writable`은 visible path mutation만 조절한다.
 - hidden 판정은 mutability보다 항상 먼저 적용된다.
-- 이 목표 계약에는 예전 family/flag surface를 위한 compatibility alias나 shim이 없다.
+- 이 목표 계약에는 제거된 CLI/config surface를 위한 compatibility mapping이나 shim이 없다.
 
 ## Integration mapping summary
 
@@ -45,20 +45,11 @@ mutability:
 
 ## Evidence artifacts
 
-Transcript artifact는 상태별로 나뉜다. 목표 계약 reference와 baseline 분류의 source of truth는 루트 [README](../README.md)와 [operations.md](operations.md)다.
+Transcript artifact는 current contract baseline만 나열한다. 목표 계약 reference와 baseline 분류의 source of truth는 루트 [README](../README.md)와 [operations.md](operations.md)다.
 
 Current baseline:
 
-- [Current two-axis repo-local smoke](artifacts/current-two-axis-smoke-transcript.md)
 - [Current bare basename glob smoke](artifacts/current-bare-basename-glob-smoke-transcript.md) — bare direct-child baseline (`*.pem`=`./*.pem`)
 - [Current whole-root/chroot smoke](artifacts/current-whole-root-chroot-smoke-transcript.md)
 - [Current default-writable smoke](artifacts/current-default-writable-smoke-transcript.md)
-- [Current dynamic visible-glob whole-root startup smoke](artifacts/current-dynamic-whole-root-smoke-transcript.md)
-- [Current canonical 4-family glob smoke](artifacts/current-four-family-glob-smoke-transcript.md) — current live baseline for `**/*.pem`, `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`
-
-Historical legacy:
-
-- [Whole-root smoke transcript](artifacts/whole-root-family-smoke-transcript.md) — historical whole-root carve-out baseline
-- [Whole-mount readonly smoke transcript](artifacts/whole-mount-readonly-smoke-transcript.md) — historical whole-mount readonly baseline
-- [Repo-local smoke transcript](artifacts/future-mutability-smoke-transcript.md) — repo-local historical baseline
-- [Pre-removal smoke transcript](artifacts/fuse-smoke-transcript.md) — removed surface historical record
+- [Current visible direct-child/subtree compatibility smoke](artifacts/current-compatibility-pattern-smoke-transcript.md) — `/dir/*`, `./dir/*`, `~/dir/*`, `/dir/**`, `./dir/**`, `~/dir/**`, `*`, `**/*` fail-fast current baseline

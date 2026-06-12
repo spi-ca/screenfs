@@ -1,6 +1,6 @@
 # ScreenFS 설계 문서
 
-이 문서는 `ScreenFS`의 현재 목표 계약을 정리한다. canonical policy surface는 `visibility`/`mutability` 두 축이며, legacy family/flag 모델은 archival note에서만 다룬다. bare slashless glob의 cwd-anchored `./<pattern>` direct-child semantics와 prefixless recursive shorthand(`**/*.pem`, `**/.env.*`, `**/id_*`)의 cwd-anchored target semantics는 현재 구현·테스트·fresh smoke evidence가 갖춰진 contract다. 특히 `**/*.pem`은 같은 cwd anchor의 `./**/*.pem`과 동등하고 explicit root-anchor `/**/*.pem`과는 다른 family라는 current source/live evidence를 `docs/operations.md`가 정리한다. goal 612c03c6에서 추가된 anchored direct-child wildcard-all(`/dir/*`, `./dir/*`, `~/dir/*`)과 trailing subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`)도 현재 source tests와 fresh smoke evidence가 갖춰진 contract다.
+이 문서는 `ScreenFS`의 현재 목표 계약을 정리한다. canonical policy surface는 `visibility`/`mutability` 두 축이다. shared matcher는 bare slashless direct-child, anchored direct-child, subtree shorthand, recursive glob family를 함께 정규화한다. 다만 current `visibility.visible` surface는 recursive bridge discovery가 필요 없는 범주만 허용한다. 즉 exact path, subtree(`/dir`, `/dir/**`), direct-child anchor bridge(`/dir/*`, `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`, bare/cwd/HOME 동등형)만 현재 계약이고, `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks` 같은 recursive descendant visible glob/shorthand은 shorthand와 canonical form 모두 unsupported/fail-fast다. recursive family 자체는 `visibility.hidden`, `mutability.readonly`, `mutability.writable`에서 계속 current이며, recursive literal directory shorthand는 `**/<literal-dir>` 또는 `<prefix>/**/<literal-tail>`만 허용되는 non-visible-surface-only normalization delta다. `/**/`는 최대 한 번만 허용되고 tail component는 모두 literal이어야 하며 내부적으로 `<prefix>/**/<literal-tail>/**`로 normalize된다. 예: `**/.git`=`**/.git/**`, `**/.git/hooks`=`**/.git/hooks/**`, `~/**/aaa/hook`=`~/**/aaa/hook/**`. 이는 subtree shorthand(`/dir/**`=`/dir`, `~/aa/**`=`~/aa`)와 다른 문법이다. current source/live evidence는 `docs/operations.md`가 정리한다.
 
 아키텍처 시각화 요약은 [docs/architecture.md](architecture.md)에 정리되어 있다. 다이어그램 source of truth는 `docs/diagrams/*.mmd`이고, 렌더링 계약은 [docs/diagrams/README.md](diagrams/README.md)를 따른다.
 
@@ -86,7 +86,7 @@ Non-goals:
 - root-only bind/overlay masking
 - device node native semantics 재현
 - procfs/sysfs caller-relative semantics 재현
-- hidden hardlink alias의 자동 전역 차단
+- hidden hardlink alternate path의 자동 전역 차단
 
 ## 3. Filesystem view model
 
@@ -163,62 +163,29 @@ Rules:
 
 ### 6.1 Shared rule grammar
 
-`visibility.hidden`, `visibility.visible`, `mutability.readonly`, `mutability.writable`는 같은 grammar를 사용한다.
+`visibility.hidden`, `visibility.visible`, `mutability.readonly`, `mutability.writable`는 같은 lexical normalization을 재사용한다. 다만 `visibility.visible`은 그중 discovery-free visible category만 현재 surface로 허용한다.
 
-지원 subset:
+지원 family:
 
-- absolute exact path
-- relative exact path with cwd-based rebasing into `source_root`
-- `~` / `~/...` exact path with `HOME` expansion and rebasing
-- recursive basename/suffix/basename-prefix tail: prefixless form(`**/.env`, `**/*.pem`, `**/.env.*`, `**/id_*`)은 launch process cwd를 host path로 정규화한 뒤 `source_root` relative normalized prefix로 rebase한 recursive shorthand다. 같은 normalized cwd anchor에서 `./**/.env`, `./**/*.pem`, `./**/.env.*`, `./**/id_*`와 동등하며, cwd가 `source_root` 밖이면 fail-fast 한다.
-- explicit-root 또는 normalized-prefix recursive form: `/**/.env`, `/**/*.pem`, `/**/.env.*`, `/**/id_*`, `./fixtures/**/*.pem`, `/a/**/*.txt`; `/**/*.pem` 같은 explicit root-anchor form은 whole-tree recursive semantics를 가지며, anchored recursive form은 해당 normalized prefix 아래 임의 깊이의 matching basename에 계속 매치한다.
-- normalized-prefix subtree shorthand: `/dir/**`, `./dir/**`, `~/dir/**`; trailing `/**`는 같은 normalized anchor의 subtree rule(`/dir`, `./dir`, `~/dir`)와 정확히 동등하게 normalize되며 anchor 자체와 모든 descendants에 적용된다. 같은 normalized descriptor/specificity를 공유하고 별도 recursive-any family를 만들지 않는다.
-- bare slashless glob shorthand: `/` component가 없는 `*.pem`, `*.key`, `.env.*`, `id_*` 같은 supported basename-prefix/suffix pattern은 `./<pattern>` shorthand다. launch process cwd를 host path로 정규화해 `source_root` relative normalized prefix로 rebase하고, 그 cwd가 `source_root` 밖이면 fail-fast 한다. 결과 rule은 그 cwd anchor 바로 아래의 immediate child basename만 매치하며, matched child 자체와 그 descendants에 적용된다. 즉 `*.pem`은 같은 normalized cwd anchor에서 `./*.pem`과 동등하고, 같은 anchor의 `**/*.pem`보다 더 구체적인 direct-child rule이다.
-- normalized-prefix direct-child wildcard-all form: `/dir/*`, `./dir/*`, `~/dir/*`; normalized anchor directory의 모든 immediate child에 매치하고, 각 matched child와 그 descendants에 적용된다. anchor 자체에는 적용되지 않으며, immediate child를 먼저 매치하지 않고는 deeper non-child basename에 직접 매치하지 않는다.
-- normalized-prefix direct-child basename-prefix/suffix form: `./fixtures/*.pem`, `~/.env.*`, `/home/<user>/*.pem`; `/a/*.txt`는 `/a/file.txt`와 그 descendants만 포함하고 `/a/b/file.txt`는 제외한다. same-anchor direct-child wildcard-all `/a/*` target set 안에 contained되며, same-anchor subtree `/a` 및 `/a/**` target set 안에도 contained된다. same-anchor recursive form `./fixtures/**/*.pem`, `/a/**/*.txt`, `**/*.pem`은 각각 해당 anchor 아래 임의 깊이의 matching basename에 계속 매치한다.
-- limited recursive literal descendant-subtree glob: `<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`
+- **exact / subtree family**: absolute path, relative/`~` rebased exact path, `/dir`, `/dir/**`, `./dir`, `./dir/**`, `~/dir`, `~/dir/**`
+- **direct-child glob family**: `/dir/*`, `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`, `./dir/*`, `~/dir/*`, bare `*.pem`, `.env.*`, `id_*`; bare slashless form은 같은 normalized cwd anchor의 `./<pattern>` direct-child shorthand다
+- **recursive non-visible glob family**: `**/.env`, `**/*.pem`, `**/.env.*`, `**/id_*`, `/**/.env`, `/**/*.pem`, `/**/.env.*`, `/**/id_*`, `./fixtures/**/*.pem`, `/a/**/*.txt`; prefixless form은 같은 normalized cwd anchor의 `./**/<pattern>` shorthand다
+- **recursive literal non-visible subtree family**: canonical form `<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`와 recursive literal directory shorthand `<normalized-prefix>/**/<literal-component>(/<literal-component>)*`; shorthand는 `visibility.hidden`, `mutability.readonly`, `mutability.writable`에서만 지원된다. 허용 shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`뿐이며 `/**/`는 최대 한 번만 쓸 수 있고 tail component는 모두 literal이어야 한다. 내부적으로는 `<prefix>/**/<literal-tail>/**` canonical form으로 compile된다. 이는 same-anchor subtree shorthand(`/dir/**`=`/dir`, `~/aa/**`=`~/aa`)와 다른 문법이며 subtree shorthand 의미는 바뀌지 않는다. 예: `**/.git`=`**/.git/**`, `**/.git/hooks`=`**/.git/hooks/**`, `~/**/aaa/hook`=`~/**/aaa/hook/**`, `./repo/**/.git/hooks`=`./repo/**/.git/hooks/**`, `~/project/**/.git/hooks`=`~/project/**/.git/hooks/**`, `**/node_modules`=`**/node_modules/**`, `**/target`=`**/target/**`, `**/dist`=`**/dist/**`, `**/build`=`**/build/**`
 
-예시:
+current `visibility.visible` subset:
 
-```text
-/home/<user>/.ssh
-**/.env  # same as ./**/.env after cwd rebasing
-**/*.pem  # same as ./**/*.pem after cwd rebasing
-**/.env.*  # same as ./**/.env.* after cwd rebasing
-**/id_*  # same as ./**/id_* after cwd rebasing
-/**/*.pem
-/dir/**
-/dir/*
-./dir/**
-./dir/*
-**/.git/hooks/**
-./repo/**/.git/hooks/**
-*.pem  # same as ./*.pem after cwd rebasing
-.env.*  # same as ./.env.* after cwd rebasing
-id_*  # same as ./id_* after cwd rebasing
-~/.env.*
-~/dir/**
-~/dir/*
-/home/<user>/*.pem
-```
+- **static subtree bridge**: exact path와 subtree shorthand(`/dir`, `/dir/**`)
+- **direct-child anchor bridge**: direct-child wildcard-all(`/dir/*`)과 direct-child basename-prefix/suffix form(`/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`), bare/cwd/HOME 동등형
+- **unsupported recursive visible glob/shorthand**: `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, `./repo/**/*.pem`, `~/repo/**/.git/hooks/**`, `~/repo/**/.git/hooks`
 
-#### Canonical 4-family glob table
+정규화/충돌 규칙:
 
-| Syntax / family | Anchor normalization | Matching scope | Matched entry + descendants | Representative non-match | Specificity / conflict / containment | `visibility.visible` bridge-visible startup/performance impact |
-| --- | --- | --- | --- | --- | --- | --- |
-| `**/*.pem`<br>prefixless recursive suffix shorthand | prefix에 explicit anchor가 없다. launch cwd host path를 `source_root` 내부 virtual prefix로 rebase해 recursive anchor로 사용하며, 같은 normalized cwd anchor에서 `./**/*.pem`과 동등하다. cwd가 `source_root` 밖이면 fail-fast다. | normalized cwd anchor 아래 임의 깊이의 `*.pem` basename | 각 matched entry 자체에 적용되고, matched entry가 directory면 descendants도 함께 포함된다. | normalized cwd anchor 밖의 `cert.pem` | 같은 normalized cwd anchor의 opposite-polarity `**/*.pem`/`./**/*.pem`과는 same-specificity conflict가 가능하다. 같은 anchor의 `*.pem`/`./*.pem` direct-child target set을 포함하는 더 넓은 recursive rule이고, explicit root-anchor `/**/*.pem`과는 다른 anchor family다. | scan root는 normalized cwd anchor다. `visibility.visible` bridge index도 그 anchor subtree만 재귀 탐색하면 되고, whole-root scan은 explicit `/**/*.pem`에서만 필요하다. |
-| `./fixtures/**/*.pem`<br>cwd-rebased anchored recursive suffix | `./fixtures` prefix를 launch cwd host path에서 해석한 뒤 `source_root` 내부 virtual prefix로 rebase한다. | normalized `./fixtures` anchor 아래 임의 깊이의 `*.pem` basename | 각 matched entry 자체에 적용되고, matched entry가 directory면 descendants도 함께 포함된다. | `<normalized ./fixtures anchor 밖>/local.pem` | 같은 normalized anchor의 opposite-polarity recursive `.pem` rule과는 same-specificity conflict가 가능하다. 같은 anchor의 `./fixtures/*.pem` direct-child family는 더 specific하며 target set이 그 안에 포함된다. | scan root는 normalized `./fixtures` anchor다. recursive family라 direct-child `./fixtures/*.pem`보다 discovery 범위는 넓지만 whole-root로 퍼지지는 않는다. |
-| `/a/*.txt`<br>absolute anchored direct-child suffix | virtual-root anchored absolute prefix `/a`; cwd rebasing 없음 | `/a` 바로 아래 immediate child basename만 | 각 matched immediate child 자체와 그 descendants | `/a/b/file.txt` | 같은 `/a` direct-child `.txt` normalized anchor와 same-specificity conflict/duplicate가 된다. `/a/**/*.txt`보다 more-specific하고 target set은 그 안에 포함된다. | anchored direct-child라 scan root는 `/a`로 제한된다. 다만 current bridge-index walk는 startup에서 `/a` 아래를 재귀 탐색할 수 있어 direct-child matcher 자체보다 넓은 discovery cost가 남는다. |
-| `/a/**/*.txt`<br>absolute anchored recursive suffix | virtual-root anchored absolute prefix `/a`; cwd rebasing 없음 | `/a` 아래 임의 깊이의 `*.txt` basename | 각 matched entry 자체와 그 descendants | `/b/file.txt` | `/a/*.txt` target set을 포함하는 broader recursive rule이다. 같은 `/a` recursive `.txt` form opposite-polarity rule과 same-specificity conflict가 가능하다. | scan root는 `/a`지만 recursive family라 `/a/*.txt`보다 훨씬 넓은 startup discovery가 가능하다. 그래도 explicit root-anchor `/**/*.pem`처럼 root 전체로 퍼지는 형태와는 다르다. |
-
-중요: `**/*.pem`은 더 이상 whole-tree recursive family가 아니다. 같은 normalized cwd anchor에서는 `./**/*.pem`과 동등한 recursive shorthand이고, whole-tree recursive intent는 `/**/*.pem` 같은 explicit root-anchor form으로 표현한다. bare slashless `*.pem`는 같은 anchor의 direct-child shorthand로 남으며 same-anchor `**/*.pem` target set에 contained된다.
-
-anchored subtree/direct-child shorthand 관계:
-
-- same normalized anchor에서 `/dir/**`는 `/dir`와 같은 normalized descriptor/specificity로 compile된다. 같은 polarity에서는 duplicate/idempotent이고, opposite polarity에서는 same-specificity conflict다.
-- same anchor에서 `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*` 같은 direct-child basename-prefix/suffix family는 `/dir/*` target set 안에 contained되는 더 구체적인 rule이다.
-- same anchor에서 `/dir/*` target set은 `/dir` 및 `/dir/**` target set 안에 contained된다.
-- same anchor에서 `/dir/*`와 `/dir/**/*.pem` 같은 anchored recursive basename/suffix family는 일반적으로 서로를 포함하지 않는다. 예를 들어 `/dir/*`는 `/dir/subdir` subtree 전체를 포함하지만 `/dir/**/*.pem`은 deeper grandchild basename에도 매치하므로, opposite-polarity 조합은 containment를 증명할 수 없으면 기존 overlap fail-fast 규칙을 따른다.
+- same-anchor `/dir/**`는 `/dir`와 같은 normalized descriptor/specificity로 compile된다.
+- same-polarity identical descriptor는 deduplicate/idempotent다.
+- `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`는 `/dir/*` 안에 contained되는 더 구체적인 direct-child rule이다.
+- `/dir/*`는 `/dir`/`/dir/**` 안에 contained된다.
+- recursive non-visible family에서는 기존 specificity/containment/conflict 규칙을 유지한다. 예를 들어 `**/*.pem`는 같은 normalized cwd anchor에서 `./**/*.pem`과 동등하고, `*.pem`는 same-anchor `**/*.pem` target set 안에 contained되는 direct-child rule이다. recursive literal descendant-subtree shorthand도 canonical form과 동일 descriptor/specificity로 compile된다. 즉 `**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**`이고 directory 자체와 descendants를 함께 매치하며 same-specificity conflict, containment, dedup 결과도 동일하다.
+- `visibility.visible`에 recursive family나 그 recursive literal directory shorthand가 들어오면 specificity 계산 전에 fail-fast 한다. 즉 overlap resolution이나 dynamic bridge discovery로 우회하지 않는다.
 
 fail-fast subset:
 
@@ -229,23 +196,9 @@ fail-fast subset:
 - wildcard-in-prefix broader forms
 - unanchored wildcard-all recursive form(`**/*`)
 - one-sided basename-prefix/suffix subset 밖의 bare wildcard form(`*`, `a*b`, `*secret*`)
-- descendant-subtree literal tail 내부 wildcard
-- trailing `/**` 없는 descendant-subtree form
+- descendant-subtree literal tail 내부 wildcard 또는 recursive literal directory shorthand subset 밖의 trailing `/**`-less/multi-recursive descendant-subtree form(`~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 포함)
+- `visibility.visible`에서 recursive bridge discovery가 필요한 recursive descendant canonical/shorthand form
 - brace/env/command expansion
-
-### 6.2 Specificity and conflicts
-
-각 축은 같은 override 규칙을 사용한다.
-
-- most-specific match wins
-- same-specificity same-polarity duplicate는 idempotent
-- `**/*.pem`는 같은 normalized cwd anchor에서 `./**/*.pem`과 같은 normalized anchor/specificity로 compile되므로 같은 polarity에서는 duplicate/idempotent이고, opposite polarity에서는 same-specificity conflict로 fail-fast다
-- `*.pem`는 같은 normalized cwd anchor에서 `./*.pem`과 같은 normalized anchor/specificity로 compile되며, same-anchor `**/*.pem` target set 안에 contained되는 더 구체적인 direct-child rule이므로 same-specificity equivalent rule이 아니라 nested override/containment 관계로 처리한다
-- same-anchor `/dir/**`는 `/dir` subtree rule과 같은 normalized descriptor/specificity로 compile되므로 같은 polarity에서는 duplicate/idempotent이고, opposite polarity에서는 same-specificity conflict로 fail-fast다
-- same-anchor `/dir/*`는 `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*` 같은 direct-child basename family보다 넓고, `/dir`/`/dir/**` target set 안에 contained된다
-- `/dir/*`와 `/dir/**/*.pem` 같은 anchored recursive family는 containment가 증명되는 경우에만 nested override 관계가 생기며, 일반적인 opposite-polarity partial overlap은 fail-fast다
-- same-axis opposite rule이 같은 normalized anchor/specificity에서 충돌하면 fail-fast
-- hidden 결과는 mutability보다 먼저 적용된다
 
 ## 7. Visibility policy and matcher
 
@@ -279,12 +232,28 @@ hidden path semantics:
 - `readdir`, `readdirplus` → omit entry
 - symlink whose own path is hidden → `ENOENT`
 - symlink readlink/dereference is allowed only when the resolved virtual target is fully visible; hidden target이거나 bridge-visible/non-fully-visible target이면 `ENOENT`
+- symlink target visibility fast path는 compiled policy가 그 entry를 숨길 수 없음을 보일 때만 lexical target 재평가를 생략할 수 있다.
+- 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 lexical resolved target을 다시 확인해야 하며, prior listing success·symlink decision cache·direct-path-only memoized result는 면제 근거가 아니다.
 
-### 7.3 Bridge-visible ancestor semantics
+### 7.3 `visibility.visible` current category
 
-bridge-visible은 visible descendant를 향한 ancestor directory에서만 생긴다. descendant-subtree carve-out도 같은 규칙을 따르며, `**/.git/hooks/**` 같은 rule이 매치한 visible subtree에 도달하는 경로상의 모든 existing ancestor directory는 bridge-visible로 합성되어야 한다.
+current `visibility.visible`은 세 범주로 읽는다.
 
-또한 bridge-visible은 traversal/listing 전용 상태다. bridge-visible 경로를 통해 도달 가능한 symlink entry라도 resolved virtual target이 fully visible하지 않으면 `readlink`나 symlink dereference `open`으로 노출하지 않는다.
+1. **static subtree bridge**
+   - exact path 또는 subtree shorthand(`/dir`, `/dir/**`)
+   - visible target까지의 정적 ancestor chain만 bridge-visible이 된다.
+2. **direct-child anchor bridge**
+   - `/dir/*`, `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`, bare/cwd/HOME 동등형
+   - normalized anchor의 ancestor들만 bridge-visible candidate가 된다.
+   - immediate child match는 `lookup`/`readdir`/`readdirplus` 시점에 현재 directory/parent 기준으로만 평가하며, 그 directory와 무관한 matcher bucket은 건너뛴다. anchor subtree를 재귀 스캔하지 않는다.
+   - hidden sibling은 계속 숨겨지고, matched child 및 그 descendants만 visible로 열릴 수 있다.
+3. **unsupported recursive visible glob/shorthand**
+   - `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, `./repo/**/*.pem`, `~/repo/**/.git/hooks/**`, `~/repo/**/.git/hooks`
+   - recursive bridge discovery가 필요하므로 current contract에서는 canonical form과 shorthand form 모두 fail-fast다. 권장 대안은 `/dir` 또는 `/dir/**` 같은 explicit subtree visible rule이다.
+
+### 7.4 Bridge-visible ancestor semantics
+
+bridge-visible은 visible descendant를 향한 ancestor directory에서만 생긴다.
 
 허용:
 
@@ -301,12 +270,24 @@ bridge-visible은 visible descendant를 향한 ancestor directory에서만 생�
 
 - bridge-visible ancestor mutation은 `EROFS`
 
-### 7.4 Listing semantics
+중요한 구현 제약:
+
+- subtree visible rule은 visible target까지의 ancestor chain만 사용한다.
+- direct-child visible rule은 normalized anchor ancestor와 immediate child evaluation만 사용한다.
+- directory-entry filtering fast path는 `readdir`/`readdirplus`에서 현재 directory/parent와 관련된 matcher bucket만 보고 unrelated bucket을 건너뛰는 보수적 형태로만 허용된다.
+- recursive descendant visible rule을 위한 eager/lazy bridge discovery, startup recursive bridge scan, dynamic bridge ancestor index는 current contract가 아니다.
+- recursive literal directory shorthand는 normalization/path-matcher-only다. `**/.git/hooks`, `~/**/aaa/hook` 같은 supported shorthand는 각각 `**/.git/hooks/**`, `~/**/aaa/hook/**`와 같은 matcher cost를 유지해야 하고, shorthand 때문에 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery를 추가하면 안 된다.
+- 위 fast path는 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 된다.
+
+### 7.5 Listing semantics
 
 - hidden child는 listing에서 제외
 - bridge-visible directory는 visible child 또는 다음 bridge-visible descendant로 이어지는 child만 보여준다
+- direct-child visible rule에서도 immediate child evaluation 결과에 없는 sibling은 노출하지 않는다
+- `readdir`/`readdirplus` filtering은 현재 directory/parent 기준 결과를 바꾸지 않는 범위에서만 관련 matcher bucket을 보고 unrelated bucket을 건너뛸 수 있다.
 - `readdirplus`는 반환하는 visible/bridge-visible child에 대해서만 metadata를 준다
 - listing에 보이는 symlink entry도 resolved virtual target이 fully visible할 때만 `readlink`/dereference가 가능하다
+- stable directory listing cache나 snapshot은 current contract가 아니다. 구현은 필요하면 per-handle iteration state만 둘 수 있다.
 - hidden sibling count나 hidden subtree metadata를 새지 않아야 한다
 
 ## 8. Inode, path, and handle model
@@ -316,13 +297,13 @@ FUSE는 inode-centric이고 정책은 path-centric이므로 둘 다 유지해야
 - root inode is fixed to `FUSE_ROOT_ID = 1`
 - visible or bridge-visible exported objects receive synthetic FUSE inode ids
 - hidden paths are never exported into the inode table
-- directory handles keep filtered snapshots after visibility evaluation
-- writable mutation invalidates affected parent directories, alias indexes, and path/inode caches
+- directory handles는 필요하면 visibility evaluation 이후 optional per-handle iteration state를 유지할 수 있다
+- writable mutation invalidates affected parent directories, matcher indexes, and path/inode caches
 
-bridge-visible snapshot rule:
+bridge-visible iteration rule:
 
-- snapshot은 hidden entry를 포함하지 않는다
-- bridge-visible directory snapshot은 next-hop bridge/visible child만 포함한다
+- per-handle state가 있다면 hidden entry를 포함하지 않는다
+- per-handle state가 있다면 bridge-visible directory에서는 next-hop bridge/visible child만 다룬다
 
 ## 9. FUSE operation matrix
 
@@ -437,23 +418,26 @@ Whole `/` view는 native kernel filesystem 재현을 의미하지 않는다.
 
 ## 14. Cache and memory model
 
-Recommended caches:
+Recommended caches/state:
 
 - path visibility result cache keyed by rule version
 - inode table and reverse map
-- directory snapshot cache
 - file/dir handle table
+- optional per-handle directory iteration state
 
 Policy:
 
 - bounded cache / LRU eviction
 - conservative timeout defaults until correctness is proven
 - writable mutation invalidates affected parent directory, involved path entries, and inode/path cache entries
-- bridge-visible reachability는 mount startup에서 source tree를 스캔해 existing visible descendant의 ancestor index로 구축하거나 동등한 bounded/cacheable 구조를 사용해야 하며, request hot path에서 whole-root recursive scan을 유발하면 안 된다
-- direct-child visible glob도 semantics는 anchored지만 current bridge-index build는 matched-entry descendants reachability 때문에 anchor 아래를 재귀 탐색할 수 있다. 따라서 `*.pem`, `./fixtures/*.pem`, `/a/*.txt`, `/dir/*`는 anchor-bounded discovery이고, `**/*.pem`, `./fixtures/**/*.pem`, `/a/**/*.txt`는 각 anchor 아래 더 넓은 recursive discovery다. `/dir/**`는 `/dir`와 같은 subtree descriptor/startup behavior를 공유하며 별도 recursive-any scan family를 만들지 않는다. 이때 prefixless `**/*.pem`의 scan root는 normalized cwd anchor이고, explicit root-anchor `/**/*.pem`에서만 `source_root`가 scan root가 될 수 있다.
-- dynamic glob visible rule의 bridge-visible ancestor index는 mount-start snapshot이다. 외부 backing-tree 변경으로 새 dynamic-glob visible descendant가 생겨도 mid-mount에 previously unreachable hidden ancestor를 새로 열지 않으며, 그런 reachability 확장은 remount로 갱신한다. ScreenFS 내부 writable mutation은 affected inode/path/directory snapshot을 invalidate하지만 dynamic bridge index 자체를 확장하지 않는다.
-- 현재 구현은 `ScreenFs::new`에서 dynamic bridge-visible ancestor index를 만들되 dynamic rule anchor를 scan root로 사용해 anchored glob의 startup 범위를 제한하고, request path에서는 static subtree bridge query 또는 index lookup만 수행한다
-- bridge-visible and symlink-target-dependent visibility checks must not be served from stale direct-path-only cache
+- matcher/indexing은 family와 normalized anchor를 기준으로 분리한다. 최소한 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 별도 집합으로 유지한다.
+- same-polarity identical descriptor는 compile 시 dedup/idempotent 처리한다. `/dir/**`는 `/dir`와 동일 descriptor로 정규화하고, `**/.git/hooks` 같은 recursive literal directory shorthand는 `**/.git/hooks/**` canonical descriptor로 정규화한다.
+- `visibility.visible` reachability는 discovery-free여야 한다. subtree visible rule은 정적 ancestor chain만 사용하고, direct-child visible rule은 normalized anchor ancestor와 immediate child evaluation만 사용한다.
+- `readdir`/`readdirplus` fast path는 현재 directory/parent와 무관한 matcher bucket을 건너뛰는 보수적 형태로만 허용된다. recursive scan, background index, stable listing result cache는 current contract가 아니다.
+- startup recursive bridge scan, lazy recursive bridge discovery, dynamic bridge ancestor index는 current contract가 아니다. recursive indexing이 필요하면 hidden/readonly/writable의 recursive family에만 국한한다. recursive literal directory shorthand는 canonical recursive literal descriptor에 normalize될 뿐 별도 discovery/index family를 만들면 안 된다.
+- symlink target visibility check는 policy가 hide 가능성을 배제할 때만 생략할 수 있다. 그 외 point-of-use check는 symlink decision cache로 대체할 수 없고, bridge-visible 및 symlink-dependent visibility check에 stale direct-path-only cache를 재사용하면 안 된다
+- recursive literal directory shorthand 추가는 normalization/path-matcher-only여야 하며 recursive bridge discovery, lazy discovery, startup scan, background indexing, stable listing result cache, symlink decision cache, 기타 새로운 filesystem discovery를 도입하면 안 된다. matcher cost는 기존 canonical `**/.../**` recursive literal subtree rule과 같아야 한다.
+- 위 fast path들은 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 된다
 
 ## 15. Performance model
 
@@ -466,7 +450,9 @@ Reference targets:
 - repeated traversal after five runs: RSS growth < 64 MiB from baseline
 - repeated traversal after five runs: open fd count returns close to baseline
 - `readdirplus` on large directory completes without unbounded memory growth
-- 위 성능 기대치는 live mount smoke와 large-traversal performance smoke로 계속 재확인해야 한다
+- visible direct-child rule(`/tmp/*` 또는 동등형)는 anchor subtree를 재귀 순회하지 않아야 하며, smoke/계측은 현재 directory/parent 기준 unrelated matcher bucket skip과 결과 불변을 함께 보여줘야 한다
+- recursive literal directory shorthand는 canonical `**/.../**` recursive literal subtree rule과 같은 matcher cost를 유지해야 하며, `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 multi-recursive 또는 broader form은 discovery, ambiguous containment, broader glob compatibility를 피하기 위해 fail-fast 해야 한다
+- symlink-heavy workload에서도 target visibility check는 policy가 hide 가능성을 배제하지 못하면 point-of-use에서 다시 수행돼야 하며, prior listing success나 direct-path-only memoization에 기대면 안 된다
 
 Implementation priorities:
 
@@ -474,7 +460,7 @@ Implementation priorities:
 - avoid per-entry host canonicalization
 - compile rules once at startup
 - keep exact/prefix/glob matcher tiers bounded
-- keep bridge-visible reachability derivation policy-bounded and cacheable by using a precomputed or equivalently bounded bridge ancestor index instead of request-time whole-root recursive scans
+- keep visible bridge derivation subtree/direct-child bounded and discovery-free
 - keep visible file data path close to underlying filesystem
 
 ## 16. CLI / config shape
@@ -513,7 +499,7 @@ Contract notes:
 - mutability default is `writable` when omitted.
 - duplicate same-polarity rule is idempotent.
 - opposite-polarity same-specificity conflict on the same normalized anchor is fail-fast.
-- removed family/flag surface를 위한 compatibility alias나 shim은 없다.
+- 제거된 CLI/config surface를 위한 compatibility mapping이나 shim은 없다.
 
 ## 17. Validation strategy
 
@@ -525,8 +511,12 @@ Validation은 unit, integration, mount smoke, system smoke로 나눈다.
 - source-root escape prevention
 - shared rule normalization for visibility/mutability
 - specificity ordering and same-specificity conflict rejection
+- same-anchor `/dir`=`/dir/**` descriptor dedup
+- `/dir/*.pem` ⊂ `/dir/*` ⊂ `/dir` containment
+- recursive literal descendant-subtree shorthand equivalence(`**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**`, `**/node_modules`=`**/node_modules/**`)와 canonical descriptor dedup/conflict identity
 - hidden path matching
-- bridge-visible ancestor synthesis
+- subtree/direct-child bridge-visible ancestor synthesis
+- `visibility.visible` recursive descendant glob/shorthand rejection
 - hidden-before-`EROFS` precedence
 - mutability evaluation for matching and non-matching visible paths
 - multi-path affected-coordinate classification
@@ -539,8 +529,15 @@ Validation은 unit, integration, mount smoke, system smoke로 나눈다.
 - hidden lookup/getattr/open/access/readlink/xattr behavior
 - bridge-visible ancestor stat/traverse/list behavior
 - bridge-visible ancestor mutation `EROFS`
+- direct-child visible rule이 immediate child만 평가하고 hidden sibling을 노출하지 않는지 확인
+- `visibility.visible`이 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, cwd/HOME-relative recursive form을 fail-fast로 거부하는지 확인
+- non-visible surface에서 `**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**`, `**/node_modules`=`**/node_modules/**` shorthand equivalence와 hidden `ENOENT`/readonly `EROFS`/writable override 결과가 canonical form과 동일한지 확인
+- unsupported trailing `/**`-less broader/ambiguous form이 부분 해석 없이 fail-fast 되는지 확인
 - symlink whose resolved target is hidden or bridge-visible/non-fully-visible returns `ENOENT`
+- symlink target visibility fast path가 point-of-use lexical check를 부당하게 생략하지 않는지 확인
 - filtered `readdir` and `readdirplus`
+- `readdir`/`readdirplus`가 현재 directory/parent와 무관한 matcher bucket을 건너뛰어도 결과가 바뀌지 않는지 counter/trace/perf evidence로 확인
+- shorthand 추가 전후로 새로운 discovery/scanning code가 생기지 않았는지 source diff/trace/counter evidence로 확인
 - relative cwd-based rebasing and `HOME`-based rebasing
 - missing `HOME`, `~user`, source-root-outside, broader unsupported wildcard fail-fast
 - cache invalidation after writable mutation
@@ -551,14 +548,21 @@ Validation은 unit, integration, mount smoke, system smoke로 나눈다.
 - `stat`, `cat`, `access` on hidden path fail with `ENOENT`
 - bridge-visible ancestor is traversable but not writable
 - bridge-visible directory listing only exposes bridge/visible descendants
-- descendant-subtree carve-out(`**/.git/hooks/**` 등)도 existing ancestor directory bridge synthesis로 실제 도달 가능하다
+- direct-child visible rule(`/tmp/*` 또는 동등형)가 immediate child만 여는지, hidden sibling을 계속 숨기는지 확인
+- `visibility.visible` recursive descendant glob/shorthand rejection stderr를 별도 세션으로 남긴다
+- non-visible surface에서 `**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**`, `**/node_modules`=`**/node_modules/**`, `**/.git`=`**/.git/**`, `**/target`=`**/target/**`, `**/dist`=`**/dist/**`, `**/build`=`**/build/**` equivalence를 별도 세션으로 남긴다
+- directory-entry filtering fast path가 현재 directory/parent와 무관한 matcher bucket을 건너뛰면서도 결과를 바꾸지 않는다는 counter/trace/perf evidence를 남긴다
+- shorthand 추가 때문에 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery가 생기지 않았다는 source diff/trace/perf evidence를 남긴다
 - symlink entry는 resolved virtual target이 fully visible할 때만 `readlink`/dereference로 읽힌다. A raw symlink target that is lexically fully visible but escapes `source_root` may still be returned by `readlink`; dereference then fails in source-root confinement with `ENOENT`.
+- prior listing success나 direct-path-only memoized result를 symlink-dependent check 면제로 쓰지 않는 evidence를 남긴다.
 - mount root subtree is not visible through the mounted view
 - `/bin`, `/usr`, `/lib`, `/lib64`, `/etc`, `/home`, `/tmp`, `/var` are visible when policy allows
-- supported exact / recursive / direct-child / descendant-subtree inputs smoke separately
-- unsupported wildcard forms fail fast without partial interpretation
+- supported exact / recursive / direct-child inputs smoke separately
+- unsupported wildcard forms과 shorthand subset 밖 trailing `/**`-less descendant form은 partial interpretation 없이 fail fast다
+- hidden non-visible shorthand direct access는 `ENOENT`다
 - readonly visible mutation returns `EROFS`
 - writable carve-out visible mutation succeeds when host allows it
+- shorthand/canonical same-specificity conflict와 same-polarity dedup 결과가 동일하다는 evidence를 남긴다
 
 ### System smoke tests
 
@@ -567,9 +571,9 @@ Validation은 unit, integration, mount smoke, system smoke로 나눈다.
 - confirm documented kernel config artifact still shows `CONFIG_FUSE_IO_URING=y` and `CONFIG_IO_URING=y`
 - confirm same-uid access model or explicit `allow_other` policy
 - `chroot` smoke only when privilege/user namespace model is available
-- large traversal with many rules while checking latency, RSS, and fd-count targets, and confirming bridge-visible reachability does not depend on unbounded whole-root recursive scans
+- `/tmp/*` 같은 direct-child visible rule에 대해 recursive traversal이 일어나지 않고 현재 directory/parent와 무관한 matcher bucket을 건너뛴다는 성능-oriented smoke 또는 동등한 계측을 남긴다
 - daemon shutdown and `fusermount3 -u` cleanup behavior
 
 ## 18. Archival note
 
-일부 transcript filename과 historical note에는 과거 naming이 남아 있을 수 있다. current policy surface는 항상 `visibility`/`mutability` 두 축으로 읽는다.
+current policy surface는 항상 `visibility`/`mutability` 두 축으로 읽는다.
