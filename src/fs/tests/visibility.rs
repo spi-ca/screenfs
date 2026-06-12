@@ -407,6 +407,111 @@ fn default_hidden_cwd_rebased_direct_child_visible_glob_uses_dynamic_bridge_inde
 }
 
 #[test]
+fn default_hidden_anchored_wildcard_all_and_subtree_shorthands_preserve_visibility() {
+    let dir = test_dir("visible-anchored-wildcard-all-and-subtree-shorthand");
+    let source = dir.join("src");
+    let cwd = source.join("workspace/app");
+    let home = source.join("home/tester");
+    std::fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+    std::fs::create_dir_all(home.join("sandbox/bin")).unwrap();
+    std::fs::write(source.join("workspace/app/fixtures/local.pem"), b"local").unwrap();
+    std::fs::write(
+        source.join("workspace/app/fixtures/nested/deep.pem"),
+        b"deep",
+    )
+    .unwrap();
+    std::fs::write(home.join("sandbox/bin/tool"), b"tool").unwrap();
+    std::fs::write(source.join("workspace/app/readme.txt"), b"hidden").unwrap();
+    let mount = source.join("mount");
+    std::fs::create_dir(&mount).unwrap();
+
+    let fs = {
+        let _env = ProcessEnvGuard::new(&cwd, Some(&home));
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                visibility_hidden_rules: Vec::new(),
+                visibility_visible_rules: vec![
+                    "./fixtures/*".to_string(),
+                    "~/sandbox/**".to_string(),
+                ],
+                mutability_readonly_rules: Vec::new(),
+                mutability_writable_rules: Vec::new(),
+            },
+            config_path: None,
+            visibility_default: Some(crate::cli::VisibilityDefault::Hidden),
+            mutability_default: None,
+        })
+        .unwrap();
+        ScreenFs::new(cfg)
+    };
+
+    assert!(
+        !fs.config()
+            .matches_visible_rule(&vpath("/workspace/app/fixtures"))
+    );
+    assert!(
+        fs.config()
+            .matches_visible_rule(&vpath("/workspace/app/fixtures/local.pem"))
+    );
+    assert!(
+        fs.config()
+            .matches_visible_rule(&vpath("/workspace/app/fixtures/nested/deep.pem"))
+    );
+    assert!(
+        fs.config()
+            .matches_visible_rule(&vpath("/home/tester/sandbox"))
+    );
+
+    let root_names = root_listing_names(&fs);
+    assert!(root_names.contains(&"workspace".to_string()));
+    assert!(root_names.contains(&"home".to_string()));
+
+    let workspace = lookup_root_inode(&fs, "workspace");
+    let app = lookup_child_inode(&fs, workspace, "app");
+    let app_fh = open_directory_handle(&fs, app);
+    let app_names: Vec<String> = block_on(fs.readdirplus(dummy_req(), app, app_fh, 0, 4096))
+        .unwrap()
+        .into_iter()
+        .map(|entry| String::from_utf8(entry.name).unwrap())
+        .collect();
+    assert!(app_names.contains(&"fixtures".to_string()));
+    assert!(!app_names.contains(&"readme.txt".to_string()));
+    block_on(fs.releasedir(dummy_req(), app, app_fh, 0)).unwrap();
+
+    let fixtures = lookup_child_inode(&fs, app, "fixtures");
+    let fixtures_fh = open_directory_handle(&fs, fixtures);
+    let fixture_names: Vec<String> =
+        block_on(fs.readdirplus(dummy_req(), fixtures, fixtures_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(fixture_names.contains(&"local.pem".to_string()));
+    assert!(fixture_names.contains(&"nested".to_string()));
+    block_on(fs.releasedir(dummy_req(), fixtures, fixtures_fh, 0)).unwrap();
+
+    let nested = lookup_child_inode(&fs, fixtures, "nested");
+    let deep = lookup_child_inode(&fs, nested, "deep.pem");
+    let fh = block_on(fs.open(dummy_req(), deep, libc::O_RDONLY as u32))
+        .unwrap()
+        .fh;
+    block_on(fs.release(dummy_req(), deep, fh, 0, 0, false, false)).unwrap();
+
+    let home_inode = lookup_root_inode(&fs, "home");
+    let tester = lookup_child_inode(&fs, home_inode, "tester");
+    let sandbox = lookup_child_inode(&fs, tester, "sandbox");
+    let bin = lookup_child_inode(&fs, sandbox, "bin");
+    let tool = lookup_child_inode(&fs, bin, "tool");
+    let fh = block_on(fs.open(dummy_req(), tool, libc::O_RDONLY as u32))
+        .unwrap()
+        .fh;
+    block_on(fs.release(dummy_req(), tool, fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn default_hidden_cwd_rebased_recursive_visible_glob_stays_within_current_dir_subtree() {
     let dir = test_dir("visible-cwd-recursive-bridge");
     let source = dir.join("src");

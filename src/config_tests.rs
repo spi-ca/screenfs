@@ -444,6 +444,63 @@ fn four_policy_surfaces_share_direct_child_glob_semantics() {
 }
 
 #[test]
+fn four_policy_surfaces_share_anchored_shorthand_normalization_semantics() {
+    let source = test_dir();
+    let cwd = source.join("workspace/app");
+    let home = source.join("home/tester");
+    std::fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+    std::fs::create_dir_all(source.join("workspace/app/fixtures-subtree/nested")).unwrap();
+    std::fs::create_dir_all(home.join("locks/nested")).unwrap();
+    std::fs::create_dir_all(home.join("sandbox/bin")).unwrap();
+    let mount = source.join("mount");
+    std::fs::create_dir(&mount).unwrap();
+
+    {
+        let _env = ProcessEnvGuard::new(&cwd, Some(&home));
+        let cfg = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                visibility_hidden_rules: vec!["/vault/*".to_string(), "/archive/**".to_string()],
+                visibility_visible_rules: vec![
+                    "./fixtures/*".to_string(),
+                    "./fixtures-subtree/**".to_string(),
+                ],
+                mutability_readonly_rules: vec!["~/locks/*".to_string()],
+                mutability_writable_rules: vec!["~/sandbox/**".to_string()],
+            },
+            config_path: None,
+            visibility_default: Some(VisibilityDefault::Hidden),
+            mutability_default: Some(MutabilityDefault::Readonly),
+        })
+        .unwrap();
+
+        assert!(!cfg.matches_hidden_rule(&VirtualPath::new("/vault")));
+        assert!(cfg.matches_hidden_rule(&VirtualPath::new("/vault/child")));
+        assert!(cfg.matches_hidden_rule(&VirtualPath::new("/vault/child/grand")));
+        assert!(cfg.matches_hidden_rule(&VirtualPath::new("/archive")));
+        assert!(cfg.matches_hidden_rule(&VirtualPath::new("/archive/child")));
+
+        assert!(!cfg.matches_visible_rule(&VirtualPath::new("/workspace/app/fixtures")));
+        assert!(cfg.matches_visible_rule(&VirtualPath::new("/workspace/app/fixtures/local.pem")));
+        assert!(cfg.matches_visible_rule(&VirtualPath::new(
+            "/workspace/app/fixtures/nested/local.pem"
+        )));
+        assert!(cfg.matches_visible_rule(&VirtualPath::new("/workspace/app/fixtures-subtree")));
+        assert!(cfg.matches_visible_rule(&VirtualPath::new(
+            "/workspace/app/fixtures-subtree/nested/local.pem"
+        )));
+
+        assert!(!cfg.matches_readonly_rule(&VirtualPath::new("/home/tester/locks")));
+        assert!(cfg.matches_readonly_rule(&VirtualPath::new("/home/tester/locks/item")));
+        assert!(cfg.matches_readonly_rule(&VirtualPath::new("/home/tester/locks/nested/item")));
+        assert!(cfg.matches_writable_rule(&VirtualPath::new("/home/tester/sandbox")));
+        assert!(cfg.matches_writable_rule(&VirtualPath::new("/home/tester/sandbox/bin/tool")));
+    }
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
 fn visible_glob_families_report_dynamic_bridge_scan_roots_family_by_family() {
     let source = test_dir();
     let cwd = source.join("workspace/app");
@@ -453,6 +510,26 @@ fn visible_glob_families_report_dynamic_bridge_scan_roots_family_by_family() {
 
     {
         let _env = ProcessEnvGuard::new(&cwd, None);
+        for rule in ["/a/**", "./fixtures/**"] {
+            let cfg = RuntimeConfig::from_launch(LaunchArgs {
+                cli: CliArgs {
+                    source_root: source.clone(),
+                    mount_root: mount.clone(),
+                    visibility_hidden_rules: vec![],
+                    visibility_visible_rules: vec![rule.to_string()],
+                    mutability_readonly_rules: vec![],
+                    mutability_writable_rules: vec![],
+                },
+                config_path: None,
+                visibility_default: Some(VisibilityDefault::Hidden),
+                mutability_default: None,
+            })
+            .unwrap();
+
+            assert!(!cfg.needs_dynamic_bridge_index(), "{rule}");
+            assert!(cfg.dynamic_bridge_scan_roots().is_empty(), "{rule}");
+        }
+
         for (rule, expected) in [
             ("**/*.pem", vec![VirtualPath::new("/workspace/app")]),
             ("/**/*.pem", vec![VirtualPath::root()]),
@@ -460,6 +537,7 @@ fn visible_glob_families_report_dynamic_bridge_scan_roots_family_by_family() {
                 "./fixtures/**/*.pem",
                 vec![VirtualPath::new("/workspace/app/fixtures")],
             ),
+            ("/a/*", vec![VirtualPath::new("/a")]),
             ("/a/*.txt", vec![VirtualPath::new("/a")]),
             ("/a/**/*.txt", vec![VirtualPath::new("/a")]),
         ] {
@@ -638,7 +716,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
                 source_root: source.clone(),
-                mount_root: mount,
+                mount_root: mount.clone(),
                 visibility_hidden_rules: vec!["**/*.pem".to_string()],
                 visibility_visible_rules: vec!["./**/*.pem".to_string()],
                 mutability_readonly_rules: vec![],
@@ -650,6 +728,38 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
         })
         .unwrap_err();
         assert!(err.contains("hidden and visible rules conflict"));
+
+        let err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount.clone(),
+                visibility_hidden_rules: vec!["/same/**".to_string()],
+                visibility_visible_rules: vec!["/same".to_string()],
+                mutability_readonly_rules: vec![],
+                mutability_writable_rules: vec![],
+            },
+            config_path: None,
+            visibility_default: None,
+            mutability_default: None,
+        })
+        .unwrap_err();
+        assert!(err.contains("hidden and visible rules conflict"));
+
+        let err = RuntimeConfig::from_launch(LaunchArgs {
+            cli: CliArgs {
+                source_root: source.clone(),
+                mount_root: mount,
+                visibility_hidden_rules: vec!["/same/*".to_string()],
+                visibility_visible_rules: vec!["/same/**/*.pem".to_string()],
+                mutability_readonly_rules: vec![],
+                mutability_writable_rules: vec![],
+            },
+            config_path: None,
+            visibility_default: None,
+            mutability_default: None,
+        })
+        .unwrap_err();
+        assert!(err.contains("overlapping glob targets without provable containment"));
     }
     std::fs::remove_dir_all(source).unwrap();
 }
@@ -757,6 +867,22 @@ fn reports_shared_normalization_failures_per_surface() {
         ),
         (
             (vec![], vec![], vec![], vec!["*secret*".to_string()]),
+            "invalid writable pattern",
+        ),
+        (
+            (vec!["**/*".to_string()], vec![], vec![], vec![]),
+            "invalid hidden pattern",
+        ),
+        (
+            (vec![], vec!["**/*".to_string()], vec![], vec![]),
+            "invalid visible pattern",
+        ),
+        (
+            (vec![], vec![], vec!["*".to_string()], vec![]),
+            "invalid readonly pattern",
+        ),
+        (
+            (vec![], vec![], vec![], vec!["*".to_string()]),
             "invalid writable pattern",
         ),
     ] {

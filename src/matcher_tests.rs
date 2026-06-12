@@ -55,9 +55,11 @@ fn dynamic_bridge_scan_roots_use_normalized_rule_anchors() {
     fs::create_dir_all(&cwd).unwrap();
     let context = test_context(&source, &cwd, None);
 
-    let exact_only = PathRuleMatcher::new(["/etc"], Vec::new(), &context).unwrap();
-    assert!(!exact_only.needs_dynamic_bridge_index());
-    assert!(exact_only.dynamic_bridge_scan_roots().is_empty());
+    for rule in ["/etc", "/etc/**", "./fixtures/**"] {
+        let matcher = PathRuleMatcher::new([rule], Vec::new(), &context).unwrap();
+        assert!(!matcher.needs_dynamic_bridge_index(), "{rule}");
+        assert!(matcher.dynamic_bridge_scan_roots().is_empty(), "{rule}");
+    }
 
     for (rule, expected) in [
         ("**/*.pem", vec![VirtualPath::new("/workspace/app")]),
@@ -66,6 +68,7 @@ fn dynamic_bridge_scan_roots_use_normalized_rule_anchors() {
             "./fixtures/**/*.pem",
             vec![VirtualPath::new("/workspace/app/fixtures")],
         ),
+        ("/a/*", vec![VirtualPath::new("/a")]),
         ("/a/*.txt", vec![VirtualPath::new("/a")]),
         ("/a/**/*.txt", vec![VirtualPath::new("/a")]),
     ] {
@@ -305,6 +308,79 @@ fn prefixless_recursive_glob_shorthand_compiles_equivalent_to_current_dir_recurs
 }
 
 #[test]
+fn anchored_wildcard_all_and_trailing_subtree_shorthand_preserve_normalized_semantics() {
+    let root = test_dir();
+    let source = root.join("source");
+    let cwd = source.join("workspace/app");
+    let home = source.join("home/tester");
+    fs::create_dir_all(source.join("workspace/app/fixtures/nested")).unwrap();
+    fs::create_dir_all(home.join("sandbox/bin")).unwrap();
+    let context = test_context(&source, &cwd, Some(home));
+
+    for (shorthand, subtree) in [
+        ("/vault/**", "/vault"),
+        ("./fixtures/**", "./fixtures"),
+        ("~/sandbox/**", "~/sandbox"),
+    ] {
+        let shorthand = PathRuleMatcher::new([shorthand], Vec::new(), &context).unwrap();
+        let subtree = PathRuleMatcher::new([subtree], Vec::new(), &context).unwrap();
+        assert_eq!(shorthand.descriptors(), subtree.descriptors());
+    }
+
+    let wildcard_all = PathRuleMatcher::new(
+        ["/vault/*", "./fixtures/*", "~/sandbox/*"],
+        Vec::new(),
+        &context,
+    )
+    .unwrap();
+
+    assert!(!wildcard_all.matches_path(&VirtualPath::new("/vault")));
+    assert!(wildcard_all.matches_path(&VirtualPath::new("/vault/child")));
+    assert!(wildcard_all.matches_path(&VirtualPath::new("/vault/child/grand")));
+    assert!(!wildcard_all.matches_path(&VirtualPath::new("/other/child")));
+
+    assert!(!wildcard_all.matches_path(&VirtualPath::new("/workspace/app/fixtures")));
+    assert!(wildcard_all.matches_path(&VirtualPath::new("/workspace/app/fixtures/local.pem")));
+    assert!(wildcard_all.matches_path(&VirtualPath::new(
+        "/workspace/app/fixtures/nested/local.pem"
+    )));
+    assert!(!wildcard_all.matches_path(&VirtualPath::new("/workspace/app/other/local.pem")));
+
+    assert!(!wildcard_all.matches_path(&VirtualPath::new("/home/tester/sandbox")));
+    assert!(wildcard_all.matches_path(&VirtualPath::new("/home/tester/sandbox/bin")));
+    assert!(wildcard_all.matches_path(&VirtualPath::new("/home/tester/sandbox/bin/tool")));
+    assert!(!wildcard_all.matches_path(&VirtualPath::new("/home/other/sandbox/bin")));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn anchored_wildcard_all_preserves_direct_child_containment_and_conservative_overlap_checks() {
+    let root = test_dir();
+    let source = root.join("source");
+    let cwd = source.join("workspace/app");
+    fs::create_dir_all(&cwd).unwrap();
+    let context = test_context(&source, &cwd, None);
+
+    let subtree = PathRuleMatcher::new(["/a"], Vec::new(), &context).unwrap();
+    let wildcard_all = PathRuleMatcher::new(["/a/*"], Vec::new(), &context).unwrap();
+    let direct = PathRuleMatcher::new(["/a/*.txt"], Vec::new(), &context).unwrap();
+    let recursive = PathRuleMatcher::new(["/a/**/*.txt"], Vec::new(), &context).unwrap();
+
+    let subtree_desc = &subtree.descriptors()[0];
+    let wildcard_all_desc = &wildcard_all.descriptors()[0];
+    let direct_desc = &direct.descriptors()[0];
+    let recursive_desc = &recursive.descriptors()[0];
+
+    assert!(wildcard_all_desc.contains_target_set(direct_desc));
+    assert!(!direct_desc.contains_target_set(wildcard_all_desc));
+    assert!(subtree_desc.contains_target_set(wildcard_all_desc));
+    assert!(!wildcard_all_desc.contains_target_set(subtree_desc));
+    assert!(wildcard_all_desc.has_less_specific_ancestor_of(direct_desc));
+    assert!(wildcard_all_desc.has_unproven_overlap_with(recursive_desc));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn matches_recursive_literal_descendant_subtree_globs() {
     let root = test_dir();
     let source = root.join("source");
@@ -458,6 +534,7 @@ fn rejects_unsupported_globs_and_paths_outside_source_root() {
     assert!(PathRuleMatcher::new(["../../secret"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["**/secret?.pem"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["*"], Vec::new(), &context).is_err());
+    assert!(PathRuleMatcher::new(["**/*"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["a*b"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["*secret*"], Vec::new(), &context).is_err());
     assert!(PathRuleMatcher::new(["/pre*fix/*.pem"], Vec::new(), &context).is_err());

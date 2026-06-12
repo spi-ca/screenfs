@@ -177,6 +177,7 @@ enum RuleTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum GlobPattern {
+    Any,
     Basename(String),
     Prefix(String),
     Suffix(String),
@@ -248,6 +249,7 @@ impl GlobPattern {
 
     fn matches_name(&self, name: &str) -> bool {
         match self {
+            Self::Any => true,
             Self::Basename(expected) => name == expected.as_str(),
             Self::Prefix(name_prefix) => name.starts_with(name_prefix),
             Self::Suffix(suffix) => name.ends_with(suffix),
@@ -256,6 +258,7 @@ impl GlobPattern {
 
     fn contains_pattern(&self, other: &Self) -> bool {
         match (self, other) {
+            (Self::Any, _) => true,
             (Self::Basename(left), Self::Basename(right)) => left == right,
             (Self::Prefix(prefix), Self::Basename(name)) => name.starts_with(prefix),
             (Self::Prefix(prefix), Self::Prefix(other_prefix)) => other_prefix.starts_with(prefix),
@@ -267,6 +270,7 @@ impl GlobPattern {
 
     fn specificity_tail(&self) -> (u8, usize) {
         match self {
+            Self::Any => (0, 0),
             Self::Basename(name) => (3, name.len()),
             Self::Prefix(prefix) => (1, prefix.len()),
             Self::Suffix(suffix) => (1, suffix.len()),
@@ -506,6 +510,9 @@ impl MatcherScope {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CompiledGlob {
+    Any {
+        prefix: Option<VirtualPath>,
+    },
     Basename {
         prefix: Option<VirtualPath>,
         recursive: bool,
@@ -550,6 +557,12 @@ impl CompiledGlob {
         if pattern.is_empty() || pattern.contains('/') || pattern.contains('?') {
             return Err(format!("unsupported glob: {rule}"));
         }
+        if pattern == "*" {
+            if recursive {
+                return Err(format!("unsupported glob: {rule}"));
+            }
+            return Ok(Self::Any { prefix });
+        }
         if let Some(extension) = pattern.strip_prefix("*.") {
             if extension.is_empty() || extension.contains('*') {
                 return Err(format!("unsupported glob: {rule}"));
@@ -582,6 +595,17 @@ impl CompiledGlob {
 
     fn descriptor(&self) -> RuleDescriptor {
         match self {
+            Self::Any { prefix } => {
+                let pattern = self.pattern().expect("pattern-backed glob");
+                RuleDescriptor {
+                    anchor: prefix.clone().unwrap_or_else(VirtualPath::root),
+                    specificity: RuleSpecificity::glob(prefix.as_ref(), false, &pattern),
+                    target: RuleTarget::Glob {
+                        recursive: false,
+                        pattern,
+                    },
+                }
+            }
             Self::Basename {
                 prefix, recursive, ..
             }
@@ -611,6 +635,7 @@ impl CompiledGlob {
 
     fn pattern(&self) -> Option<GlobPattern> {
         match self {
+            Self::Any { .. } => Some(GlobPattern::Any),
             Self::Basename { name, .. } => Some(GlobPattern::Basename(name.clone())),
             Self::Prefix { name_prefix, .. } => Some(GlobPattern::Prefix(name_prefix.clone())),
             Self::Suffix { suffix, .. } => Some(GlobPattern::Suffix(suffix.clone())),
@@ -641,7 +666,14 @@ impl PathRuleMatcher {
 
         for rule in rules {
             let rule = rule.as_ref();
-            if looks_like_glob(rule) {
+            if let Some(raw_prefix) = split_supported_subtree_shorthand(rule) {
+                let path = normalize_rule_path(raw_prefix, context)?;
+                descriptors.push(RuleDescriptor {
+                    anchor: path.clone(),
+                    specificity: RuleSpecificity::exact_or_prefix(&path, false),
+                    target: RuleTarget::Subtree,
+                });
+            } else if looks_like_glob(rule) {
                 let glob = CompiledGlob::compile(rule, context)?;
                 descriptors.push(glob.descriptor());
             } else {
@@ -892,7 +924,7 @@ fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str, bool), String
     }
     if let Some(index) = rule.rfind('/') {
         let pattern = &rule[index + 1..];
-        if is_supported_basename_glob_pattern(pattern) {
+        if is_supported_direct_child_glob_pattern(pattern) {
             let prefix = if index == 0 { "/" } else { &rule[..index] };
             if prefix.contains('*') || prefix.contains('?') {
                 return Err(format!("unsupported glob: {rule}"));
@@ -903,6 +935,26 @@ fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str, bool), String
         return Ok((Some("."), rule, false));
     }
     Err(format!("unsupported glob: {rule}"))
+}
+
+fn split_supported_subtree_shorthand(rule: &str) -> Option<&str> {
+    let prefix = rule.strip_suffix("/**")?;
+    if prefix.is_empty()
+        || prefix.contains('*')
+        || prefix.contains('?')
+        || !(prefix.starts_with('/')
+            || prefix == "."
+            || prefix.starts_with("./")
+            || prefix == "~"
+            || prefix.starts_with("~/"))
+    {
+        return None;
+    }
+    Some(prefix)
+}
+
+fn is_supported_direct_child_glob_pattern(pattern: &str) -> bool {
+    pattern == "*" || is_supported_basename_glob_pattern(pattern)
 }
 
 fn is_supported_basename_glob_pattern(pattern: &str) -> bool {

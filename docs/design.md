@@ -1,6 +1,6 @@
 # ScreenFS 설계 문서
 
-이 문서는 `ScreenFS`의 현재 목표 계약을 정리한다. canonical policy surface는 `visibility`/`mutability` 두 축이며, legacy family/flag 모델은 archival note에서만 다룬다. bare slashless glob의 cwd-anchored `./<pattern>` direct-child semantics와 prefixless recursive shorthand(`**/*.pem`, `**/.env.*`, `**/id_*`)의 cwd-anchored target semantics는 현재 구현·테스트·fresh smoke evidence가 갖춰진 contract다. 특히 `**/*.pem`은 같은 cwd anchor의 `./**/*.pem`과 동등하고 explicit root-anchor `/**/*.pem`과는 다른 family라는 current source/live evidence를 `docs/operations.md`가 정리한다.
+이 문서는 `ScreenFS`의 현재 목표 계약을 정리한다. canonical policy surface는 `visibility`/`mutability` 두 축이며, legacy family/flag 모델은 archival note에서만 다룬다. bare slashless glob의 cwd-anchored `./<pattern>` direct-child semantics와 prefixless recursive shorthand(`**/*.pem`, `**/.env.*`, `**/id_*`)의 cwd-anchored target semantics는 현재 구현·테스트·fresh smoke evidence가 갖춰진 contract다. 특히 `**/*.pem`은 같은 cwd anchor의 `./**/*.pem`과 동등하고 explicit root-anchor `/**/*.pem`과는 다른 family라는 current source/live evidence를 `docs/operations.md`가 정리한다. goal 612c03c6에서 추가된 anchored direct-child wildcard-all(`/dir/*`, `./dir/*`, `~/dir/*`)과 trailing subtree shorthand(`/dir/**`, `./dir/**`, `~/dir/**`)도 현재 source tests와 fresh smoke evidence가 갖춰진 contract다.
 
 아키텍처 시각화 요약은 [docs/architecture.md](architecture.md)에 정리되어 있다. 다이어그램 source of truth는 `docs/diagrams/*.mmd`이고, 렌더링 계약은 [docs/diagrams/README.md](diagrams/README.md)를 따른다.
 
@@ -172,8 +172,10 @@ Rules:
 - `~` / `~/...` exact path with `HOME` expansion and rebasing
 - recursive basename/suffix/basename-prefix tail: prefixless form(`**/.env`, `**/*.pem`, `**/.env.*`, `**/id_*`)은 launch process cwd를 host path로 정규화한 뒤 `source_root` relative normalized prefix로 rebase한 recursive shorthand다. 같은 normalized cwd anchor에서 `./**/.env`, `./**/*.pem`, `./**/.env.*`, `./**/id_*`와 동등하며, cwd가 `source_root` 밖이면 fail-fast 한다.
 - explicit-root 또는 normalized-prefix recursive form: `/**/.env`, `/**/*.pem`, `/**/.env.*`, `/**/id_*`, `./fixtures/**/*.pem`, `/a/**/*.txt`; `/**/*.pem` 같은 explicit root-anchor form은 whole-tree recursive semantics를 가지며, anchored recursive form은 해당 normalized prefix 아래 임의 깊이의 matching basename에 계속 매치한다.
+- normalized-prefix subtree shorthand: `/dir/**`, `./dir/**`, `~/dir/**`; trailing `/**`는 같은 normalized anchor의 subtree rule(`/dir`, `./dir`, `~/dir`)와 정확히 동등하게 normalize되며 anchor 자체와 모든 descendants에 적용된다. 같은 normalized descriptor/specificity를 공유하고 별도 recursive-any family를 만들지 않는다.
 - bare slashless glob shorthand: `/` component가 없는 `*.pem`, `*.key`, `.env.*`, `id_*` 같은 supported basename-prefix/suffix pattern은 `./<pattern>` shorthand다. launch process cwd를 host path로 정규화해 `source_root` relative normalized prefix로 rebase하고, 그 cwd가 `source_root` 밖이면 fail-fast 한다. 결과 rule은 그 cwd anchor 바로 아래의 immediate child basename만 매치하며, matched child 자체와 그 descendants에 적용된다. 즉 `*.pem`은 같은 normalized cwd anchor에서 `./*.pem`과 동등하고, 같은 anchor의 `**/*.pem`보다 더 구체적인 direct-child rule이다.
-- normalized-prefix direct-child basename-prefix/suffix form: `./fixtures/*.pem`, `~/.env.*`, `/home/<user>/*.pem`; `/a/*.txt`는 `/a/file.txt`와 그 descendants만 포함하고 `/a/b/file.txt`는 제외한다. same-anchor recursive form `./fixtures/**/*.pem`, `/a/**/*.txt`, `**/*.pem`은 각각 해당 anchor 아래 임의 깊이의 matching basename에 계속 매치한다.
+- normalized-prefix direct-child wildcard-all form: `/dir/*`, `./dir/*`, `~/dir/*`; normalized anchor directory의 모든 immediate child에 매치하고, 각 matched child와 그 descendants에 적용된다. anchor 자체에는 적용되지 않으며, immediate child를 먼저 매치하지 않고는 deeper non-child basename에 직접 매치하지 않는다.
+- normalized-prefix direct-child basename-prefix/suffix form: `./fixtures/*.pem`, `~/.env.*`, `/home/<user>/*.pem`; `/a/*.txt`는 `/a/file.txt`와 그 descendants만 포함하고 `/a/b/file.txt`는 제외한다. same-anchor direct-child wildcard-all `/a/*` target set 안에 contained되며, same-anchor subtree `/a` 및 `/a/**` target set 안에도 contained된다. same-anchor recursive form `./fixtures/**/*.pem`, `/a/**/*.txt`, `**/*.pem`은 각각 해당 anchor 아래 임의 깊이의 matching basename에 계속 매치한다.
 - limited recursive literal descendant-subtree glob: `<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`
 
 예시:
@@ -185,12 +187,18 @@ Rules:
 **/.env.*  # same as ./**/.env.* after cwd rebasing
 **/id_*  # same as ./**/id_* after cwd rebasing
 /**/*.pem
+/dir/**
+/dir/*
+./dir/**
+./dir/*
 **/.git/hooks/**
 ./repo/**/.git/hooks/**
 *.pem  # same as ./*.pem after cwd rebasing
 .env.*  # same as ./.env.* after cwd rebasing
 id_*  # same as ./id_* after cwd rebasing
 ~/.env.*
+~/dir/**
+~/dir/*
 /home/<user>/*.pem
 ```
 
@@ -205,6 +213,13 @@ id_*  # same as ./id_* after cwd rebasing
 
 중요: `**/*.pem`은 더 이상 whole-tree recursive family가 아니다. 같은 normalized cwd anchor에서는 `./**/*.pem`과 동등한 recursive shorthand이고, whole-tree recursive intent는 `/**/*.pem` 같은 explicit root-anchor form으로 표현한다. bare slashless `*.pem`는 같은 anchor의 direct-child shorthand로 남으며 same-anchor `**/*.pem` target set에 contained된다.
 
+anchored subtree/direct-child shorthand 관계:
+
+- same normalized anchor에서 `/dir/**`는 `/dir`와 같은 normalized descriptor/specificity로 compile된다. 같은 polarity에서는 duplicate/idempotent이고, opposite polarity에서는 same-specificity conflict다.
+- same anchor에서 `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*` 같은 direct-child basename-prefix/suffix family는 `/dir/*` target set 안에 contained되는 더 구체적인 rule이다.
+- same anchor에서 `/dir/*` target set은 `/dir` 및 `/dir/**` target set 안에 contained된다.
+- same anchor에서 `/dir/*`와 `/dir/**/*.pem` 같은 anchored recursive basename/suffix family는 일반적으로 서로를 포함하지 않는다. 예를 들어 `/dir/*`는 `/dir/subdir` subtree 전체를 포함하지만 `/dir/**/*.pem`은 deeper grandchild basename에도 매치하므로, opposite-polarity 조합은 containment를 증명할 수 없으면 기존 overlap fail-fast 규칙을 따른다.
+
 fail-fast subset:
 
 - missing `HOME`
@@ -212,6 +227,7 @@ fail-fast subset:
 - expanded path outside `source_root`
 - `~user`
 - wildcard-in-prefix broader forms
+- unanchored wildcard-all recursive form(`**/*`)
 - one-sided basename-prefix/suffix subset 밖의 bare wildcard form(`*`, `a*b`, `*secret*`)
 - descendant-subtree literal tail 내부 wildcard
 - trailing `/**` 없는 descendant-subtree form
@@ -225,6 +241,9 @@ fail-fast subset:
 - same-specificity same-polarity duplicate는 idempotent
 - `**/*.pem`는 같은 normalized cwd anchor에서 `./**/*.pem`과 같은 normalized anchor/specificity로 compile되므로 같은 polarity에서는 duplicate/idempotent이고, opposite polarity에서는 same-specificity conflict로 fail-fast다
 - `*.pem`는 같은 normalized cwd anchor에서 `./*.pem`과 같은 normalized anchor/specificity로 compile되며, same-anchor `**/*.pem` target set 안에 contained되는 더 구체적인 direct-child rule이므로 same-specificity equivalent rule이 아니라 nested override/containment 관계로 처리한다
+- same-anchor `/dir/**`는 `/dir` subtree rule과 같은 normalized descriptor/specificity로 compile되므로 같은 polarity에서는 duplicate/idempotent이고, opposite polarity에서는 same-specificity conflict로 fail-fast다
+- same-anchor `/dir/*`는 `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*` 같은 direct-child basename family보다 넓고, `/dir`/`/dir/**` target set 안에 contained된다
+- `/dir/*`와 `/dir/**/*.pem` 같은 anchored recursive family는 containment가 증명되는 경우에만 nested override 관계가 생기며, 일반적인 opposite-polarity partial overlap은 fail-fast다
 - same-axis opposite rule이 같은 normalized anchor/specificity에서 충돌하면 fail-fast
 - hidden 결과는 mutability보다 먼저 적용된다
 
@@ -431,7 +450,7 @@ Policy:
 - conservative timeout defaults until correctness is proven
 - writable mutation invalidates affected parent directory, involved path entries, and inode/path cache entries
 - bridge-visible reachability는 mount startup에서 source tree를 스캔해 existing visible descendant의 ancestor index로 구축하거나 동등한 bounded/cacheable 구조를 사용해야 하며, request hot path에서 whole-root recursive scan을 유발하면 안 된다
-- direct-child visible glob도 semantics는 anchored지만 current bridge-index build는 matched-entry descendants reachability 때문에 anchor 아래를 재귀 탐색할 수 있다. 따라서 `*.pem`, `./fixtures/*.pem`, `/a/*.txt`는 anchor-bounded discovery이고, `**/*.pem`, `./fixtures/**/*.pem`, `/a/**/*.txt`는 각 anchor 아래 더 넓은 recursive discovery다. 이때 prefixless `**/*.pem`의 scan root는 normalized cwd anchor이고, explicit root-anchor `/**/*.pem`에서만 `source_root`가 scan root가 될 수 있다.
+- direct-child visible glob도 semantics는 anchored지만 current bridge-index build는 matched-entry descendants reachability 때문에 anchor 아래를 재귀 탐색할 수 있다. 따라서 `*.pem`, `./fixtures/*.pem`, `/a/*.txt`, `/dir/*`는 anchor-bounded discovery이고, `**/*.pem`, `./fixtures/**/*.pem`, `/a/**/*.txt`는 각 anchor 아래 더 넓은 recursive discovery다. `/dir/**`는 `/dir`와 같은 subtree descriptor/startup behavior를 공유하며 별도 recursive-any scan family를 만들지 않는다. 이때 prefixless `**/*.pem`의 scan root는 normalized cwd anchor이고, explicit root-anchor `/**/*.pem`에서만 `source_root`가 scan root가 될 수 있다.
 - dynamic glob visible rule의 bridge-visible ancestor index는 mount-start snapshot이다. 외부 backing-tree 변경으로 새 dynamic-glob visible descendant가 생겨도 mid-mount에 previously unreachable hidden ancestor를 새로 열지 않으며, 그런 reachability 확장은 remount로 갱신한다. ScreenFS 내부 writable mutation은 affected inode/path/directory snapshot을 invalidate하지만 dynamic bridge index 자체를 확장하지 않는다.
 - 현재 구현은 `ScreenFs::new`에서 dynamic bridge-visible ancestor index를 만들되 dynamic rule anchor를 scan root로 사용해 anchored glob의 startup 범위를 제한하고, request path에서는 static subtree bridge query 또는 index lookup만 수행한다
 - bridge-visible and symlink-target-dependent visibility checks must not be served from stale direct-path-only cache

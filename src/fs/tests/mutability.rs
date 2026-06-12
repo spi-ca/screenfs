@@ -155,6 +155,55 @@ fn writable_default_direct_child_globs_lock_only_immediate_children() {
 }
 
 #[test]
+fn writable_default_direct_child_wildcard_all_locks_child_subtrees() {
+    let dir = test_dir("writable-default-direct-child-wildcard-all");
+    std::fs::create_dir_all(dir.join("free/nested")).unwrap();
+    std::fs::write(dir.join("free/plain.txt"), b"plain").unwrap();
+    std::fs::write(dir.join("free/nested/deep.txt"), b"deep").unwrap();
+    std::fs::write(dir.join("other.txt"), b"other").unwrap();
+    let fs = fs_for(&dir, Vec::new(), vec!["/free/*".to_string()]);
+
+    for path in ["/free/plain.txt", "/free/nested/deep.txt"] {
+        let ino = fs
+            .reply_entry_for_path(VirtualPath::new(path))
+            .unwrap()
+            .attr
+            .ino;
+        assert_eq!(
+            block_on(fs.open(dummy_req(), ino, libc::O_WRONLY as u32)).unwrap_err(),
+            libc::EROFS,
+            "{path}"
+        );
+    }
+
+    let other = fs
+        .reply_entry_for_path(VirtualPath::new("/other.txt"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), other, libc::O_WRONLY as u32)).unwrap();
+    block_on(fs.release(dummy_req(), other, handle.fh, 0, 0, false, false)).unwrap();
+
+    let free = fs
+        .reply_entry_for_path(VirtualPath::new("/free"))
+        .unwrap()
+        .attr
+        .ino;
+    assert_eq!(
+        block_on(fs.create(
+            dummy_req(),
+            free,
+            OsStr::new("new.txt"),
+            0o644,
+            libc::O_WRONLY as u32 | libc::O_CREAT as u32,
+        ))
+        .unwrap_err(),
+        libc::EROFS
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn readonly_default_canonical_absolute_txt_globs_preserve_direct_child_over_recursive_specificity()
 {
     let dir = test_dir("readonly-default-absolute-txt-globs");

@@ -187,11 +187,14 @@ visibility와 mutability 축은 같은 rule semantics를 공유해야 한다.
 - exact path와 함께 다음 limited glob subset을 지원한다.
   - recursive basename/suffix/basename-prefix tail: prefixless form(`**/.env`, `**/*.pem`, `**/.env.*`, `**/id_*`)은 launch process cwd를 먼저 host path로 정규화한 뒤 `source_root` relative normalized prefix로 rebase한 recursive shorthand다. 같은 normalized cwd anchor에서 `./**/.env`, `./**/*.pem`, `./**/.env.*`, `./**/id_*`와 동등하며, cwd가 `source_root` 밖이면 fail-fast 한다.
   - explicit-root 또는 normalized-prefix recursive form: `/**/.env`, `/**/*.pem`, `/**/.env.*`, `/**/id_*`, `./fixtures/**/*.pem`, `/a/**/*.txt`; `/**/*.pem` 같은 explicit root-anchor form은 whole-tree recursive semantics를 가지며, anchored recursive form은 해당 normalized prefix 아래 임의 깊이의 matching basename에 계속 매치한다.
+  - normalized-prefix subtree shorthand: `/dir/**`, `./dir/**`, `~/dir/**`; trailing `/**`는 같은 normalized anchor의 subtree rule(`/dir`, `./dir`, `~/dir`)와 정확히 동등하게 normalize되며 anchor 자체와 모든 descendants에 적용된다. 같은 normalized descriptor/specificity를 공유하고 별도 recursive-any family를 만들지 않는다.
   - bare slashless glob shorthand: `/` component가 없는 `*.pem`, `*.key`, `.env.*`, `id_*` 같은 supported basename-prefix/suffix pattern은 `./<pattern>` shorthand다. launch process cwd를 먼저 host path로 정규화해 `source_root` relative normalized prefix로 rebase하고, 그 cwd가 `source_root` 밖이면 fail-fast 한다. 결과 rule은 그 cwd anchor 바로 아래의 immediate child basename만 매치하며, matched child 자체와 그 descendants에 적용된다. 즉 `*.pem`은 같은 normalized cwd anchor에서 `./*.pem`과 동등하고, 같은 anchor의 `**/*.pem`보다 더 구체적인 direct-child rule이다.
-  - normalized-prefix direct-child basename-prefix/suffix form: `./fixtures/*.pem`, `~/.env.*`, `/home/<user>/*.pem`; `/a/*.txt`는 `/a/file.txt`와 그 descendants에만 매치하고 `/a/b/file.txt`에는 매치하지 않는 반면, same-anchor recursive form `./fixtures/**/*.pem`, `/a/**/*.txt`, `**/*.pem`은 각각 해당 anchor 아래 임의 깊이의 matching basename에 계속 매치한다.
+  - normalized-prefix direct-child wildcard-all form: `/dir/*`, `./dir/*`, `~/dir/*`; normalized anchor directory의 모든 immediate child에 매치하고, 각 matched child와 그 descendants에 적용된다. anchor 자체에는 적용되지 않으며, immediate child를 먼저 매치하지 않고는 deeper non-child basename에 직접 매치하지 않는다.
+  - normalized-prefix direct-child basename-prefix/suffix form: `./fixtures/*.pem`, `~/.env.*`, `/home/<user>/*.pem`; `/a/*.txt`는 `/a/file.txt`와 그 descendants에만 매치하고 `/a/b/file.txt`에는 매치하지 않는다. same-anchor direct-child wildcard-all `/a/*` target set 안에 contained되며, same-anchor subtree `/a` 및 `/a/**` target set 안에도 contained된다. 반면 same-anchor recursive form `./fixtures/**/*.pem`, `/a/**/*.txt`, `**/*.pem`은 각각 해당 anchor 아래 임의 깊이의 matching basename에 계속 매치한다.
   - limited recursive literal descendant-subtree glob: `<normalized-prefix>/**/<literal-component>(/<literal-component>)*/**`
 - descendant-subtree glob 예: `**/.git/**`, `**/.git/hooks/**`, `./repo/**/.git/hooks/**`, `~/project/**/.git/hooks/**`
 - descendant-subtree glob은 literal tail subtree root 자체와 그 모든 descendants에 매치된다.
+- anchored shorthand 예: `/dir/*`, `./dir/*`, `~/dir/*`, `/dir/**`, `./dir/**`, `~/dir/**`
 
 ### 7.1 Canonical 4-family glob table
 
@@ -204,6 +207,13 @@ visibility와 mutability 축은 같은 rule semantics를 공유해야 한다.
 
 중요: `**/*.pem`은 더 이상 whole-tree recursive family가 아니다. 같은 normalized cwd anchor에서는 `./**/*.pem`과 동등한 recursive shorthand이고, whole-tree recursive intent는 `/**/*.pem` 같은 explicit root-anchor form으로 표현한다. bare slashless `*.pem`는 같은 anchor의 direct-child shorthand로 남으며 same-anchor `**/*.pem` target set에 contained된다.
 
+anchored subtree/direct-child shorthand 관계:
+
+- same normalized anchor에서 `/dir/**`는 `/dir`와 같은 normalized descriptor/specificity로 compile된다. 같은 polarity에서는 duplicate/idempotent이고, opposite polarity에서는 same-specificity conflict다.
+- same anchor에서 `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*` 같은 direct-child basename-prefix/suffix family는 `/dir/*` target set 안에 contained되는 더 구체적인 rule이다.
+- same anchor에서 `/dir/*` target set은 `/dir` 및 `/dir/**` target set 안에 contained된다.
+- same anchor에서 `/dir/*`와 `/dir/**/*.pem` 같은 anchored recursive basename/suffix family는 일반적으로 서로를 포함하지 않는다. 예를 들어 `/dir/*`는 `/dir/subdir` subtree 전체를 포함하지만 `/dir/**/*.pem`은 deeper grandchild basename에도 매치하므로, opposite-polarity 조합은 containment를 증명할 수 없으면 기존 overlap fail-fast 규칙을 따른다.
+
 fail-fast 조건:
 
 - `HOME` 없음
@@ -211,6 +221,7 @@ fail-fast 조건:
 - expanded host path가 `source_root` 밖
 - `~user`
 - wildcard가 prefix 내부에 섞이는 broader form(`foo/*/bar.pem`, `**/secret?.pem`)
+- unanchored wildcard-all recursive form(`**/*`)
 - one-sided basename-prefix/suffix subset 밖의 bare wildcard form(`*`, `a*b`, `*secret*`)
 - descendant-subtree literal tail 내부 wildcard(`**/.git/*/hooks/**`, `**/.git/**/hooks/**`)
 - trailing `/**` 없는 descendant-subtree form(`**/.git/hooks`)
@@ -266,7 +277,7 @@ CLI/config semantics:
 - CLI axis option이 하나라도 있으면 해당 축의 config block 전체를 대체한다.
 - explicit default가 없으면 visibility 기본값은 `visible`, mutability 기본값은 `writable`로 읽는다.
 - 같은 축의 more-specific override가 덜 구체적인 rule보다 우선한다.
-- `**/*.pem`는 같은 normalized cwd anchor에서 `./**/*.pem`과 같은 specificity/equivalence로 compile된다. `*.pem`는 같은 normalized cwd anchor에서 `./*.pem`과 같은 direct-child specificity/equivalence로 compile되며, same-anchor `**/*.pem` target set 안에 contained되는 더 구체적인 rule이다. current fresh evidence는 두 관계를 모두 검증하며, 상세 상태는 `docs/operations.md`를 따른다.
+- `**/*.pem`는 같은 normalized cwd anchor에서 `./**/*.pem`과 같은 specificity/equivalence로 compile된다. `*.pem`는 같은 normalized cwd anchor에서 `./*.pem`과 같은 direct-child specificity/equivalence로 compile되며, same-anchor `**/*.pem` target set 안에 contained되는 더 구체적인 rule이다. same-anchor `/dir/**`는 `/dir` subtree rule과 같은 descriptor/specificity로 compile되고, `/dir/*`는 same-anchor `/dir/*.pem` 같은 direct-child basename family보다 넓으며 `/dir`/`/dir/**` target set 안에 contained되는 direct-child wildcard-all rule이다. `/dir/*`와 `/dir/**/*.pem` 같은 anchored recursive family는 containment가 증명되는 경우에만 override 관계가 성립하며, 일반적인 opposite-polarity partial overlap은 fail-fast다. current fresh evidence 상태는 `docs/operations.md`를 따른다.
 - 이 목표 계약에는 제거된 예전 family/flag surface를 위한 compatibility alias나 legacy shim이 없다.
 
 ## 10. 성능 및 메모리 요구사항
@@ -280,7 +291,7 @@ CLI/config semantics:
 - rule 증가 시 성능 저하 최소화
 - visible file data path는 최대한 underlying filesystem으로 pass-through
 - bridge-visible reachability 판정은 startup에 구축한 bridge ancestor index 또는 동등한 bounded/cacheable 구조를 사용해야 하며 hot path에서 unbounded whole-root recursive scan을 요구해서는 안 됨
-- `visibility.visible` glob startup 범위는 family마다 다르다. same-cwd-anchor recursive shorthand `**/*.pem`은 scan root가 normalized cwd anchor다. `./fixtures/**/*.pem`, `/a/**/*.txt`는 각 anchor subtree 전체로 더 넓어질 수 있고, `/a/*.txt`, `*.pem` 같은 direct-child family도 current bridge-index walk는 anchor 아래를 재귀 탐색할 수 있지만 scan root는 anchor로 제한된다. explicit root-anchor `/**/*.pem`은 `source_root`가 scan root다.
+- `visibility.visible` glob startup 범위는 family마다 다르다. same-cwd-anchor recursive shorthand `**/*.pem`은 scan root가 normalized cwd anchor다. `./fixtures/**/*.pem`, `/a/**/*.txt`는 각 anchor subtree 전체로 더 넓어질 수 있고, `/a/*.txt`, `/dir/*`, `*.pem` 같은 direct-child family도 current bridge-index walk는 anchor 아래를 재귀 탐색할 수 있지만 scan root는 anchor로 제한된다. `/dir/**`는 `/dir`와 같은 subtree descriptor/startup behavior를 공유하며 별도 recursive-any scan family를 만들지 않는다. explicit root-anchor `/**/*.pem`은 `source_root`가 scan root다.
 - dynamic glob visible rule의 bridge-visible ancestor index는 mount-start snapshot이며, 외부 backing-tree 변경으로 새 visible descendant가 생겨도 remount 전에는 previously unreachable hidden ancestor를 새로 노출하지 않음
 - raw symlink target이 lexical virtual visibility 기준으로 fully visible하지만 host resolution에서 `source_root` 밖으로 escape하면 `readlink`는 raw target을 반환할 수 있고, dereference/open/access는 confinement 단계에서 `ENOENT`로 실패해야 함
 - live mount smoke와 performance smoke는 bridge-visible reachability/latency 계약의 계속된 증거여야 함
