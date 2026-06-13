@@ -5,7 +5,7 @@
 - source of truth: 목표 계약은 `README.md`, `docs/requirements.md`, `docs/design.md`; 구현은 `src/`에서 이 계약을 따라야 한다.
 - 이 문서는 승인된 목표 계약을 `visibility.*` / `mutability.*` 축으로 설명한다.
 - current CLI/config reference는 두 축 문서를 따른다.
-- 런타임 전제: non-root + `fusermount3`, `FUSE_OVER_IO_URING` 필수, 협상 실패 시 fallback 없이 fail-fast
+- 런타임 전제: non-root + `fusermount3`, FUSE request/reply transport의 `FUSE_OVER_IO_URING` 필수, 협상 실패 시 fallback 없이 fail-fast
 - 통합 경계: mount owner와 동일 host uid 접근이 기본 전제이며, chroot 권한 모델과 `/proc`·`/sys`·`/dev`·`/run` native semantics는 상위 supervisor 책임이다
 - 다이어그램 source of truth: `docs/diagrams/*.mmd`
 - 다이어그램 렌더링 계약: `docs/diagrams/README.md`
@@ -51,7 +51,7 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 - `src/path.rs`: lexical virtual path normalization, symlink target lexical resolution, source-root confinement 보조, relative/`~` exact·prefixed-glob rule input rebasing helper
 - `src/matcher.rs`: `PathRuleMatcher`와 `MatcherScope`를 제공하는 facade다. matcher internals는 `src/matcher/grammar.rs`(supported grammar parsing과 glob compilation), `src/matcher/descriptor.rs`(descriptor, specificity ordering, containment/overlap reasoning), `src/matcher/index.rs`(candidate ordering/index와 descendant metadata)로 나뉜다. 목표 계약에서는 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 family별로 compile하고, `visibility.visible` validator가 subtree/direct-child current subset만 통과시켜야 한다. recursive literal directory shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`만 허용하고 canonical trailing `/**` descriptor로 normalize되어 same-specificity conflict/dedup/containment 결과와 matcher cost가 동일해야 한다. `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 form은 fail-fast 대상이다. dynamic bridge scan root나 recursive visible glob support를 추가하지 않는다.
 - `src/fs.rs`: `ScreenFs` FUSE 구현의 module root/orchestrator. request entrypoint를 `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`와 조합한다.
-- `src/fs/state.rs`: inode/path map, lookup/open refcount, optional per-handle directory iteration state를 관리한다.
+- `src/fs/state.rs`: inode/path map, lookup/open refcount, optional per-handle directory iteration state를 관리한다. 현재 baseline은 단일 state lock으로 이 일관성 도메인을 보호한다. state-lock granularity 개선의 선택된 목표 방향은 inode/path identity, refcounts, file handles, directory snapshots, and invalidation을 하나의 consistency domain으로 유지하되 단일 state `RwLock`을 사용해 read-only snapshot은 병렬화하고 cross-table mutation은 write lock으로 처리하는 것이다.
 - `src/fs/guards.rs`: hidden guard, bridge-visible guard, symlink final-target visibility guard, mutation coordinate guard, directory filtering과 reply-building 전 검사를 담당한다. bridge-visible/fully-visible/readability semantics는 `RuntimeConfig` helper를 통해 적용하며 guard마다 `visibility_decision`을 재해석하지 않는다.
 - `src/fs/backing.rs`: `source_root` confinement 하의 host delegation, open/statfs/fd-based xattr/setattr helper를 담당한다.
 - `src/errors.rs`: hidden 우선 `ENOENT`, mutation 차단 `EROFS`, host errno 보존 규칙을 담당한다.
@@ -123,8 +123,10 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 이 아키텍처가 전제하는 운영 경계는 다음과 같다.
 
 - mount 생성은 non-root 사용자 + `fusermount3` 기준이다.
-- `FUSE_OVER_IO_URING` 협상 실패 시 mount를 degraded fallback으로 열지 않고 fail-fast 한다.
+- `FUSE_OVER_IO_URING` 협상 실패 시 mount를 degraded fallback으로 열지 않고 fail-fast 한다. 이 요구사항은 FUSE transport에 한정되며 backing filesystem metadata/data path의 wholesale `io_uring` 전환을 뜻하지 않는다.
+- 이미 열린 file handle의 `read`/`write`/`copy_file_range` 및 evidence가 있는 `fallocate`/`fsync` data path만 selective async/io_uring follow-up 후보가 될 수 있다. metadata/path policy operation과 recursive discovery는 이 후보 범위에 포함되지 않는다.
 - 기본 접근 모델은 mount owner와 동일 host uid다.
+- 현재 hardening contract는 POSIX fd lifetime semantics와 best-effort current-path validation을 따른다. ScreenFS는 `source_root`와 operation parent/object를 fd로 pin한 뒤 fd-relative host syscall을 사용하고, mutation 직전 opened parent dirfd가 요청된 virtual parent path에 남아 있는지 재확인한다. 다만 외부 same-UID actor가 그 재확인 이후 이미 pin된 directory/file을 rename/unlink하면 fd-relative operation은 path 위치가 아니라 pin된 inode에 계속 적용될 수 있다.
 - 다른 host uid 접근은 `allow_other`와 `/etc/fuse.conf` 정책이 별도로 필요하다.
 - `chroot` 실행 권한, user namespace, supervisor 구성은 `ScreenFS` 바깥 책임이다 (`pi-bash-sandbox`는 대표 예시일 뿐 유일한 상위 레이어는 아님).
 - `/proc`·`/sys`·`/dev`·`/run`의 native semantics 재현도 `ScreenFS` 단독 책임이 아니다.

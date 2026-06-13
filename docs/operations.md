@@ -8,6 +8,9 @@ artifact 분류 quick map:
 - current default-writable live smoke baseline: `docs/artifacts/current-default-writable-smoke-transcript.md`
 - current bare slashless cwd-anchor repo-local live smoke baseline: `docs/artifacts/current-bare-basename-glob-smoke-transcript.md` (`*.pem`=`./*.pem` direct-child baseline)
 - current visible direct-child/subtree compatibility smoke baseline: `docs/artifacts/current-compatibility-pattern-smoke-transcript.md` (`/dir/*`, `./dir/*`, `~/dir/*`, `/dir/**`, `./dir/**`, `~/dir/**`, and `*`/`**/*` fail-fast)
+- current FUSE transport contract source evidence: `docs/artifacts/current-fuse-transport-contract-evidence.md` (`fractal-fuse = 0.4.0` `FUSE_OVER_IO_URING` negotiation fail-fast source evidence plus ScreenFS no-fallback mount path evidence)
+- current file-data-path async/io_uring feasibility evidence: `docs/artifacts/current-file-data-path-async-feasibility.md` (dependency/API and benchmark-gating evidence for already-open file handle data operations)
+- current state-lock concurrency evidence: `docs/artifacts/current-state-lock-concurrency-evidence.md` (single consistency-domain `RwLock<State>` rationale, lock rules, and validation expectations)
 
 ## 환경 전제
 
@@ -22,7 +25,7 @@ fusermount3 version: 3.18.2
 /dev/fuse: present
 ```
 
-위 kernel config artifact는 현재 커널 빌드 설정에 `FUSE_OVER_IO_URING` 관련 옵션이 활성화되어 있음을 보여주는 정적 근거다. 이는 mount 성공이나 실제 session 협상 성공을 새로 증명하는 smoke artifact는 아니다.
+위 kernel config artifact는 현재 커널 빌드 설정에 `FUSE_OVER_IO_URING` 관련 옵션이 활성화되어 있음을 보여주는 정적 근거다. 이는 mount 성공이나 실제 session 협상 성공을 새로 증명하는 smoke artifact는 아니다. current v1 async scope는 FUSE request/reply transport 협상에 한정되며, backing filesystem metadata/data path의 host syscall/openat2-confined delegation을 wholesale `io_uring`로 바꾸는 것을 요구하지 않는다. 이미 열린 file handle의 data path를 선택적으로 바꾸려면 `read`/`write`/`copy_file_range`/`fallocate`/`fsync`별 baseline benchmark, dependency/API support, and policy-preservation evidence를 별도로 남긴다.
 
 프로젝트 상태:
 
@@ -49,7 +52,7 @@ cargo clippy --all-targets --all-features
 
 - recorded evidence는 visibility/mutability policy axis 기준으로 정리한다.
 - `cargo fmt --check`, `cargo check`, `cargo test --all-targets --all-features`, `cargo clippy --all-targets --all-features` pass 기록이 남아 있다.
-- latest recorded full-suite `cargo test --all-targets --all-features` 결과는 119 tests 통과이며, visibility/mutability axis regressions, bare slashless cwd-anchor/direct-child regressions, shared recursive-family coverage, direct-child/subtree compatibility coverage, recursive literal directory shorthand coverage, recursive `visibility.visible` rejection, matcher bucket/index module split, symlink final-target visibility safety, fd-based xattr/setattr hardening을 포함한다.
+- latest recorded full-suite `cargo test --all-targets --all-features` 결과는 128 tests 통과이며, visibility/mutability axis regressions, bare slashless cwd-anchor/direct-child regressions, shared recursive-family coverage, direct-child/subtree compatibility coverage, recursive literal directory shorthand coverage, recursive `visibility.visible` rejection, matcher bucket/index module split, symlink final-target visibility safety, fd-based xattr/setattr hardening, ScreenFS mount option policy regression, state-lock concurrency regressions, create/open target revalidation regressions, TOCTOU hardening regressions를 포함한다.
 - current mount-free/source coverage는 최소한 다음을 포함한다.
   - `visibility.hidden`: hidden entry filtering, direct read/stat/access/open `ENOENT`, single-hop/multi-hop/ancestor symlink hidden target `ENOENT`
   - `visibility.visible`: default-hidden carve-out, subtree/direct-child bridge-visible ancestor, hidden sibling 비노출, recursive visible glob rejection
@@ -65,6 +68,8 @@ cargo clippy --all-targets --all-features
   - current visible rejection set: `visibility.visible`에서 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form이 fail-fast 되는지 확인
   - unsupported glob fail-fast, same-specificity conflict fail-fast, config load/axis override
   - xattr/setattr hardening: xattr and setattr paths use confined fd-based operations after policy checks and preserve hidden symlink `ENOENT`
+- state-lock concurrency changes are tracked in `docs/artifacts/current-state-lock-concurrency-evidence.md`; current source coverage includes read/write lock snapshot paths, readdirplus atomic lookup-ref pinning, lseek handle lifecycle, offset-based read/write behavior, and focused state-cache concurrency regression tests.
+- Path-based TOCTOU hardening is tracked in `docs/artifacts/current-toctou-hardening-evidence.md`; current direction is to pin `source_root` and parent/opened objects with `open_confined()` and use dirfd/`*at` syscalls for metadata, listing, readlink, and mutation surfaces instead of reusing raceable host path strings after policy checks. Mutation paths also best-effort revalidate that opened parent dirfds still map to the requested virtual parent before the final fd-relative syscall, and write-intent open/create defers `O_TRUNC` until after opened-target validation. Remaining external same-UID rename/unlink after that validation follows Linux/POSIX fd lifetime semantics rather than current-virtual-path atomicity.
 - 문서 정합성 확인으로 변경된 문서 구간은 상호 일관성을 위해 다시 읽어 확인한다.
 
 ## Mermaid 다이어그램 산출물 재생성
@@ -140,6 +145,8 @@ file docs/diagrams/*.png
 
 - smoke를 `완료` 또는 `성공`으로 표기하려면 실제 mount가 살아 있는 상태에서 후속 검증 명령까지 실행돼야 한다.
 - kernel config artifact(`.../linux-spica-git/config.saved.x86_64`에서 `CONFIG_FUSE_IO_URING=y`, `CONFIG_IO_URING=y`)는 환경 전제 증거로만 기록하고, 단독으로 live smoke 성공으로 승격하지 않는다.
+- `FUSE_OVER_IO_URING` transport 계약을 증거로 남길 때는 `fractal-fuse = 0.4.0`의 session negotiation이 unsupported transport에서 startup error를 반환한다는 dependency-source 근거와, ScreenFS가 해당 error를 fallback 없이 노출한다는 local code/test 또는 live smoke 근거를 분리해 기록한다.
+- selective file-data-path async/io_uring evidence를 남길 때는 metadata/path policy operations와 분리한다. 최소 기록 항목은 baseline workload, measurement command, input file sizes/counts, operation (`read`, `write`, `copy_file_range`, optional `fallocate`/`fsync`), latency/throughput/CPU or syscall evidence, dependency/API used, focused semantic tests, and explicit confirmation that lookup/getattr/readdir/readlink/xattr/setattr/rename/link/symlink/unlink/mkdir and recursive discovery were not changed.
 - 최소 기록 항목:
   - mount 명령 또는 동등한 실행 surface
   - source/mount 경로
@@ -161,6 +168,7 @@ file docs/diagrams/*.png
 - recursive literal directory shorthand를 current contract evidence로 삼으려면 source diff/trace/counter/perf smoke로 normalization/path-matcher-only임을 보여야 한다. 즉 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery가 추가되지 않았고 matcher cost도 기존 canonical `**/.../**` recursive literal subtree rule과 같아야 한다. `**/.git/hooks`, `~/**/aaa/hook` 같은 supported shorthand는 각각 canonical `**/.git/hooks/**`, `~/**/aaa/hook/**`와 같은 비용이어야 한다.
 - direct-child visible rule(`/tmp/*` 또는 동등형)을 current contract evidence로 삼으려면 startup/lookup/readdir 단계에서 anchor subtree 재귀 순회가 없고 현재 directory/parent와 무관한 matcher bucket을 건너뛴다는 성능-oriented smoke, counter, trace, 또는 동등한 계측을 함께 남긴다. recursive literal directory shorthand 목표를 함께 건드렸다면 shorthand 추가가 이 경로에 새로운 recursive discovery/scanning 코드를 끼워 넣지 않았다는 근거도 같은 세션 또는 source diff로 남긴다.
 - symlink-dependent visibility contract를 주장하려면 listing/lookup/getattr/readlink/dereference/open 시점 check가 prior listing success, symlink decision cache, direct-path-only memoized result로 대체되지 않는 evidence를 함께 남긴다.
+- state-lock concurrency 변경을 주장하려면 lock domain, read/write lock usage, no-upgrade rule, host-I/O-outside-lock rule, readdirplus lookup-ref pinning, mutation invalidation atomicity, and focused state-cache/concurrency tests를 함께 남긴다. Per-table lock split은 별도 design artifact 없이 current evidence로 승격하지 않는다.
 - 문서상 current contract surface와 current verified evidence를 구분하고, current baseline artifact만 유지한다.
 - mount 전에 실패했으면 상태는 `차단됨` 또는 `실패`로 적고, hidden/whole-view/mutability smoke를 `완료`로 승격하지 않는다.
 
@@ -441,7 +449,7 @@ fusermount3 -u /tmp/screenfs-root
 | Rust formatting | 통과 | 최신 recorded evidence 기준 `cargo fmt --check` pass 기록 |
 | Rust compile check | 통과 | 최신 recorded evidence 기준 `cargo check` pass 기록 |
 | Rust lint | 통과 | 최신 recorded evidence 기준 `cargo clippy --all-targets --all-features` pass 기록 |
-| Mount-free unit tests | 통과 | latest recorded `cargo test --all-targets --all-features`는 119 tests 통과이며, recursive literal directory shorthand equivalence, visible recursive glob rejection, recursive bridge discovery guardrail, directory-entry matcher bucket indexing, matcher module split regressions, symlink final-target safety, fd-based xattr/setattr hardening을 포함한다. |
+| Mount-free unit tests | 통과 | latest recorded `cargo test --all-targets --all-features`는 128 tests 통과이며, recursive literal directory shorthand equivalence, visible recursive glob rejection, recursive bridge discovery guardrail, directory-entry matcher bucket indexing, matcher module split regressions, symlink final-target safety, fd-based xattr/setattr hardening, ScreenFS mount option policy regression, state-lock concurrency regressions, create/open target revalidation regressions, TOCTOU hardening regressions를 포함한다. |
 | `visibility.hidden` | source evidence 통과 / repo-local live smoke 통과 | mount-free tests는 direct access `ENOENT`와 listing exclusion을 검증; current smoke는 hidden `.git/config` `stat`/mutation `ENOENT`를 캡처 |
 | `visibility.visible` subtree/direct-child carve-out | source evidence 통과 | current source tests는 `/dir`, `/dir/**`, `/dir/*`, `/dir/*.suffix`, cwd/HOME-relative direct-child forms가 recursive bridge discovery 없이 bridge ancestor/listing을 유지하고 hidden sibling을 노출하지 않음을 검증한다. recursive visible glob은 이 행이 아니라 별도 rejection 항목으로 읽는다. |
 | `visibility.visible` recursive glob rejection | source evidence 통과 | source tests는 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form이 recursive bridge discovery가 필요하다는 메시지와 함께 fail-fast 됨을 검증한다. live smoke stderr는 필요 시 별도 보강한다. |

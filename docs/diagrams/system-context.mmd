@@ -1,5 +1,5 @@
 flowchart LR
-    pre["Mount preconditions\nnon-root + fusermount3\nio_uring required\nno fallback mount"] --> mount["screenfs process\nFUSE3 + fractal-fuse 0.4.0"]
+    pre["Mount preconditions\nnon-root + fusermount3\nFUSE transport io_uring required\nno fallback mount"] --> mount["screenfs process\nFUSE3 + fractal-fuse 0.4.0"]
     host["Host filesystem\nsource_root\nexample: /"] --> mount
 
     subgraph policy["Runtime policy"]

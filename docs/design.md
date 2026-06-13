@@ -63,6 +63,7 @@
 - non-root 사용자 권한으로 `fusermount3` 기반 FUSE3 mount를 생성한다.
 - `fractal-fuse = 0.4.0` 기반으로 구현한다.
 - v1은 `FUSE_OVER_IO_URING` 사용을 필수로 하며, 협상 실패 시 fallback 없이 명시적 오류로 fail-fast 한다.
+- `FUSE_OVER_IO_URING` 요구사항은 FUSE request/reply transport 경계에 한정한다. backing filesystem metadata/data path는 guarded host syscall과 openat2-confined delegation을 유지하며 wholesale host I/O `io_uring` 전환은 v1 non-goal이다.
 - 전체 `/` view를 상위 whole-root consumer에게 제공한다.
 - 기본은 underlying filesystem pass-through다.
 - visibility 축으로 hidden/bridge-visible/visible을 판정한다.
@@ -78,6 +79,7 @@
 - mount 생성은 non-root 사용자 권한으로 가능해야 한다.
 - `chroot` 실행 권한, privileged supervisor, user namespace 구성은 상위 레이어 책임이다.
 - same-host-uid 접근 모델이 기본 전제다.
+- ScreenFS는 `source_root`와 operation parent/object를 fd로 pin하고 fd-relative syscall을 사용한다. fd-relative mutation 직전에는 opened parent dirfd가 요청된 virtual parent path에 남아 있는지 best-effort로 재확인한다. 이미 pin된 directory/file이 그 검사 이후 외부 same-UID mutator에 의해 rename/unlink되면 이후 fd-relative operation은 Linux/POSIX fd lifetime semantics에 따라 그 pin된 inode를 따른다. 즉, ScreenFS는 path 재해석 TOCTOU를 줄이고 이미 이동된 parent를 best-effort로 감지하지만, validation과 Linux `*at` syscall 사이 current virtual path membership을 원자적으로 보장하지는 않는다.
 - `allow_other`가 필요하면 `/etc/fuse.conf`와 mountpoint 권한 정책이 별도로 필요하다.
 - process, network, namespace, cgroup, seccomp isolation은 상위 레이어가 담당한다.
 
@@ -87,6 +89,7 @@ Non-goals:
 - device node native semantics 재현
 - procfs/sysfs caller-relative semantics 재현
 - hidden hardlink alternate path의 자동 전역 차단
+- backing filesystem metadata/data operations 전체를 `io_uring`로 전환하거나 kernel passthrough/zero-copy 최적화를 v1 correctness requirement로 삼는 것
 
 ## 3. Filesystem view model
 
@@ -410,13 +413,17 @@ Whole `/` view는 native kernel filesystem 재현을 의미하지 않는다.
 ## 13. FUSE3, io_uring, and mount options
 
 - detect `/dev/fuse`, FUSE support, `fusermount3`, and session capabilities
-- v1 requires `FUSE_OVER_IO_URING` negotiation success
-- negotiation failure is explicit startup error with no fallback mount
+- v1 requires `FUSE_OVER_IO_URING` negotiation success for the FUSE request/reply transport only
+- negotiation failure is explicit startup error with no fallback mount; with `fractal-fuse = 0.4.0`, this is enforced by the session `FUSE_INIT` negotiation path, and ScreenFS must keep that failure visible instead of silently retrying with a degraded transport
+- ScreenFS mount option construction must stay local and testable, but live negotiation success/failure remains a mount smoke concern because `fractal-fuse` does not expose a public non-mount negotiation simulator
+- backing filesystem metadata/data delegation may remain synchronous host syscalls behind the async FUSE handlers; broad host filesystem `io_uring` conversion is outside the FUSE-transport-only scope
+- already-open file-handle data operations are the only candidate follow-up surface for selective host-side async/io_uring experiments: `read`, `write`, `copy_file_range`, and only if evidence supports them `fallocate`/`fsync`
+- selective file-data-path work must be benchmark-gated and dependency/API-gated before implementation. It must not change lookup/getattr/readdir/readlink/xattr/setattr/rename/link/symlink/unlink/mkdir, path resolution, policy evaluation, source-root confinement, symlink target visibility, or recursive discovery behavior.
 - `allow_other`는 기본 계약이 아니다
 - mount-level `ro`는 selective policy의 source of truth가 될 수 없다
 - `force_readdir_plus`와 passthrough optimization은 correctness 이후 단계에서 평가한다
 
-## 14. Cache and memory model
+## 14. Cache, memory, and state concurrency model
 
 Recommended caches/state:
 
@@ -430,6 +437,10 @@ Policy:
 - bounded cache / LRU eviction
 - conservative timeout defaults until correctness is proven
 - writable mutation invalidates affected parent directory, involved path entries, and inode/path cache entries
+- inode/path identity, lookup/open refcounts, file handle table, directory handle table, and mutation invalidation form one consistency domain. The current safe concurrency direction is a single `RwLock<State>` domain that allows read-only snapshots in parallel while keeping cross-table mutation and invalidation under one write lock.
+- Per-table locks for inode map, file handles, and directory handles are not current until a separate design proves atomic refcount/invalidation semantics and documents a canonical multi-lock order. Do not split those tables speculatively.
+- State lock rules: never hold a state lock across host filesystem I/O or blocking syscalls when a snapshot can be taken first; do not attempt read-to-write lock upgrade; update `inodes`/`path_inodes`/handle tables/refcounts atomically under the write lock; if future multiple locks are introduced, define and test a single lock acquisition order before implementation.
+- `readdirplus` lookup-ref pinning must be atomic with snapshot retrieval so returned child inode entries cannot be invalidated between snapshot read and lookup ref increment.
 - matcher/indexing은 family와 normalized anchor를 기준으로 분리한다. 최소한 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 별도 집합으로 유지한다.
 - same-polarity identical descriptor는 compile 시 dedup/idempotent 처리한다. `/dir/**`는 `/dir`와 동일 descriptor로 정규화하고, `**/.git/hooks` 같은 recursive literal directory shorthand는 `**/.git/hooks/**` canonical descriptor로 정규화한다.
 - `visibility.visible` reachability는 discovery-free여야 한다. subtree visible rule은 정적 ancestor chain만 사용하고, direct-child visible rule은 normalized anchor ancestor와 immediate child evaluation만 사용한다.
@@ -462,6 +473,7 @@ Implementation priorities:
 - keep exact/prefix/glob matcher tiers bounded
 - keep visible bridge derivation subtree/direct-child bounded and discovery-free
 - keep visible file data path close to underlying filesystem
+- evaluate selective already-open file-handle data-path async/io_uring only after baseline benchmarks identify read/write/copy_file_range/fallocate/fsync as a bottleneck and the chosen dependency/API can preserve current guard ordering, offsets, return counts, errno mapping, handle lifecycle, and confinement semantics
 - keep metadata/xattr delegation fd-based or dirfd-relative where possible after openat2 confinement
 
 ## 16. CLI / config shape

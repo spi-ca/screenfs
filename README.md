@@ -24,7 +24,7 @@
 
 ## 목적
 
-ScreenFS의 기본 역할은 whole-root consumer가 읽을 수 있는 전체 `/` view를 만드는 것이다.
+ScreenFS의 기본 역할은 whole-root consumer가 읽을 수 있는 전체 `/` view를 만드는 것이다. FUSE request/reply transport는 `fractal-fuse = 0.4.0`의 `FUSE_OVER_IO_URING` 협상 경로를 필수로 사용하며, 협상 실패 시 fallback mount 없이 startup error로 실패해야 한다. 이 async 요구사항은 FUSE transport 경계에 한정되고, backing filesystem metadata/data path를 wholesale `io_uring`로 전환하는 것은 current scope가 아니다. 이미 열린 file handle의 read/write/copy_file_range/fallocate/fsync data path를 선택적으로 바꾸는 작업은 별도 benchmark-gated follow-up이며, metadata/path policy operation을 함께 전환하거나 recursive discovery를 추가하는 근거가 될 수 없다.
 
 ```text
 real / -> screenfs mount root -> sandbox/chroot consumer
