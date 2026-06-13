@@ -13,10 +13,14 @@ flowchart TD
     bridge --> bridgeList["Listing exposes only children\nthat lead to visible carve-outs"]
     bridge --> bridgeWrite["Mutation on bridge-visible\nreturns EROFS"]
 
-    visible --> symlink{"Resolved virtual symlink\ntarget fully visible?"}
-    symlink -- no: hidden or bridge-visible --> targetBlocked["Symlink readlink/open blocked\nENOENT"]
-    symlink -- yes or n/a --> mutability["Continue to mutability axis\nonly if request may mutate"]
+    visible --> visFast{"Can visibility policy prove\nentry + target stay fully visible?"}
+    visFast -- yes --> mutability["Continue to mutability axis\nonly if request may mutate"]
+    visFast -- no --> targetCheck["Resolve final target now\nmulti-hop + ancestor symlinks\nrequest-local reuse only"]
+    targetCheck --> targetVisible{"Resolved final target\nfully visible?"}
+    targetVisible -- no --> targetBlocked["Symlink readlink/open blocked\nENOENT"]
+    targetVisible -- yes --> mutability
 
     hiddenNote["Hidden always wins before mutability\nNo permission-denied existence leak"] -.-> hidden
-    symlinkNote["Bridge-visible is traversal/listing only\nIt never makes a symlink target readable"] -.-> targetBlocked
+    bridgeNote["Bridge-visible is non-fully-visible\nIt never makes a symlink target readable"] -.-> targetBlocked
+    cacheNote["Prior listing success, cross-request direct-path memo,\nsymlink decision cache are not exemptions"] -.-> visFast
     specificity["Within visibility axis:\nmost-specific rule wins\nsame-specificity opposite conflict fails fast\nunprovable overlapping glob containment fails fast"] -.-> rules

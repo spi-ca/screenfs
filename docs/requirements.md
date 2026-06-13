@@ -113,8 +113,9 @@ bridge-visible ancestor 규칙:
 - bridge-visible은 traversal/listing 전용 상태다. symlink entry의 resolved virtual target이 fully visible이 아니고 hidden이거나 bridge-visible/non-fully-visible이면 `readlink`와 symlink dereference `open`은 `ENOENT`다.
 - hidden path 자체는 계속 hidden이며 `ENOENT`다.
 - symlink entry는 resolved virtual target이 fully visible일 때만 export된다. target이 hidden 또는 bridge-visible이면 listing에서 제외하고 `lookup`/`getattr`/`open`/`readlink`/dereference는 `ENOENT`다.
-- symlink target visibility fast path는 compiled policy가 그 entry를 숨길 수 없음을 보일 때만 target 재평가를 생략할 수 있다. 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 multi-hop symlink와 ancestor symlink를 반영한 resolved final virtual target이 fully visible인지 다시 확인해야 한다.
-- symlink 판단은 cache contract가 아니다. prior listing success는 이후 point-of-use check 면제가 아니며, direct-path-only memoized result를 symlink-dependent check에 재사용하면 안 된다.
+- visibility fast path는 compiled visibility policy가 해당 entry와 resolved final target을 숨기거나 bridge-visible/non-fully-visible로 만들 수 없음을 보일 때만 target 재평가를 생략할 수 있다.
+- 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 multi-hop symlink와 ancestor symlink를 반영한 resolved final virtual target이 fully visible인지 다시 확인해야 한다.
+- resolved final target 재사용은 single-request 안에서만 허용된다. symlink 판단은 cross-request cache contract가 아니며 prior listing success, cross-request direct-path-only memoized result, symlink decision cache를 point-of-use 면제 근거로 쓰면 안 된다.
 
 예시:
 
@@ -133,7 +134,8 @@ bridge-visible ancestor 규칙:
 
 - hidden entry는 `readdir`, `readdirplus` 결과에서 제외된다.
 - bridge-visible directory listing은 visible entry와 visible descendant로 이어지는 bridge-visible entry만 반환한다.
-- directory-entry filtering fast path는 `readdir`/`readdirplus`가 현재 directory/parent 기준으로만 관련 matcher bucket을 보도록 제한할 수 있고, 그 directory와 무관한 bucket은 건너뛸 수 있다. 이 최적화는 hidden sibling 비노출과 listing 결과 의미론을 바꾸면 안 되며, recursive scan·background index·listing 결과 cache를 계약으로 요구하지 않는다.
+- directory-entry filtering fast path는 `readdir`/`readdirplus`가 현재 directory/parent 기준으로만 관련 matcher bucket을 보도록 제한할 수 있고, 그 directory와 무관한 bucket은 건너뛸 수 있다. 이 visibility block은 current supported grammar에만 적용되며 hidden sibling 비노출과 listing 결과 의미론을 바꾸면 안 된다.
+- visibility block은 resolved target visibility 생략을 증명할 때만 완결된다. 숨김/bridge-visible 가능성이 남아 있으면 point-of-use resolved-target visibility 재검사를 계속 요구하고, recursive scan·background index·listing 결과 cache를 계약으로 요구하지 않는다.
 - symlink child는 resolved virtual target이 fully visible일 때만 listing에 포함한다.
 - `readdirplus`는 반환되는 visible/bridge-visible entry에 대해서만 metadata를 준다.
 - listing에 보이는 symlink entry도 resolved virtual target이 fully visible일 때만 `readlink`/target dereference가 가능하다.
@@ -165,6 +167,7 @@ visible path의 읽기/탐색은 visibility 축에서 허용되면 pass-through�
 - readonly로 판정된 visible path의 mutation은 `EROFS`
 - writable로 판정된 visible path의 mutation은 host filesystem 권한이 허용하면 pass-through
 - bridge-visible ancestor는 mutability 축과 무관하게 mutation 시 항상 `EROFS`
+- mutability block은 visibility block 뒤에서만 실행된다. mutability 결과는 hidden/non-fully-visible 부재를 증명하지 못하며, visible 여부가 미확정인 resolved target을 건너뛰는 근거가 될 수 없다.
 
 쓰기성 operation 예:
 
@@ -189,6 +192,13 @@ fallocate
 - hidden path와 fully visible이 아닌 symlink target(숨겨졌거나 bridge-visible에만 도달하는 target)은 mutability보다 먼저 처리된다.
 - 따라서 hidden 또는 non-fully-visible symlink target이 관여하면 결과는 항상 `ENOENT`다.
 - readonly/writable rule은 hidden 결과를 뒤집지 못한다.
+
+### 5.4 Mutability fast-path contract
+
+- `mutability.default=writable`에서는 affected coordinate가 이미 fully visible로 증명된 뒤 `mutability.readonly` match가 불가능한 경우에만 fast allow를 사용할 수 있다. hidden/non-fully-visible 가능성이 남아 있으면 먼저 resolved-target visibility를 다시 확인해야 한다.
+- `mutability.default=readonly`에서는 affected coordinate가 이미 fully visible로 증명된 뒤 writable carve-out이 불가능한 경우 fast `EROFS`를 사용할 수 있다. 다만 이 fast block도 hidden-before-`EROFS` 우선순위를 뒤집지 못한다.
+- writable carve-out 또는 readonly re-block 평가 중에도 mutability 결과를 visibility 증명으로 재사용하면 안 된다. resolved target이 숨겨졌거나 fully visible이 아닐 수 있으면 point-of-use visibility 재검사가 선행되어야 한다.
+- single-request 안에서는 이미 계산한 resolved final target을 visibility/mutability block이 함께 재사용할 수 있지만, cross-request cache, prior listing result, direct-path memo, symlink decision cache는 current contract가 아니다.
 
 ## 6. Shared rule semantics
 
@@ -267,11 +277,13 @@ visibility와 mutability 축은 같은 rule semantics를 공유해야 한다.
 평가 순서:
 
 1. normalized virtual path를 만든다.
-2. mount-root exclusion과 visibility를 평가한다.
-3. hidden이면 즉시 `ENOENT`다.
-4. bridge-visible ancestor mutation이면 즉시 `EROFS`다.
-5. 그 외 visible path에 대해 mutability를 평가한다.
-6. readonly이면 `EROFS`, writable이면 host filesystem으로 위임한다.
+2. mount-root exclusion과 visibility block을 평가한다.
+3. visibility block이 hidden 또는 non-fully-visible symlink target을 발견하면 즉시 `ENOENT`다.
+4. visibility fast path가 hide 불가를 증명하지 못하면 point-of-use resolved-target visibility를 다시 확인한다.
+5. bridge-visible ancestor mutation이면 즉시 `EROFS`다.
+6. 그 외 fully visible path에 대해 mutability block을 평가한다.
+7. mutability fast path는 default policy별 allow/block을 줄일 수 있지만 visibility 재검사 면제 근거는 아니다.
+8. readonly이면 `EROFS`, writable이면 host filesystem으로 위임한다.
 
 멀티패스 보충 규칙:
 
@@ -333,7 +345,9 @@ CLI/config semantics:
 - directory-entry filtering fast path는 `readdir`/`readdirplus`에서 현재 directory/parent 기준 관련 matcher bucket만 보고 unrelated bucket을 건너뛸 수 있어야 한다. 다만 hidden sibling 비노출과 결과 의미론은 그대로 유지해야 하며, recursive scan·background indexing·listing 결과 cache를 계약으로 요구하지 않는다.
 - `/tmp/*` 같은 direct-child visible rule은 `/tmp` 전체를 재귀 순회하지 않아야 하며, 운영 검증에서 counter/trace/perf smoke 또는 동등한 계측으로 unrelated bucket skip과 결과 불변을 함께 증명해야 한다.
 - recursive glob indexing은 `visibility.hidden`, `mutability.readonly`, `mutability.writable`에서만 family별로 유지할 수 있다. 이때도 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 분리하고 same-polarity identical descriptor dedup을 보장해야 한다. recursive literal directory shorthand는 canonical descriptor에 normalize될 뿐 별도 discovery/index family를 만들면 안 된다.
-- symlink target visibility fast path는 policy가 target check를 생략해도 entry 비가시성이 생기지 않음을 증명할 때만 허용된다. 그 외에는 listing/lookup/getattr/readlink/dereference/open 시점마다 resolved final virtual target을 다시 확인해야 하고, symlink decision cache나 direct-path-only memoized result 재사용은 current contract가 아니다.
+- visibility fast path는 policy가 target check를 생략해도 entry 비가시성이 생기지 않음을 증명할 때만 허용된다. 그 외에는 listing/lookup/getattr/readlink/dereference/open 시점마다 resolved final virtual target을 다시 확인해야 하며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 된다.
+- mutability fast path는 visibility 증명 수단이 아니다. `mutability.default=writable` fast allow와 `mutability.default=readonly` fast `EROFS`는 모두 fully visible affected coordinate가 먼저 확보된 뒤에만 사용할 수 있고, hidden/non-fully-visible 가능성이 남아 있으면 resolved-target visibility 재검사가 선행되어야 한다.
+- resolved-target reuse는 single-request 범위에서만 허용된다. cross-request cache, prior listing result, direct-path memo, symlink decision cache 재사용은 current contract가 아니다.
 - raw symlink target이 lexical virtual visibility 기준으로 fully visible하지만 host resolution에서 `source_root` 밖으로 escape하면 `readlink`는 raw target을 반환할 수 있고, dereference/open/access는 confinement 단계에서 `ENOENT`로 실패해야 함
 - live mount smoke와 performance smoke는 visible recursive rejection, direct-child no-recursive-traversal, symlink point-of-use check 계약의 계속된 증거여야 함
 - 위 fast path들은 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 됨

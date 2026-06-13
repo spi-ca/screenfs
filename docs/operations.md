@@ -56,9 +56,10 @@ cargo clippy --all-targets --all-features
 - current mount-free/source coverage는 최소한 다음을 포함한다.
   - `visibility.hidden`: hidden entry filtering, direct read/stat/access/open `ENOENT`, single-hop/multi-hop/ancestor symlink hidden target `ENOENT`
   - `visibility.visible`: default-hidden carve-out, subtree/direct-child bridge-visible ancestor, hidden sibling 비노출, recursive visible glob rejection
+  - visibility fast-path guardrail: hide 불가 증명이 있을 때만 resolved-target recheck를 생략하고 prior listing success·cross-request direct-path memo·symlink decision cache를 면제 근거로 쓰지 않는지 확인
   - directory-entry filtering fast path: `readdir`/`readdirplus`가 현재 directory/parent 기준 관련 matcher bucket만 보고 unrelated bucket을 건너뛰어도 결과가 바뀌지 않는지 확인
-  - `mutability.default=writable`: rule-match mutation `EROFS`, non-match visible mutation 허용
-  - `mutability.default=readonly`: writable carve-out success, carve-out 밖 visible mutation `EROFS`
+  - `mutability.default=writable`: rule-match mutation `EROFS`, non-match visible mutation 허용, fast allow가 visibility proof를 대체하지 않는지 확인
+  - `mutability.default=readonly`: writable carve-out success, carve-out 밖 visible mutation `EROFS`, fast `EROFS`가 hidden-before-`EROFS`를 뒤집지 않는지 확인
   - `mutability.readonly` re-block: 더 구체적인 readonly override precedence
   - hidden-before-mutability: hidden path/target이 mutation 좌표에 섞이면 mutability 판정보다 먼저 `ENOENT`; symlink-resolved hidden target도 같은 precedence를 유지
   - affected-coordinate-wide writable requirement, `copy_file_range` source visibility / destination writability 분리
@@ -167,7 +168,7 @@ file docs/diagrams/*.png
 - non-visible recursive literal directory shorthand contract를 주장하려면 shorthand와 canonical form이 hidden `ENOENT`, readonly `EROFS`, writable override success, same-polarity dedup, opposite-polarity conflict, containment 결과까지 동일하다는 evidence를 함께 남긴다.
 - recursive literal directory shorthand를 current contract evidence로 삼으려면 source diff/trace/counter/perf smoke로 normalization/path-matcher-only임을 보여야 한다. 즉 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery가 추가되지 않았고 matcher cost도 기존 canonical `**/.../**` recursive literal subtree rule과 같아야 한다. `**/.git/hooks`, `~/**/aaa/hook` 같은 supported shorthand는 각각 canonical `**/.git/hooks/**`, `~/**/aaa/hook/**`와 같은 비용이어야 한다.
 - direct-child visible rule(`/tmp/*` 또는 동등형)을 current contract evidence로 삼으려면 startup/lookup/readdir 단계에서 anchor subtree 재귀 순회가 없고 현재 directory/parent와 무관한 matcher bucket을 건너뛴다는 성능-oriented smoke, counter, trace, 또는 동등한 계측을 함께 남긴다. recursive literal directory shorthand 목표를 함께 건드렸다면 shorthand 추가가 이 경로에 새로운 recursive discovery/scanning 코드를 끼워 넣지 않았다는 근거도 같은 세션 또는 source diff로 남긴다.
-- symlink-dependent visibility contract를 주장하려면 listing/lookup/getattr/readlink/dereference/open 시점 check가 prior listing success, symlink decision cache, direct-path-only memoized result로 대체되지 않는 evidence를 함께 남긴다.
+- symlink-dependent visibility contract를 주장하려면 listing/lookup/getattr/readlink/dereference/open 시점 check가 prior listing success, symlink decision cache, cross-request direct-path memoized result로 대체되지 않고 single-request resolved-target reuse만 허용된다는 evidence를 함께 남긴다.
 - state-lock concurrency 변경을 주장하려면 lock domain, read/write lock usage, no-upgrade rule, host-I/O-outside-lock rule, readdirplus lookup-ref pinning, mutation invalidation atomicity, and focused state-cache/concurrency tests를 함께 남긴다. Per-table lock split은 별도 design artifact 없이 current evidence로 승격하지 않는다.
 - 문서상 current contract surface와 current verified evidence를 구분하고, current baseline artifact만 유지한다.
 - mount 전에 실패했으면 상태는 `차단됨` 또는 `실패`로 적고, hidden/whole-view/mutability smoke를 `완료`로 승격하지 않는다.
@@ -323,8 +324,37 @@ symlink target visibility fast path를 주장하려면 다음을 함께 남긴�
 
 - policy가 target check 생략을 증명하지 못하는 경우 listing/lookup/getattr/readlink/dereference/open 시점마다 multi-hop symlink와 ancestor symlink를 반영한 resolved final virtual target을 다시 확인해야 한다.
 - prior listing success가 이후 symlink dereference 또는 `readlink`의 cached exemption이 아니어야 한다.
-- direct-path-only memoized result를 symlink-dependent check에 재사용하지 않는다는 trace/log/test evidence가 있어야 한다.
+- cross-request direct-path-only memoized result를 symlink-dependent check에 재사용하지 않는다는 trace/log/test evidence가 있어야 한다.
+- single-request 안에서만 이미 계산한 resolved final target 재사용이 허용된다는 evidence가 있으면 더 좋다.
 - symlink decision cache를 current contract로 문서화하지 않는다.
+
+## Fast-path QA matrix
+
+### Visibility fast-path QA
+
+| case | 확인할 점 | 기대 결과 |
+| --- | --- | --- |
+| directory-entry filtering | 현재 directory/parent 기준 matcher bucket만 보며 unrelated bucket을 건너뜀 | 결과 의미론 불변, hidden sibling 비노출 |
+| symlink target recheck elision | compiled visibility policy가 hide 불가를 증명할 때만 생략 | 증명 실패 시 point-of-use resolved-target visibility 재검사 |
+| cache guardrail | prior listing success, cross-request direct-path memo, symlink decision cache 금지 | point-of-use exemption 없음 |
+| request-local reuse | 단일 FUSE request 안의 resolved final target 재사용 | 같은 request 내부에서만 허용 |
+
+### Mutability fast-path QA
+
+| policy default | 확인할 점 | 기대 결과 |
+| --- | --- | --- |
+| `mutability.default=writable` | readonly match 불가 fast allow | visibility가 fully visible을 먼저 증명한 경우에만 host 위임 |
+| `mutability.default=readonly` | writable carve-out 불가 fast `EROFS` | hidden/non-fully-visible 가능성이 없을 때만 `EROFS` |
+| carve-out / re-block | nested override와 affected coordinate 평가 | most-specific wins, visibility proof 대체 금지 |
+
+### Combined fast-path QA
+
+| case | 확인할 점 | 기대 결과 |
+| --- | --- | --- |
+| hidden + readonly/writable overlap | visibility block과 mutability block 조합 | hidden `ENOENT`가 항상 `EROFS`보다 우선 |
+| bridge-visible mutation | visibility block에서 bridge-visible 식별 후 mutability block 진입 전 차단 | `EROFS`, hidden sibling 비노출 |
+| symlinked mutation target | visibility point-of-use 재검사 후 mutability 평가 | hidden/non-fully-visible이면 `ENOENT`, fully visible일 때만 mutability 적용 |
+| multi-path mutation | source/target/parent coordinate별 visibility 후 mutability | one hidden coordinate => `ENOENT`, else readonly/bridge-visible => `EROFS` |
 
 ## Whole-view baseline smoke checks
 
@@ -411,6 +441,7 @@ mkdir /tmp/screenfs-root/tmp/screenfs-mkdir-check
 - pattern-based `mutability.readonly` match도 visible mutation을 `EROFS`로 만든다.
 - `mutability.readonly`에 매치되지 않은 visible path는 host 정책이 허용하면 mutation 가능해야 한다.
 - 더 구체적인 `mutability.writable` carve-out이 있으면 해당 descendant subtree에서는 `EROFS`가 해제된다.
+- default-writable fast allow는 readonly match 불가를 줄이는 최적화일 뿐이며, hidden path 또는 fully visible이 아닌 symlink target 가능성이 남아 있으면 먼저 resolved-target visibility를 다시 확인해야 한다.
 - hidden path 또는 fully visible이 아닌 symlink target이 관여하면 결과는 계속 `ENOENT`다.
 - 동일 연산에서 hidden-before-mutability 우선순위가 유지된다.
 - current-session artifact에는 rule-match `EROFS`, carve-out success, non-match visible mutation success, hidden `ENOENT`, same-specificity conflict fail-fast, unsupported glob fail-fast를 함께 기록한다.
@@ -424,6 +455,7 @@ mkdir /tmp/screenfs-root/tmp/screenfs-mkdir-check
 - 기본 visible mutation은 `EROFS`다.
 - `mutability.writable` carve-out에 매치된 visible path mutation은 host 정책이 허용하면 성공한다.
 - 더 구체적인 `mutability.readonly` re-block이 있으면 carve-out 내부에서도 다시 `EROFS`다.
+- default-readonly fast `EROFS`는 writable carve-out 불가를 줄이는 최적화일 뿐이며, hidden path나 hidden target 가능성이 남아 있으면 먼저 `ENOENT`가 우선해야 한다.
 - hidden path나 hidden target은 writable carve-out 또는 readonly re-block과 겹쳐도 여전히 `ENOENT`다.
 - hidden 우선순위가 carve-out/re-block 판정보다 앞선다.
 - write-intent `open`, `setattr`, xattr mutation, `fallocate`도 같은 evaluator를 공유한다.
@@ -455,11 +487,13 @@ fusermount3 -u /tmp/screenfs-root
 | `visibility.visible` recursive glob rejection | source evidence 통과 | source tests는 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, `./repo/**/.git/hooks/**`, `./repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form이 recursive bridge discovery가 필요하다는 메시지와 함께 fail-fast 됨을 검증한다. live smoke stderr는 필요 시 별도 보강한다. |
 | bridge-visible traversal/listing | source evidence 통과 | current source tests는 recursive bridge discovery 없이 subtree/direct-child metadata만으로 traversal/listing과 hidden sibling `ENOENT`가 유지됨을 검증한다. |
 | directory-entry filtering fast path | source evidence 통과 | matcher source tests는 current path/parent의 family+normalized-anchor candidate bucket 수가 전체 descriptor 수보다 작고 unrelated descendant bucket을 건너뜀을 검증한다. Matcher internals는 grammar/descriptor/index module로 분리되어도 FS visibility tests가 결과 불변과 hidden sibling 비노출을 검증한다. |
-| `mutability.default=writable` | source evidence 통과 / repo-local live smoke 통과 | `docs/artifacts/current-default-writable-smoke-transcript.md`가 default writable write success, readonly override `EROFS`, hidden-before-mutability `ENOENT`를 캡처 |
-| `mutability.default=readonly` | source evidence 통과 / repo-local 및 whole-root/chroot live smoke 통과 | current smokes는 readonly default 아래 writable carve-out success, bridge-visible mutation `EROFS`, whole-root `/etc` write `EROFS`를 캡처 |
+| visibility fast-path guardrail | source evidence 통과 | source tests는 hide 불가가 증명될 때만 resolved-target recheck 생략이 가능하고, prior listing success·cross-request direct-path memo·symlink decision cache가 exemption이 아님을 검증한다. request-local resolved-target reuse는 같은 request 범위에서만 허용된다. |
+| `mutability.default=writable` | source evidence 통과 / repo-local live smoke 통과 | `docs/artifacts/current-default-writable-smoke-transcript.md`가 default writable write success, readonly override `EROFS`, hidden-before-mutability `ENOENT`를 캡처하며, fast allow가 visibility proof를 대체하지 않는 source tests를 포함한다. |
+| `mutability.default=readonly` | source evidence 통과 / repo-local 및 whole-root/chroot live smoke 통과 | current smokes는 readonly default 아래 writable carve-out success, bridge-visible mutation `EROFS`, whole-root `/etc` write `EROFS`를 캡처하며, fast `EROFS`가 hidden-before-`EROFS`를 뒤집지 않는 source tests를 포함한다. |
 | `mutability.writable` carve-out | source evidence 통과 / repo-local live smoke 통과 | current smoke는 `/tmp/existing` 및 `/allowed/existing` write success를 캡처 |
 | `mutability.readonly` re-block | source evidence 통과 / repo-local live smoke 통과 | current smoke는 `/allowed/reblock/existing` write가 `EROFS`로 막히는 것을 캡처 |
 | hidden-before-mutability | source evidence 통과 / repo-local live smoke 통과 | current smoke는 hidden `.git/config` mutation이 readonly보다 먼저 `ENOENT`가 되는 것을 캡처 |
+| combined visibility/mutability fast-path precedence | source evidence 통과 | source tests는 visibility block과 mutability block을 분리해도 hidden/non-fully-visible target이 있으면 항상 `ENOENT`가 `EROFS`보다 먼저 유지됨을 검증한다. |
 | symlink fully-visible gate | source evidence 통과 | current source tests는 single-hop/multi-hop hidden target, ancestor symlink into hidden subtree, bridge-visible target symlink의 `lookup`/`open`/`opendir`/`access`/`readlink` `ENOENT`와 source-root escape handling을 검증한다. |
 | symlink point-of-use fast path | source evidence 통과 | source tests는 target visibility check 생략이 visibility policy가 target을 숨길 수 없을 때만 가능함을 검증하고, hide 가능한 policy에서 resolved final target 기준 point-of-use `ENOENT`가 유지됨을 검증한다. |
 | shared recursive-family comparison (`**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`) | source evidence 통과 | requirements/design table은 shared matcher target semantics를 정의하고, latest source tests가 `**/*.pem` cwd-anchor recursive shorthand, explicit root-anchor `/**/*.pem`, `./fixtures/**/*.pem`, `/a/*.txt`, `/a/**/*.txt`를 검증한다. 이 evidence는 `visibility.visible` recursive allowlist가 아니다. |

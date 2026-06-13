@@ -235,8 +235,9 @@ hidden path semantics:
 - `readdir`, `readdirplus` → omit entry
 - symlink whose own path is hidden → `ENOENT`
 - symlink readlink/dereference is allowed only when the resolved virtual target is fully visible; hidden target이거나 bridge-visible/non-fully-visible target이면 `ENOENT`
-- symlink target visibility fast path는 compiled policy가 그 entry를 숨길 수 없음을 보일 때만 resolved final virtual target 재평가를 생략할 수 있다.
-- 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 multi-hop symlink와 ancestor symlink를 반영한 resolved final virtual target을 다시 확인해야 하며, prior listing success·symlink decision cache·direct-path-only memoized result는 면제 근거가 아니다.
+- visibility fast path는 compiled visibility policy가 해당 entry와 resolved final target을 숨기거나 bridge-visible/non-fully-visible로 만들 수 없음을 보일 때만 resolved final virtual target 재평가를 생략할 수 있다.
+- 그렇지 않으면 listing/`lookup`/`getattr`/`readlink`/dereference/`open` 시점마다 multi-hop symlink와 ancestor symlink를 반영한 resolved final virtual target을 다시 확인해야 한다.
+- resolved final target 재사용은 single-request 안에서만 허용되며, prior listing success·cross-request direct-path memo·symlink decision cache는 면제 근거가 아니다.
 
 ### 7.3 `visibility.visible` current category
 
@@ -277,7 +278,8 @@ bridge-visible은 visible descendant를 향한 ancestor directory에서만 생�
 
 - subtree visible rule은 visible target까지의 ancestor chain만 사용한다.
 - direct-child visible rule은 normalized anchor ancestor와 immediate child evaluation만 사용한다.
-- directory-entry filtering fast path는 `readdir`/`readdirplus`에서 현재 directory/parent와 관련된 matcher bucket만 보고 unrelated bucket을 건너뛰는 보수적 형태로만 허용된다.
+- directory-entry filtering fast path는 `readdir`/`readdirplus`에서 현재 directory/parent와 관련된 matcher bucket만 보고 unrelated bucket을 건너뛰는 보수적 visibility block으로만 허용된다.
+- visibility block은 hide 불가 증명이 성립할 때만 resolved-target 재검사를 생략할 수 있다. 그 외에는 point-of-use resolved-target visibility 검사가 계속 필요하다.
 - recursive descendant visible rule을 위한 eager/lazy bridge discovery, startup recursive bridge scan, dynamic bridge ancestor index는 current contract가 아니다.
 - recursive literal directory shorthand는 normalization/path-matcher-only다. `**/.git/hooks`, `~/**/aaa/hook` 같은 supported shorthand는 각각 `**/.git/hooks/**`, `~/**/aaa/hook/**`와 같은 matcher cost를 유지해야 하고, shorthand 때문에 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery를 추가하면 안 된다.
 - 위 fast path는 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 된다.
@@ -310,7 +312,7 @@ bridge-visible iteration rule:
 
 ## 9. FUSE operation matrix
 
-평가 순서는 항상 visibility → bridge-visible special case → mutability다.
+평가 순서는 항상 visibility block → bridge-visible special case → mutability block이다. visibility fast path와 mutability fast path는 분리되며, 둘을 조합해도 hidden-before-`EROFS` 우선순위가 유지돼야 한다.
 
 ### 9.1 조회 / 탐색 연산
 
@@ -365,9 +367,11 @@ mutability:
 1. hidden이면 결과는 외부에서 `ENOENT`다.
 2. bridge-visible ancestor mutation이면 `EROFS`다.
 3. mutation에 관여하는 모든 write-requiring coordinate를 계산한다.
-4. 각 coordinate에 대해 mutability specificity를 평가한다.
-5. 하나라도 readonly면 `EROFS`다.
-6. 전부 writable이면 host filesystem으로 위임한다.
+4. 각 coordinate는 이미 fully visible이 증명된 뒤에만 mutability evaluator로 들어간다.
+5. `default=writable`에서는 readonly match 불가가 증명될 때만 fast allow를, `default=readonly`에서는 writable carve-out 불가가 증명될 때만 fast `EROFS`를 사용할 수 있다.
+6. mutability fast path는 visibility 증명 수단이 아니며 hidden/non-fully-visible 가능성이 남아 있으면 resolved-target visibility 재검사가 선행된다.
+7. 하나라도 readonly면 `EROFS`다.
+8. 전부 writable이면 host filesystem으로 위임한다.
 
 affected-coordinate rule:
 
@@ -427,10 +431,11 @@ Whole `/` view는 native kernel filesystem 재현을 의미하지 않는다.
 
 Recommended caches/state:
 
-- path visibility result cache keyed by rule version
+- compiled matcher indexes and rule-versioned immutable policy state
 - inode table and reverse map
 - file/dir handle table
 - optional per-handle directory iteration state
+- request-local resolved-target reuse within one FUSE request only
 
 Policy:
 
@@ -444,9 +449,10 @@ Policy:
 - matcher/indexing은 family와 normalized anchor를 기준으로 분리한다. 최소한 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 별도 집합으로 유지한다.
 - same-polarity identical descriptor는 compile 시 dedup/idempotent 처리한다. `/dir/**`는 `/dir`와 동일 descriptor로 정규화하고, `**/.git/hooks` 같은 recursive literal directory shorthand는 `**/.git/hooks/**` canonical descriptor로 정규화한다.
 - `visibility.visible` reachability는 discovery-free여야 한다. subtree visible rule은 정적 ancestor chain만 사용하고, direct-child visible rule은 normalized anchor ancestor와 immediate child evaluation만 사용한다.
-- `readdir`/`readdirplus` fast path는 현재 directory/parent와 무관한 matcher bucket을 건너뛰는 보수적 형태로만 허용된다. recursive scan, background index, stable listing result cache는 current contract가 아니다.
+- `readdir`/`readdirplus` fast path는 현재 directory/parent와 무관한 matcher bucket을 건너뛰는 보수적 visibility block으로만 허용된다. recursive scan, background index, stable listing result cache는 current contract가 아니다.
 - startup recursive bridge scan, lazy recursive bridge discovery, dynamic bridge ancestor index는 current contract가 아니다. recursive indexing이 필요하면 hidden/readonly/writable의 recursive family에만 국한한다. recursive literal directory shorthand는 canonical recursive literal descriptor에 normalize될 뿐 별도 discovery/index family를 만들면 안 된다.
-- symlink target visibility check는 policy가 hide 가능성을 배제할 때만 생략할 수 있다. 그 외 point-of-use check는 symlink decision cache로 대체할 수 없고, bridge-visible 및 symlink-dependent visibility check에 stale direct-path-only cache를 재사용하면 안 된다. multi-hop symlink와 ancestor symlink를 실제 resolved virtual target 기준으로 다시 확인해 hidden 또는 bridge-visible final target은 `ENOENT`로 막아야 한다.
+- visibility fast path는 policy가 hide 가능성을 배제할 때만 resolved-target check를 생략할 수 있다. 그 외 point-of-use check는 cross-request cache, prior listing result, symlink decision cache, stale direct-path memo로 대체할 수 없고, multi-hop symlink와 ancestor symlink를 실제 resolved virtual target 기준으로 다시 확인해 hidden 또는 bridge-visible final target은 `ENOENT`로 막아야 한다.
+- mutability fast path는 default-specific allow/block shortening만 담당한다. `default=writable` fast allow와 `default=readonly` fast `EROFS`는 모두 fully visible affected coordinate가 먼저 확보된 뒤에만 사용할 수 있으며 visibility proof를 대체하면 안 된다.
 - recursive literal directory shorthand 추가는 normalization/path-matcher-only여야 하며 recursive bridge discovery, lazy discovery, startup scan, background indexing, stable listing result cache, symlink decision cache, 기타 새로운 filesystem discovery를 도입하면 안 된다. matcher cost는 기존 canonical `**/.../**` recursive literal subtree rule과 같아야 한다.
 - 위 fast path들은 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하면 안 된다
 
@@ -463,7 +469,7 @@ Reference targets:
 - `readdirplus` on large directory completes without unbounded memory growth
 - visible direct-child rule(`/tmp/*` 또는 동등형)는 anchor subtree를 재귀 순회하지 않아야 하며, smoke/계측은 현재 directory/parent 기준 unrelated matcher bucket skip과 결과 불변을 함께 보여줘야 한다
 - recursive literal directory shorthand는 canonical `**/.../**` recursive literal subtree rule과 같은 matcher cost를 유지해야 하며, `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 multi-recursive 또는 broader form은 discovery, ambiguous containment, broader glob compatibility를 피하기 위해 fail-fast 해야 한다
-- symlink-heavy workload에서도 target visibility check는 policy가 hide 가능성을 배제하지 못하면 resolved final target 기준으로 point-of-use에서 다시 수행돼야 하며, prior listing success나 direct-path-only memoization에 기대면 안 된다
+- symlink-heavy workload에서도 target visibility check는 policy가 hide 가능성을 배제하지 못하면 resolved final target 기준으로 point-of-use에서 다시 수행돼야 하며, prior listing success·cross-request direct-path memoization·symlink decision cache에 기대면 안 된다
 
 Implementation priorities:
 
@@ -567,7 +573,7 @@ Validation은 unit, integration, mount smoke, system smoke로 나눈다.
 - directory-entry filtering fast path가 현재 directory/parent와 무관한 matcher bucket을 건너뛰면서도 결과를 바꾸지 않는다는 counter/trace/perf evidence를 남긴다
 - shorthand 추가 때문에 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery가 생기지 않았다는 source diff/trace/perf evidence를 남긴다
 - symlink entry는 resolved virtual target이 fully visible할 때만 `readlink`/dereference로 읽힌다. A raw symlink target that is lexically fully visible but escapes `source_root` may still be returned by `readlink`; dereference then fails in source-root confinement with `ENOENT`.
-- prior listing success나 direct-path-only memoized result를 symlink-dependent check 면제로 쓰지 않는 evidence를 남긴다.
+- prior listing success나 cross-request direct-path memoized result를 symlink-dependent check 면제로 쓰지 않고 single-request resolved-target reuse만 허용된다는 evidence를 남긴다.
 - mount root subtree is not visible through the mounted view
 - `/bin`, `/usr`, `/lib`, `/lib64`, `/etc`, `/home`, `/tmp`, `/var` are visible when policy allows
 - supported exact / recursive / direct-child inputs smoke separately

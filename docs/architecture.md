@@ -60,15 +60,16 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 ## 3. 요청 처리 결정 흐름
 
-목표 요청 처리 흐름은 virtual path 계산 후 visibility 판정이 먼저, discovery-free visible rule category에 따른 bridge-visible 합성과 현재 directory/parent 기준 directory filtering, 필요 시 symlink target point-of-use fully-visible 검사, 그 뒤 mutability evaluator 판정이 이어지고, host filesystem delegation이 마지막 순서로 진행된다.
+목표 요청 처리 흐름은 virtual path 계산 후 visibility block이 먼저, discovery-free visible rule category에 따른 bridge-visible 합성과 현재 directory/parent 기준 directory filtering, 필요 시 symlink target point-of-use fully-visible 검사, 그 뒤 mutability block 판정이 이어지고, host filesystem delegation이 마지막 순서로 진행된다.
 
 1. virtual path 계산
 2. `visibility.hidden` / `visibility.visible` 평가
 3. subtree/direct-child visible rule metadata만으로 bridge-visible ancestor를 합성하고 recursive bridge discovery는 수행하지 않음
-4. `readdir`/`readdirplus`라면 현재 directory/parent와 관련된 matcher bucket만 보고 unrelated bucket은 건너뛰는 보수적 filtering 수행
-5. 필요 시 symlink chain과 ancestor symlink를 반영한 resolved virtual target이 fully visible인지 point-of-use에서 검사
-6. mutation이면 `mutability.default` + 더 구체적인 readonly/writable override 평가
-7. hidden이 아니고 mutation이 허용되면 confined fd 또는 fd-relative host filesystem delegation
+4. `readdir`/`readdirplus`라면 현재 directory/parent와 관련된 matcher bucket만 보고 unrelated bucket은 건너뛰는 visibility filtering 수행
+5. visibility fast path가 hide 불가를 증명하지 못하면 symlink chain과 ancestor symlink를 반영한 resolved virtual target이 fully visible인지 point-of-use에서 검사
+6. mutation이면 fully visible coordinate만 mutability block으로 넘기고 `mutability.default` + 더 구체적인 readonly/writable override 평가
+7. mutability fast path는 default별 allow/block만 줄일 수 있으며 visibility 재검사 면제 근거가 아니다
+8. hidden이 아니고 mutation이 허용되면 confined fd 또는 fd-relative host filesystem delegation
 
 ![ScreenFS request decision flow](diagrams/request-decision-flow.svg)
 
@@ -88,7 +89,8 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 - hidden 판단은 mutability보다 먼저 적용된다.
 - readonly/writable은 visible mutation에만 적용된다.
 - symlink는 entry path뿐 아니라 resolved virtual target도 검사하며, target이 fully visible이 아니고 hidden 또는 bridge-visible이면 `ENOENT`다.
-- symlink target check는 policy가 hide 가능성을 배제할 때만 생략할 수 있고, prior listing success나 direct-path-only memoized result는 면제 근거가 아니다.
+- visibility fast path는 policy가 hide 가능성을 배제할 때만 생략할 수 있고, mutability fast path는 visibility 증명 수단이 아니다.
+- prior listing success, cross-request direct-path memoized result, symlink decision cache는 point-of-use 면제 근거가 아니다. single-request 안에서만 이미 계산한 resolved final target 재사용이 허용된다.
 - `rename`/`link`/`symlink`/`copy_file_range` 같은 multi-path 연산은 source/target/parent 각각을 다시 검사한다.
 - bridge-visible ancestor는 traversal/listing 전용이며 mutation에는 `EROFS`다.
 
@@ -113,7 +115,8 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 - descendant-subtree broader forms(`~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]`, shorthand subset 밖 trailing `/**`-less broader/ambiguous form)도 부분 해석 없이 fail-fast다.
 - recursive literal directory shorthand support는 normalization/path-matcher-only여야 한다. `**/.git/hooks`, `~/**/aaa/hook` 같은 supported shorthand는 각각 `**/.git/hooks/**`, `~/**/aaa/hook/**`와 같은 matcher cost를 유지해야 하며 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery를 추가하면 안 된다.
 - symlink target은 lexical virtual target으로 재해석해 fully-visible 여부를 다시 검사하며, hidden 또는 bridge-visible target은 `readlink`/dereference에서 `ENOENT`다.
-- 이 fast path는 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하지 않는다. symlink-dependent check는 policy가 hide 가능성을 배제하지 못하면 listing/lookup/getattr/readlink/dereference/open 시점마다 다시 수행한다.
+- visibility fast path는 hide 가능성을 배제하지 못하면 listing/lookup/getattr/readlink/dereference/open 시점마다 symlink-dependent check를 다시 수행해야 한다. mutability fast path도 hidden/non-fully-visible 가능성이 남아 있으면 이 재검사를 건너뛸 수 없다.
+- 이 fast path는 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하지 않는다.
 - host backing 접근은 `source_root` 밖 escape를 허용하지 않는다.
 
 구현 파일 바로가기: `src/path.rs`, `src/matcher.rs`, `src/fs.rs`
@@ -144,8 +147,8 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 - `visibility.visible` carve-out이 subtree/direct-child current category로만 문서화되고, direct-child bridge가 immediate child evaluation만 사용하며 hidden sibling을 노출하지 않는가
 - `readdir`/`readdirplus` filtering이 현재 directory/parent와 무관한 matcher bucket을 건너뛰어도 결과를 바꾸지 않는 evidence가 있는가
 - `visibility.visible`이 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form을 unsupported/fail-fast로 거부하는가
-- `mutability.default=writable`에서 readonly match가 `EROFS`인가
-- `mutability.default=readonly`에서 writable carve-out success와 carve-out 밖 `EROFS`가 갈리는가
+- `mutability.default=writable`에서 readonly match가 `EROFS`인가, 그리고 readonly match 불가 fast allow가 visibility proof 뒤에서만 쓰이는가
+- `mutability.default=readonly`에서 writable carve-out success와 carve-out 밖 `EROFS`가 갈리는가, 그리고 writable carve-out 불가 fast `EROFS`가 hidden-before-`EROFS`를 뒤집지 않는가
 - nested `mutability.readonly` re-block가 다시 `EROFS`를 만드는가
 - hidden-before-mutability precedence가 유지되는가
 - shared matcher가 `**/*.pem`=`./**/*.pem`, `*.pem`=`./*.pem`, `/dir/**`=`/dir`, `/dir/*.pem` ⊂ `/dir/*` ⊂ `/dir`, `**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**` 관계를 계속 보존하는가
@@ -153,7 +156,7 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 - `source-root=/`에서 `/bin`, `/usr`, `/etc` 같은 whole-view 경로가 실제로 보이는가
 - mount-root recursion exclusion이 listing/lookup에 다시 나타나지 않는가
 - symlink entry가 resolved virtual target이 fully visible할 때만 읽히고 bridge-visible target이면 `ENOENT`인가
-- symlink point-of-use check가 prior listing success나 direct-path-only memoized result로 대체되지 않는 evidence가 있는가
+- symlink point-of-use check가 prior listing success, cross-request direct-path memoized result, symlink decision cache로 대체되지 않고 single-request resolved-target reuse만 허용된다는 evidence가 있는가
 - `/tmp/*` 같은 direct-child visible rule에 대해 recursive traversal이 일어나지 않고 현재 directory/parent와 무관한 matcher bucket을 건너뛴다는 성능-oriented smoke 또는 동등한 계측이 남아 있는가
 - `unshare -UrR` 기반 chroot smoke가 성공하는가, 그리고 `/dev/null` 같은 device-node semantics가 supervisor/namespace layer 책임으로 명확히 남는가
 - current baseline 설명이 현재 two-axis 계약과 일치하는가

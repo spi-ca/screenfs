@@ -1,17 +1,27 @@
 flowchart LR
     req["Filesystem request\nread/stat/list/open/mutation"] --> classify["classify op\nread-only | write-intent | path-only mutation | multi-path mutation"]
     classify --> map["Map inode/name/paths\nto VirtualPath coordinates"]
-    map --> visibility{"Any coordinate hidden\nor symlink target not fully visible?"}
-    visibility -- yes --> hiddenResult["ENOENT\nor filtered listing"]
-    visibility -- no --> bridge{"Bridge-visible ancestor\nmutation involved?"}
+    map --> visBlock["Visibility block\nrequest-scoped matcher inputs"]
+    visBlock --> hidden{"Any coordinate hidden\nor target non-fully-visible?"}
+    hidden -- yes --> hiddenResult["hidden result\nlist/readdir => filtered/omitted listing\ndirect access/dereference/write-intent => ENOENT\nhidden-before-EROFS precedence"]
+    hidden -- no --> visFast{"Can visibility policy prove\nrecheck is unnecessary?"}
+    visFast -- no --> resolve["Resolve final target now\nmulti-hop + ancestor symlinks\nrequest-local reuse only"]
+    visFast -- yes --> bridge{"Bridge-visible ancestor\nmutation involved?"}
+    resolve --> resolvedVis{"Resolved final target\nhidden/bridge-visible\nor non-fully-visible?"}
+    resolvedVis -- yes --> hiddenResult
+    resolvedVis -- no --> bridge
     bridge -- yes --> roResult["EROFS"]
     bridge -- no --> op{"Mutation or write intent?"}
     op -- no --> delegate["Delegate to host FS\nwithin source_root confinement"]
-    op -- yes --> policy{"Mutability evaluator\ndefault + readonly/writable rules\naffected coordinates"}
+    op -- yes --> mutFast{"Mutability fast path\nafter visibility only?"}
+    mutFast -- "default=readonly\nno writable carve-out" --> roResult
+    mutFast -- "default=writable\nno readonly match" --> delegate
+    mutFast -- full eval --> policy{"Mutability evaluator\ndefault + readonly/writable\naffected coordinates"}
     policy -- blocked --> roResult
     policy -- allowed --> delegate
     delegate --> reply["Build FUSE reply"]
 
-    visibilityNote["Visibility axis\ndefault + hidden + visible\nbridge-visible for traversal/listing\nsymlink targets must be fully visible"] -.-> visibility
+    visibilityNote["Visibility fast path\nonly when policy proves no hide/bridge-visible result\nprior listing, symlink decision cache, or cross-request memo not allowed"] -.-> visFast
+    mutabilityNote["Mutability fast path\nnever proves visibility\nhidden/non-fully-visible still rechecks first"] -.-> mutFast
     pathOnly["Path-only mutation note\ncreate/mkdir/mknod/unlink/rmdir\ncheck path + mutated parent"] -.-> classify
     multi["Multi-path mutation note\nrename/link/symlink/copy-like ops\ncheck source/target/parent coordinates"] -.-> classify

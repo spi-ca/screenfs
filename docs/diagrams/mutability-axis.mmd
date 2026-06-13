@@ -1,17 +1,25 @@
 flowchart TD
-    input["Mutation coordinate"] --> precheck{"Visibility already allowed?"}
-    precheck -- hidden --> enoent["ENOENT\nhidden-before-EROFS"]
-    precheck -- bridge-visible --> bridgeErofs["EROFS\nbridge-visible is traversal/listing only"]
-    precheck -- visible --> classify["Classify affected coordinates\nopen/write, path-only, multi-path, copy_file_range"]
+    input["Mutation coordinate"] --> precheck{"Visibility block already proved\nfully visible?"}
+    precheck -- "hidden or non-fully-visible target" --> enoent["ENOENT\nhidden-before-EROFS"]
+    precheck -- "bridge-visible mutation" --> bridgeErofs["EROFS\nbridge-visible is traversal/listing only"]
+    precheck -- "fully visible" --> classify["Classify affected coordinates\nopen/write, path-only, multi-path, copy_file_range"]
 
-    classify --> axis["Evaluate mutability axis\ndefault + readonly + writable"]
+    classify --> defaults{"mutability.default ?"}
+    defaults -- writable --> writableFast{"Any readonly match possible?"}
+    defaults -- readonly --> readonlyFast{"Any writable carve-out possible?"}
+
+    writableFast -- no --> host["Delegate to host FS\nsubject to uid/permissions/LSM"]
+    writableFast -- yes --> axis["Evaluate mutability axis\nreadonly + writable\nmost-specific wins"]
+    readonlyFast -- no --> erofs["EROFS"]
+    readonlyFast -- yes --> axis
+
     axis --> decision{"Best match / default"}
-    decision -- readonly --> erofs["EROFS"]
-    decision -- writable --> host["Delegate to host FS\nsubject to uid/permissions/LSM"]
+    decision -- readonly --> erofs
+    decision -- writable --> host
 
+    fastPathNote["Mutability fast path\nonly after visibility proof\nnever proves visibility by itself"] -.-> defaults
+    recheckNote["If hidden/non-fully-visible possibility remains,\nresolved-target visibility recheck comes first"] -.-> precheck
     pathOnly["Path-only mutation\npath + parent must be writable"] -.-> classify
     multi["rename/link/symlink\nall write-requiring coordinates\nmust be writable"] -.-> classify
     copy["copy_file_range\nsource uses visibility\ndestination path + parent use mutability"] -.-> classify
-
-    specificity["Within mutability axis:\nmost-specific rule wins\nsame-specificity opposite conflict fails fast\nunprovable overlapping glob containment fails fast"] -.-> axis
-    defaults["Equivalence examples\nwritable default + readonly rules\nreadonly default + writable carve-outs"] -.-> axis
+    specificity["same-specificity opposite conflict fails fast\nunprovable overlapping glob containment fails fast"] -.-> axis
