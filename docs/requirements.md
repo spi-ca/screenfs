@@ -16,7 +16,8 @@
 - FUSE3 및 `FUSE_OVER_IO_URING` 기반 사용을 v1 필수 정책으로 삼는다.
 - v1은 `FUSE_OVER_IO_URING` 협상 실패 시 fallback mount를 만들지 않고 명시적 오류로 fail-fast 한다.
 - 이 async 요구사항은 FUSE request/reply transport에 한정된다. backing filesystem metadata/data path는 현재처럼 guarded host syscall/openat2-confined delegation을 유지하며, host filesystem I/O 전체를 `io_uring`로 전환하는 것은 v1 요구사항이 아니다.
-- 이미 열린 file handle의 data path(`read`, `write`, `copy_file_range`, 필요 시 `fallocate`/`fsync`)를 선택적으로 async/io_uring로 바꾸는 것은 benchmark와 dependency/API 근거가 있을 때만 별도 follow-up으로 허용한다. 그 범위는 metadata/path-resolution operation, policy evaluation, recursive discovery, directory listing, xattr/setattr, rename/link/symlink/unlink/mkdir를 포함하지 않는다.
+- 이미 열린 file handle의 data path(`read`, `write`, `copy_file_range`, 필요 시 `fallocate`)를 선택적으로 async/io_uring로 바꾸는 것은 benchmark와 dependency/API 근거가 있을 때만 별도 follow-up으로 허용한다. 그 범위는 metadata/path-resolution operation, policy evaluation, recursive discovery, directory listing, xattr/setattr, rename/link/symlink/unlink/mkdir를 포함하지 않는다.
+- `flush`/`fsync`/`release(flush)`의 blocking sync syscall을 현재 FUSE runtime에 맞는 blocking-offload surface(`compio_runtime::spawn_blocking` 또는 승인된 동등 surface)로 offload하는 것은 별도 low-risk concurrency cleanup이다. 이는 이미 열린 file handle snapshot 뒤 state lock 밖 blocking pool로 `sync_all`/`fdatasync`/`fsync` 실행 위치만 옮기는 작업이며, host-side `io_uring`, metadata/path operation, cache/discovery/public API 변경을 뜻하지 않는다. `read`/`write`는 offset-based `FileExt::read_at`/`write_at`를 유지한다.
 - mount는 `fusermount3`로 수행한다.
 - 대표 사용 시나리오에 chroot가 포함되므로 mount 결과는 전체 파일시스템 뷰를 제공해야 한다.
 - `chroot` 실행 권한, same-host-uid 접근 모델, `/proc`·`/sys`·`/dev`·`/run` native semantics는 `ScreenFS` 단독 책임이 아니라 상위 supervisor/namespace layer 책임이다.

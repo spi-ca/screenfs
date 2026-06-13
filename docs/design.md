@@ -64,6 +64,7 @@
 - `fractal-fuse = 0.4.0` 기반으로 구현한다.
 - v1은 `FUSE_OVER_IO_URING` 사용을 필수로 하며, 협상 실패 시 fallback 없이 명시적 오류로 fail-fast 한다.
 - `FUSE_OVER_IO_URING` 요구사항은 FUSE request/reply transport 경계에 한정한다. backing filesystem metadata/data path는 guarded host syscall과 openat2-confined delegation을 유지하며 wholesale host I/O `io_uring` 전환은 v1 non-goal이다.
+- `flush`/`fsync`/`release(flush)` sync surface의 runtime blocking-offload(`compio_runtime::spawn_blocking` 또는 승인된 동등 surface)는 이미 열린 file handle의 blocking sync syscall 실행 위치만 state lock 밖 blocking pool로 옮기는 low-risk concurrency cleanup으로 취급한다. 이는 host-side `io_uring` 전환이나 benchmark-gated async redesign이 아니며, `read`/`write`의 `FileExt::read_at`/`write_at` 경로를 바꾸지 않는다.
 - 전체 `/` view를 상위 whole-root consumer에게 제공한다.
 - 기본은 underlying filesystem pass-through다.
 - visibility 축으로 hidden/bridge-visible/visible을 판정한다.
@@ -421,8 +422,9 @@ Whole `/` view는 native kernel filesystem 재현을 의미하지 않는다.
 - negotiation failure is explicit startup error with no fallback mount; with `fractal-fuse = 0.4.0`, this is enforced by the session `FUSE_INIT` negotiation path, and ScreenFS must keep that failure visible instead of silently retrying with a degraded transport
 - ScreenFS mount option construction must stay local and testable, but live negotiation success/failure remains a mount smoke concern because `fractal-fuse` does not expose a public non-mount negotiation simulator
 - backing filesystem metadata/data delegation may remain synchronous host syscalls behind the async FUSE handlers; broad host filesystem `io_uring` conversion is outside the FUSE-transport-only scope
-- already-open file-handle data operations are the only candidate follow-up surface for selective host-side async/io_uring experiments: `read`, `write`, `copy_file_range`, and only if evidence supports them `fallocate`/`fsync`
-- selective file-data-path work must be benchmark-gated and dependency/API-gated before implementation. It must not change lookup/getattr/readdir/readlink/xattr/setattr/rename/link/symlink/unlink/mkdir, path resolution, policy evaluation, source-root confinement, symlink target visibility, or recursive discovery behavior.
+- already-open file-handle data operations are the only candidate follow-up surface for selective host-side async/io_uring experiments: `read`, `write`, `copy_file_range`, and only if evidence supports it `fallocate`
+- `flush`/`fsync`/`release(flush)` on already-open file handles belong to a separate low-risk cleanup track: if they are offloaded with the current runtime's blocking-offload surface, that change only moves blocking sync syscalls to the executor's blocking pool after handle snapshot/removal and outside the state lock
+- selective file-data-path async/io_uring work must be benchmark-gated and dependency/API-gated before implementation. It must not change lookup/getattr/readdir/readlink/xattr/setattr/rename/link/symlink/unlink/mkdir, path resolution, policy evaluation, source-root confinement, symlink target visibility, or recursive discovery behavior. The separate sync-surface cleanup track likewise must not change metadata/path policy operations, cache/discovery behavior, or public API semantics.
 - `allow_other`는 기본 계약이 아니다
 - mount-level `ro`는 selective policy의 source of truth가 될 수 없다
 - `force_readdir_plus`와 passthrough optimization은 correctness 이후 단계에서 평가한다
@@ -479,7 +481,8 @@ Implementation priorities:
 - keep exact/prefix/glob matcher tiers bounded
 - keep visible bridge derivation subtree/direct-child bounded and discovery-free
 - keep visible file data path close to underlying filesystem
-- evaluate selective already-open file-handle data-path async/io_uring only after baseline benchmarks identify read/write/copy_file_range/fallocate/fsync as a bottleneck and the chosen dependency/API can preserve current guard ordering, offsets, return counts, errno mapping, handle lifecycle, and confinement semantics
+- evaluate selective already-open file-handle data-path async/io_uring only after baseline benchmarks identify read/write/copy_file_range/fallocate as a bottleneck and the chosen dependency/API can preserve current guard ordering, offsets, return counts, errno mapping, handle lifecycle, and confinement semantics
+- treat `flush`/`fsync`/`release(flush)` runtime blocking-offload, if approved, as executor-placement cleanup only: use the current FUSE runtime's blocking-offload API explicitly, keep handle snapshot/removal ordering, keep the blocking syscall outside the state lock, define join/panic-to-errno behavior, and keep `read`/`write` on `FileExt::read_at`/`write_at`
 - keep metadata/xattr delegation fd-based or dirfd-relative where possible after openat2 confinement
 
 ## 16. CLI / config shape

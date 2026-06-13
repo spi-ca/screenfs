@@ -127,7 +127,8 @@ ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE m
 
 - mount 생성은 non-root 사용자 + `fusermount3` 기준이다.
 - `FUSE_OVER_IO_URING` 협상 실패 시 mount를 degraded fallback으로 열지 않고 fail-fast 한다. 이 요구사항은 FUSE transport에 한정되며 backing filesystem metadata/data path의 wholesale `io_uring` 전환을 뜻하지 않는다.
-- 이미 열린 file handle의 `read`/`write`/`copy_file_range` 및 evidence가 있는 `fallocate`/`fsync` data path만 selective async/io_uring follow-up 후보가 될 수 있다. metadata/path policy operation과 recursive discovery는 이 후보 범위에 포함되지 않는다.
+- 이미 열린 file handle의 `read`/`write`/`copy_file_range` 및 evidence가 있는 `fallocate` data path만 selective async/io_uring follow-up 후보가 될 수 있다. metadata/path policy operation과 recursive discovery는 이 후보 범위에 포함되지 않는다.
+- `flush`/`fsync`/`release(flush)`의 runtime blocking-offload(`compio_runtime::spawn_blocking` 또는 승인된 동등 surface)는 별도 low-risk concurrency cleanup이다. 이미 열린 file handle snapshot/removal 이후 state lock 밖 blocking pool로 blocking sync syscall 실행 위치만 옮기며, host-side `io_uring`, cache/discovery, public API, `read`/`write`의 `FileExt::read_at`/`write_at` 경로를 바꾸지 않는다.
 - 기본 접근 모델은 mount owner와 동일 host uid다.
 - 현재 hardening contract는 POSIX fd lifetime semantics와 best-effort current-path validation을 따른다. ScreenFS는 `source_root`와 operation parent/object를 fd로 pin한 뒤 fd-relative host syscall을 사용하고, mutation 직전 opened parent dirfd가 요청된 virtual parent path에 남아 있는지 재확인한다. 다만 외부 same-UID actor가 그 재확인 이후 이미 pin된 directory/file을 rename/unlink하면 fd-relative operation은 path 위치가 아니라 pin된 inode에 계속 적용될 수 있다.
 - 다른 host uid 접근은 `allow_other`와 `/etc/fuse.conf` 정책이 별도로 필요하다.

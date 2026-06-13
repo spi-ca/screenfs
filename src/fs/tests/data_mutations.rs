@@ -1,5 +1,6 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
+use std::sync::Arc;
 
 #[test]
 fn hidden_xattr_queries_return_enoent() {
@@ -256,6 +257,108 @@ fn read_write_offsets_do_not_depend_on_shared_file_position() {
     assert_eq!(std::fs::read(dir.join("file")).unwrap(), b"abZZef");
 
     block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn flush_and_fsync_complete_under_compio_runtime() {
+    let dir = test_dir("compio-flush-fsync");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDWR as u32)).unwrap();
+
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 2, b"ZZ", 0, 0)).unwrap(),
+        2
+    );
+    compio_block_on(fs.flush(dummy_req(), inode, handle.fh, 0)).unwrap();
+    compio_block_on(fs.fsync(dummy_req(), inode, handle.fh, false)).unwrap();
+    compio_block_on(fs.fsync(dummy_req(), inode, handle.fh, true)).unwrap();
+    assert_eq!(std::fs::read(dir.join("file")).unwrap(), b"abZZef");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn release_flush_true_completes_under_compio_runtime_and_removes_handle() {
+    let dir = test_dir("compio-release-flush");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDWR as u32)).unwrap();
+
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 1, b"YY", 0, 0)).unwrap(),
+        2
+    );
+    compio_block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, true, false)).unwrap();
+
+    assert_eq!(std::fs::read(dir.join("file")).unwrap(), b"aYYdef");
+    assert_eq!(
+        block_on(fs.lseek(dummy_req(), inode, handle.fh, 0, libc::SEEK_SET as u32)).unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn offload_file_sync_preserves_closure_errno() {
+    let dir = test_dir("compio-offload-errno");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let file = Arc::new(
+        OpenOptions::new()
+            .read(true)
+            .open(dir.join("file"))
+            .unwrap(),
+    );
+
+    assert_eq!(
+        compio_block_on(ScreenFs::offload_file_sync(file, |_file| Err(libc::ENOSPC))).unwrap_err(),
+        libc::ENOSPC
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn offload_file_sync_completes_without_ambient_compio_runtime() {
+    let dir = test_dir("thread-offload-no-compio");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let file = Arc::new(
+        OpenOptions::new()
+            .read(true)
+            .open(dir.join("file"))
+            .unwrap(),
+    );
+
+    waking_block_on(ScreenFs::offload_file_sync(file, |_file| Ok(()))).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn offload_file_sync_maps_closure_panic_to_eio() {
+    let dir = test_dir("compio-offload-panic");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let file = Arc::new(
+        OpenOptions::new()
+            .read(true)
+            .open(dir.join("file"))
+            .unwrap(),
+    );
+
+    assert_eq!(
+        compio_block_on(ScreenFs::offload_file_sync(file, |_file| panic!("boom"))).unwrap_err(),
+        libc::EIO
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

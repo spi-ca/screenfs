@@ -1,9 +1,14 @@
+use std::any::Any;
 use std::ffi::OsStr;
 use std::fs::File;
+use std::future::Future;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
-use std::sync::RwLock;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, RwLock};
+use std::task::{Context, Poll, Waker};
 
 use fractal_fuse::{
     DirectoryEntry, DirectoryEntryPlus, ENOENT, Filesystem, FsResult, ReplyAttr, ReplyCreate,
@@ -29,6 +34,50 @@ pub struct ScreenFs {
     state: RwLock<State>,
 }
 
+type BlockingSyncResult = Result<FsResult<()>, Box<dyn Any + Send>>;
+
+struct ThreadOffload {
+    state: Arc<Mutex<ThreadOffloadState>>,
+}
+
+struct ThreadOffloadState {
+    result: Option<BlockingSyncResult>,
+    waker: Option<Waker>,
+}
+
+impl ThreadOffload {
+    fn spawn(sync: impl FnOnce() -> FsResult<()> + Send + 'static) -> std::io::Result<Self> {
+        let state = Arc::new(Mutex::new(ThreadOffloadState {
+            result: None,
+            waker: None,
+        }));
+        let thread_state = Arc::clone(&state);
+        std::thread::Builder::new().spawn(move || {
+            let result = catch_unwind(AssertUnwindSafe(sync));
+            let mut state = thread_state.lock().expect("thread offload mutex poisoned");
+            state.result = Some(result);
+            if let Some(waker) = state.waker.take() {
+                waker.wake();
+            }
+        })?;
+        Ok(Self { state })
+    }
+}
+
+impl Future for ThreadOffload {
+    type Output = BlockingSyncResult;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut state = self.state.lock().expect("thread offload mutex poisoned");
+        if let Some(result) = state.result.take() {
+            Poll::Ready(result)
+        } else {
+            state.waker = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+}
+
 impl ScreenFs {
     pub fn new(cfg: RuntimeConfig) -> Self {
         let source_root = open_dir_handle(&cfg.source_root).expect("source root must be openable");
@@ -50,6 +99,35 @@ impl ScreenFs {
             return Ok(());
         }
         let result = unsafe { libc::ftruncate(file.as_raw_fd(), 0) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(errno_from_io(std::io::Error::last_os_error()))
+        }
+    }
+
+    async fn offload_file_sync(
+        file: Arc<File>,
+        sync: impl FnOnce(Arc<File>) -> FsResult<()> + Send + 'static,
+    ) -> FsResult<()> {
+        let result = if compio_runtime::Runtime::try_with_current(|_| ()).is_ok() {
+            compio_runtime::spawn_blocking(move || sync(file)).await
+        } else {
+            ThreadOffload::spawn(move || sync(file))
+                .map_err(errno_from_io)?
+                .await
+        };
+        result.map_err(|_| libc::EIO)?
+    }
+
+    fn fsync_fd(file: &File, datasync: bool) -> FsResult<()> {
+        let result = unsafe {
+            if datasync {
+                libc::fdatasync(file.as_raw_fd())
+            } else {
+                libc::fsync(file.as_raw_fd())
+            }
+        };
         if result == 0 {
             Ok(())
         } else {
@@ -137,7 +215,7 @@ impl Filesystem for ScreenFs {
 
     async fn flush(&self, _req: Request, inode: u64, fh: u64, _lock_owner: u64) -> FsResult<()> {
         let (_path, file) = self.file_handle_snapshot(inode, fh)?;
-        file.sync_all().map_err(errno_from_io)
+        Self::offload_file_sync(file, |file| file.sync_all().map_err(errno_from_io)).await
     }
 
     async fn release(
@@ -155,25 +233,15 @@ impl Filesystem for ScreenFs {
             state.remove_file(fh)
         };
         if flush && let Some(handle) = handle {
-            handle.file.sync_all().map_err(errno_from_io)?;
+            Self::offload_file_sync(handle.file, |file| file.sync_all().map_err(errno_from_io))
+                .await?;
         }
         Ok(())
     }
 
     async fn fsync(&self, _req: Request, inode: u64, fh: u64, datasync: bool) -> FsResult<()> {
         let (_path, file) = self.file_handle_snapshot(inode, fh)?;
-        let result = unsafe {
-            if datasync {
-                libc::fdatasync(file.as_raw_fd())
-            } else {
-                libc::fsync(file.as_raw_fd())
-            }
-        };
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(errno_from_io(std::io::Error::last_os_error()))
-        }
+        Self::offload_file_sync(file, move |file| Self::fsync_fd(file.as_ref(), datasync)).await
     }
 
     async fn opendir(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {

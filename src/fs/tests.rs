@@ -190,6 +190,35 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
+fn compio_block_on<F: Future>(future: F) -> F::Output {
+    compio_runtime::Runtime::new()
+        .expect("compio runtime must start for tests")
+        .block_on(future)
+}
+
+fn waking_block_on<F: Future>(future: F) -> F::Output {
+    struct ThreadWaker(std::thread::Thread);
+    impl Wake for ThreadWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+
+    let waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    let mut future = Box::pin(future);
+    loop {
+        if let Poll::Ready(value) = Pin::new(&mut future).poll(&mut cx) {
+            return value;
+        }
+        std::thread::park();
+    }
+}
+
 fn test_dir(label: &str) -> std::path::PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
