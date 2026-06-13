@@ -416,6 +416,8 @@ impl Filesystem for ScreenFs {
     ) -> FsResult<()> {
         let from = self.child_path(parent, name)?;
         let to = self.child_path(new_parent, new_name)?;
+        self.guard_existing_entry_target_visibility(&from)?;
+        self.guard_existing_entry_target_visibility(&to)?;
         let from_parent = Self::parent_path(&from);
         let to_parent = Self::parent_path(&to);
         self.guard_multi_path_mutation(&[
@@ -454,6 +456,8 @@ impl Filesystem for ScreenFs {
     ) -> FsResult<ReplyEntry> {
         let source = self.path_for_inode(inode)?;
         let target = self.child_path(new_parent, new_name)?;
+        self.guard_existing_entry_target_visibility(&source)?;
+        self.guard_existing_entry_target_visibility(&target)?;
         let target_parent = Self::parent_path(&target);
         self.guard_multi_path_mutation(&[
             (&source, false),

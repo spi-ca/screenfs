@@ -358,6 +358,39 @@ fn readonly_default_recursive_literal_directory_writable_shorthand_overrides_def
 }
 
 #[test]
+fn writable_default_mutability_fast_path_still_returns_enoent_for_hidden_symlink_target() {
+    let dir = test_dir("writable-default-fast-path-hidden-target");
+    std::fs::write(dir.join("hidden.txt"), b"hidden").unwrap();
+    std::os::unix::fs::symlink("hidden.txt", dir.join("link")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden.txt".to_string()], Vec::new());
+    let link_path = VirtualPath::new("/link");
+    let link = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .inode_for_path(link_path.clone());
+
+    assert_eq!(
+        fs.config().mutability_decision(&link_path),
+        crate::config::MutabilityDecision::Writable
+    );
+    assert!(
+        fs.config()
+            .can_skip_resolved_target_mutability_check(fs.config().mutability_decision(&link_path))
+    );
+    assert_eq!(
+        block_on(fs.open(dummy_req(), link, libc::O_WRONLY as u32)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.access(dummy_req(), link, libc::W_OK as u32)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(std::fs::read(dir.join("hidden.txt")).unwrap(), b"hidden");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn writable_default_symlink_returns_erofs_and_hidden_precedence_remains_enoent() {
     let dir = test_dir("writable-default-symlink");
     std::fs::write(dir.join("locked.lock"), b"locked").unwrap();

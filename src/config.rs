@@ -42,6 +42,18 @@ impl VisibilityDecision {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutabilityDecision {
+    Writable,
+    Readonly,
+}
+
+impl MutabilityDecision {
+    pub fn is_readonly(self) -> bool {
+        matches!(self, Self::Readonly)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub source_root: PathBuf,
@@ -203,10 +215,6 @@ impl RuntimeConfig {
         }
     }
 
-    pub fn visibility_blocks_mutation(&self, path: &VirtualPath, resolved: &VirtualPath) -> bool {
-        self.is_bridge_visible(path) || self.is_bridge_visible(resolved)
-    }
-
     pub fn has_visible_bridge_ancestor(&self, path: &VirtualPath) -> bool {
         self.visible_matcher.may_match_descendant_of(path)
     }
@@ -243,18 +251,35 @@ impl RuntimeConfig {
         self.writable_matcher.matches_path(path)
     }
 
-    pub fn is_readonly(&self, path: &VirtualPath) -> bool {
-        if self.is_hidden(path) {
-            return true;
-        }
+    pub fn mutability_decision(&self, path: &VirtualPath) -> MutabilityDecision {
         match choose_axis(
             self.mutability_default == MutabilityDefault::Readonly,
             self.readonly_matcher.best_descriptor(path),
             self.writable_matcher.best_descriptor(path),
         ) {
-            AxisChoice::Negative => true,
-            AxisChoice::Positive => false,
+            AxisChoice::Negative => MutabilityDecision::Readonly,
+            AxisChoice::Positive => MutabilityDecision::Writable,
         }
+    }
+
+    pub fn can_skip_resolved_target_mutability_check(
+        &self,
+        path_decision: MutabilityDecision,
+    ) -> bool {
+        match path_decision {
+            MutabilityDecision::Readonly => true,
+            MutabilityDecision::Writable => {
+                self.mutability_default == MutabilityDefault::Writable
+                    && self.readonly_matcher.descriptors().is_empty()
+            }
+        }
+    }
+
+    pub fn is_readonly(&self, path: &VirtualPath) -> bool {
+        if self.is_hidden(path) {
+            return true;
+        }
+        self.mutability_decision(path).is_readonly()
     }
 
     pub fn visibility_default(&self) -> VisibilityDefault {

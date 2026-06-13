@@ -195,6 +195,51 @@ fn symlink_to_bridge_visible_target_is_not_exported() {
 }
 
 #[test]
+fn visible_symlink_to_bridge_visible_target_returns_enoent_for_write_intent_ops() {
+    let dir = test_dir("symlink-bridge-visible-write-intent");
+    std::fs::create_dir_all(dir.join("target/child")).unwrap();
+    std::os::unix::fs::symlink("target", dir.join("link-to-bridge")).unwrap();
+    let fs = fs_for_axes(
+        &dir,
+        Some(crate::cli::VisibilityDefault::Hidden),
+        Vec::new(),
+        vec!["/target/child".to_string(), "/link-to-bridge".to_string()],
+        Some(crate::cli::MutabilityDefault::Readonly),
+        Vec::new(),
+        Vec::new(),
+    );
+    let link_path = VirtualPath::new("/link-to-bridge");
+    let inode = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .inode_for_path(link_path.clone());
+
+    assert_eq!(
+        fs.config()
+            .visibility_decision(&VirtualPath::new("/target")),
+        crate::config::VisibilityDecision::BridgeVisible
+    );
+    assert_eq!(
+        fs.config().visibility_decision(&link_path),
+        crate::config::VisibilityDecision::Visible
+    );
+    assert!(
+        fs.config()
+            .can_skip_resolved_target_mutability_check(fs.config().mutability_decision(&link_path))
+    );
+    assert_eq!(
+        block_on(fs.access(dummy_req(), inode, libc::W_OK as u32)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.opendir(dummy_req(), inode, libc::O_WRONLY as u32)).unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn broader_visible_rule_does_not_expose_more_specific_hidden_symlink_target() {
     let dir = test_dir("symlink-hidden-under-broader-visible");
     std::fs::create_dir_all(dir.join("secret")).unwrap();
@@ -492,6 +537,144 @@ fn create_existing_symlink_to_hidden_target_returns_enoent_before_side_effects()
     .unwrap_err();
 
     assert_eq!(err, ENOENT);
+    assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"secret");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn unlink_hidden_target_symlink_returns_enoent_and_preserves_entry() {
+    let dir = test_dir("unlink-hidden-target-symlink");
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+
+    let err = block_on(fs.unlink(dummy_req(), FUSE_ROOT_ID, OsStr::new("link"))).unwrap_err();
+
+    assert_eq!(err, ENOENT);
+    assert_eq!(
+        std::fs::read_link(dir.join("link")).unwrap(),
+        std::path::PathBuf::from("hidden")
+    );
+    assert!(
+        std::fs::symlink_metadata(dir.join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"secret");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn unlink_hidden_target_symlink_returns_enoent_before_readonly() {
+    let dir = test_dir("unlink-hidden-target-symlink-readonly");
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
+    let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
+
+    let err = block_on(fs.unlink(dummy_req(), FUSE_ROOT_ID, OsStr::new("link"))).unwrap_err();
+
+    assert_eq!(err, ENOENT);
+    assert!(
+        std::fs::symlink_metadata(dir.join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rename_hidden_target_symlink_source_returns_enoent_and_preserves_entry() {
+    let dir = test_dir("rename-hidden-target-symlink-source");
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+
+    let err = block_on(fs.rename(
+        dummy_req(),
+        FUSE_ROOT_ID,
+        OsStr::new("link"),
+        FUSE_ROOT_ID,
+        OsStr::new("renamed"),
+        0,
+    ))
+    .unwrap_err();
+
+    assert_eq!(err, ENOENT);
+    assert!(
+        std::fs::symlink_metadata(dir.join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(!dir.join("renamed").exists());
+    assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"secret");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rename_over_hidden_target_symlink_returns_enoent_without_overwrite() {
+    let dir = test_dir("rename-over-hidden-target-symlink");
+    std::fs::write(dir.join("visible"), b"public").unwrap();
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+
+    let err = block_on(fs.rename(
+        dummy_req(),
+        FUSE_ROOT_ID,
+        OsStr::new("visible"),
+        FUSE_ROOT_ID,
+        OsStr::new("link"),
+        0,
+    ))
+    .unwrap_err();
+
+    assert_eq!(err, ENOENT);
+    assert_eq!(std::fs::read(dir.join("visible")).unwrap(), b"public");
+    assert_eq!(
+        std::fs::read_link(dir.join("link")).unwrap(),
+        std::path::PathBuf::from("hidden")
+    );
+    assert!(
+        std::fs::symlink_metadata(dir.join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"secret");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn hard_link_existing_hidden_target_symlink_returns_enoent_before_eexist() {
+    let dir = test_dir("link-existing-hidden-target-symlink");
+    std::fs::write(dir.join("visible"), b"public").unwrap();
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+    let visible = fs
+        .reply_entry_for_path(VirtualPath::new("/visible"))
+        .unwrap()
+        .attr
+        .ino;
+
+    let err =
+        block_on(fs.link(dummy_req(), visible, FUSE_ROOT_ID, OsStr::new("link"))).unwrap_err();
+
+    assert_eq!(err, ENOENT);
+    assert_eq!(std::fs::read(dir.join("visible")).unwrap(), b"public");
+    assert_eq!(
+        std::fs::read_link(dir.join("link")).unwrap(),
+        std::path::PathBuf::from("hidden")
+    );
+    assert!(
+        std::fs::symlink_metadata(dir.join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"secret");
     std::fs::remove_dir_all(dir).unwrap();
 }

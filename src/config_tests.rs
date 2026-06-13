@@ -1019,6 +1019,115 @@ fn reports_shared_normalization_failures_per_surface() {
 }
 
 #[test]
+fn mutability_fast_path_helpers_follow_default_policies() {
+    let source = test_dir();
+
+    let writable_default = launch(
+        &source,
+        None,
+        vec![],
+        vec![],
+        Some(MutabilityDefault::Writable),
+        vec![],
+        vec![],
+    );
+    let writable_path = VirtualPath::new("/workspace/file.txt");
+    assert_eq!(
+        writable_default.mutability_decision(&writable_path),
+        MutabilityDecision::Writable
+    );
+    assert!(writable_default.can_skip_resolved_target_mutability_check(
+        writable_default.mutability_decision(&writable_path)
+    ));
+    assert!(!writable_default.is_readonly(&writable_path));
+
+    let writable_with_readonly = launch(
+        &source,
+        None,
+        vec![],
+        vec![],
+        Some(MutabilityDefault::Writable),
+        vec!["/locked".to_string()],
+        vec![],
+    );
+    let locked_path = VirtualPath::new("/locked");
+    let free_path = VirtualPath::new("/free");
+    assert_eq!(
+        writable_with_readonly.mutability_decision(&locked_path),
+        MutabilityDecision::Readonly
+    );
+    assert!(
+        writable_with_readonly.can_skip_resolved_target_mutability_check(
+            writable_with_readonly.mutability_decision(&locked_path)
+        )
+    );
+    assert!(writable_with_readonly.is_readonly(&locked_path));
+    assert_eq!(
+        writable_with_readonly.mutability_decision(&free_path),
+        MutabilityDecision::Writable
+    );
+    assert!(
+        !writable_with_readonly.can_skip_resolved_target_mutability_check(
+            writable_with_readonly.mutability_decision(&free_path)
+        )
+    );
+    assert!(!writable_with_readonly.is_readonly(&free_path));
+
+    let readonly_default = launch(
+        &source,
+        None,
+        vec![],
+        vec![],
+        Some(MutabilityDefault::Readonly),
+        vec![],
+        vec![],
+    );
+    let readonly_path = VirtualPath::new("/readonly-default");
+    assert_eq!(
+        readonly_default.mutability_decision(&readonly_path),
+        MutabilityDecision::Readonly
+    );
+    assert!(readonly_default.can_skip_resolved_target_mutability_check(
+        readonly_default.mutability_decision(&readonly_path)
+    ));
+    assert!(readonly_default.is_readonly(&readonly_path));
+
+    let readonly_with_writable = launch(
+        &source,
+        None,
+        vec![],
+        vec![],
+        Some(MutabilityDefault::Readonly),
+        vec![],
+        vec!["/workspace".to_string()],
+    );
+    let writable_carve_out = VirtualPath::new("/workspace/file.txt");
+    let blocked_elsewhere = VirtualPath::new("/elsewhere");
+    assert_eq!(
+        readonly_with_writable.mutability_decision(&writable_carve_out),
+        MutabilityDecision::Writable
+    );
+    assert!(
+        !readonly_with_writable.can_skip_resolved_target_mutability_check(
+            readonly_with_writable.mutability_decision(&writable_carve_out)
+        )
+    );
+    assert!(!readonly_with_writable.is_readonly(&writable_carve_out));
+    assert_eq!(
+        readonly_with_writable.mutability_decision(&blocked_elsewhere),
+        MutabilityDecision::Readonly
+    );
+    assert!(
+        readonly_with_writable.can_skip_resolved_target_mutability_check(
+            readonly_with_writable.mutability_decision(&blocked_elsewhere)
+        )
+    );
+    assert!(readonly_with_writable.is_readonly(&blocked_elsewhere));
+
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
 fn symlink_target_fast_path_is_enabled_only_when_visibility_policy_cannot_hide_targets() {
     let root = test_dir();
     let source = root.join("source");

@@ -375,6 +375,69 @@ fn hidden_copy_file_range_paths_return_enoent_before_readonly() {
 }
 
 #[test]
+fn copy_file_range_symlink_destination_hidden_target_returns_enoent_before_readonly_fast_path() {
+    let dir = test_dir("copy-hidden-symlink-destination");
+    std::fs::write(dir.join("input"), b"abcdef").unwrap();
+    std::fs::write(dir.join("hidden"), b"------").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("alias")).unwrap();
+    let fs = fs_for_policy(
+        &dir,
+        vec!["/hidden".to_string()],
+        Vec::new(),
+        Some(MutabilityDefault::Readonly),
+        Vec::new(),
+    );
+    let input = fs
+        .reply_entry_for_path(VirtualPath::new("/input"))
+        .unwrap()
+        .attr
+        .ino;
+    let alias_path = VirtualPath::new("/alias");
+    let alias = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .inode_for_path(alias_path.clone());
+    let input_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            input,
+            VirtualPath::new("/input"),
+            OpenOptions::new()
+                .read(true)
+                .open(dir.join("input"))
+                .unwrap(),
+        );
+    let alias_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            alias,
+            alias_path.clone(),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("hidden"))
+                .unwrap(),
+        );
+
+    assert!(
+        fs.config().can_skip_resolved_target_mutability_check(
+            fs.config().mutability_decision(&alias_path)
+        )
+    );
+    assert_eq!(
+        block_on(fs.copy_file_range(dummy_req(), input, input_fh, 0, alias, alias_fh, 0, 1, 0,))
+            .unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"------");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn hidden_multi_path_mutations_return_enoent_before_readonly() {
     let dir = test_dir("hidden-mutators");
     std::fs::write(dir.join("hidden"), b"secret").unwrap();

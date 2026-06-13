@@ -7,14 +7,30 @@ use fractal_fuse::{ENOENT, FileAttr, ReplyEntry};
 
 use super::ScreenFs;
 use super::backing::DirEntryInfo;
+use crate::config::{MutabilityDecision, VisibilityDecision};
 use crate::errors::{errno_from_io, open_has_write_intent};
 use crate::path::VirtualPath;
 
-impl ScreenFs {
-    pub(super) fn hidden(&self, path: &VirtualPath) -> bool {
-        self.cfg.is_hidden(path)
-    }
+#[derive(Debug, Clone)]
+struct MutationCoordinateEvaluation<'a> {
+    path: &'a VirtualPath,
+    follow_final_symlink: bool,
+    path_visibility: VisibilityDecision,
+    path_mutability: MutabilityDecision,
+    resolved: Option<VirtualPath>,
+}
 
+impl<'a> MutationCoordinateEvaluation<'a> {
+    fn resolved_path<'b>(&'b mut self, fs: &ScreenFs) -> Result<&'b VirtualPath, i32> {
+        if self.resolved.is_none() {
+            self.resolved =
+                Some(fs.resolve_mutation_coordinate_target(self.path, self.follow_final_symlink)?);
+        }
+        Ok(self.resolved.as_ref().expect("resolved path cached"))
+    }
+}
+
+impl ScreenFs {
     pub(super) fn visible_for_entry(&self, path: &VirtualPath) -> bool {
         match self.stat_child_no_follow(path, 0) {
             Ok(attr) => self
@@ -22,10 +38,6 @@ impl ScreenFs {
                 .entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR),
             Err(_) => self.cfg.is_fully_visible(path),
         }
-    }
-
-    pub(super) fn readonly(&self, path: &VirtualPath) -> bool {
-        self.cfg.is_readonly(path)
     }
 
     pub(super) fn guard_hidden_path(&self, path: &VirtualPath) -> Result<(), i32> {
@@ -58,38 +70,79 @@ impl ScreenFs {
         self.guard_resolved_target_visibility_if_needed(path)
     }
 
-    pub(super) fn guard_coordinate_hidden(
+    fn resolve_mutation_coordinate_target(
         &self,
         path: &VirtualPath,
         follow_final_symlink: bool,
+    ) -> Result<VirtualPath, i32> {
+        match self.resolved_virtual_path(path, follow_final_symlink) {
+            Ok(resolved) => Ok(resolved),
+            Err(ENOENT) if !follow_final_symlink => Ok(path.clone()),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn guard_resolved_target_fully_visible(
+        &self,
+        path: &VirtualPath,
+        resolved: &VirtualPath,
     ) -> Result<(), i32> {
-        self.guard_hidden_path(path)?;
-        let resolved = match self.resolved_virtual_path(path, follow_final_symlink) {
-            Ok(resolved) => resolved,
-            Err(ENOENT) if !follow_final_symlink => path.clone(),
-            Err(err) => return Err(err),
-        };
-        if self.hidden(&resolved) {
+        if resolved != path && !self.cfg.is_fully_visible(resolved) {
             Err(ENOENT)
         } else {
             Ok(())
         }
     }
 
-    pub(super) fn guard_coordinate_writable(
+    fn evaluate_mutation_coordinate_visibility<'a>(
         &self,
-        path: &VirtualPath,
+        path: &'a VirtualPath,
         follow_final_symlink: bool,
-    ) -> Result<(), i32> {
-        let resolved = match self.resolved_virtual_path(path, follow_final_symlink) {
-            Ok(resolved) => resolved,
-            Err(ENOENT) if !follow_final_symlink => path.clone(),
-            Err(err) => return Err(err),
+    ) -> Result<MutationCoordinateEvaluation<'a>, i32> {
+        self.guard_hidden_path(path)?;
+        let path_visibility = self.cfg.visibility_decision(path);
+        let path_mutability = self.cfg.mutability_decision(path);
+        let mut coordinate = MutationCoordinateEvaluation {
+            path,
+            follow_final_symlink,
+            path_visibility,
+            path_mutability,
+            resolved: None,
         };
-        if self.cfg.visibility_blocks_mutation(path, &resolved)
-            || self.readonly(path)
-            || self.readonly(&resolved)
+        if !self.cfg.can_skip_symlink_target_visibility_check() {
+            let resolved = self.resolve_mutation_coordinate_target(path, follow_final_symlink)?;
+            self.guard_resolved_target_fully_visible(path, &resolved)?;
+            coordinate.resolved = Some(resolved);
+        }
+        Ok(coordinate)
+    }
+
+    fn guard_mutation_coordinate_writable(
+        &self,
+        coordinate: &mut MutationCoordinateEvaluation<'_>,
+    ) -> Result<(), i32> {
+        if matches!(
+            coordinate.path_visibility,
+            VisibilityDecision::BridgeVisible
+        ) {
+            return Err(libc::EROFS);
+        }
+        if coordinate.path_mutability.is_readonly() {
+            return Err(libc::EROFS);
+        }
+        if self
+            .cfg
+            .can_skip_resolved_target_mutability_check(coordinate.path_mutability)
         {
+            return Ok(());
+        }
+
+        let path = coordinate.path.clone();
+        let resolved = coordinate.resolved_path(self)?;
+        if *resolved == path {
+            return Ok(());
+        }
+        if self.cfg.mutability_decision(resolved).is_readonly() {
             Err(libc::EROFS)
         } else {
             Ok(())
@@ -101,12 +154,14 @@ impl ScreenFs {
         visible: &[(&VirtualPath, bool)],
         writable: &[(&VirtualPath, bool)],
     ) -> Result<(), i32> {
+        let mut coordinates = Vec::with_capacity(visible.len() + writable.len());
         for (path, follow_final_symlink) in visible.iter().copied().chain(writable.iter().copied())
         {
-            self.guard_coordinate_hidden(path, follow_final_symlink)?;
+            coordinates
+                .push(self.evaluate_mutation_coordinate_visibility(path, follow_final_symlink)?);
         }
-        for (path, follow_final_symlink) in writable {
-            self.guard_coordinate_writable(path, *follow_final_symlink)?;
+        for coordinate in coordinates.iter_mut().skip(visible.len()) {
+            self.guard_mutation_coordinate_writable(coordinate)?;
         }
         Ok(())
     }
@@ -126,6 +181,23 @@ impl ScreenFs {
         self.guard_mutation_coordinates(&[], paths)
     }
 
+    pub(super) fn guard_existing_entry_target_visibility(
+        &self,
+        path: &VirtualPath,
+    ) -> Result<(), i32> {
+        self.guard_hidden_path(path)?;
+        if self.cfg.can_skip_symlink_target_visibility_check() {
+            return Ok(());
+        }
+        match self.stat_child_no_follow(path, 0) {
+            Ok(attr) if attr.mode & libc::S_IFMT == libc::S_IFLNK => {
+                self.guard_resolved_target_visibility_if_needed(path)
+            }
+            Ok(_) | Err(ENOENT) => Ok(()),
+            Err(err) => Err(err),
+        }
+    }
+
     pub(super) fn guard_resolved_target_visibility_if_needed(
         &self,
         path: &VirtualPath,
@@ -138,11 +210,7 @@ impl ScreenFs {
             Err(ENOENT) => return Ok(()),
             Err(err) => return Err(err),
         };
-        if resolved != *path && !self.cfg.is_fully_visible(&resolved) {
-            Err(ENOENT)
-        } else {
-            Ok(())
-        }
+        self.guard_resolved_target_fully_visible(path, &resolved)
     }
 
     pub(super) fn attr_for_path(&self, path: &VirtualPath, inode: u64) -> Result<FileAttr, i32> {
@@ -214,6 +282,7 @@ impl ScreenFs {
     }
 
     pub(super) fn guard_child_mutation_path(&self, path: &VirtualPath) -> Result<VirtualPath, i32> {
+        self.guard_existing_entry_target_visibility(path)?;
         let parent_path = Self::parent_path(path);
         self.guard_mutation_coordinates(&[], &[(path, false), (&parent_path, true)])?;
         Ok(parent_path)
@@ -295,11 +364,30 @@ impl ScreenFs {
         resolved: &VirtualPath,
         mutation: bool,
     ) -> Result<(), i32> {
-        if mutation
-            && (self.cfg.visibility_blocks_mutation(path, resolved)
-                || self.readonly(path)
-                || self.readonly(resolved))
+        if !mutation {
+            return Ok(());
+        }
+        if resolved != path && !self.cfg.is_fully_visible(resolved) {
+            return Err(ENOENT);
+        }
+
+        let path_visibility = self.cfg.visibility_decision(path);
+        if matches!(path_visibility, VisibilityDecision::BridgeVisible) {
+            return Err(libc::EROFS);
+        }
+
+        let path_mutability = self.cfg.mutability_decision(path);
+        if path_mutability.is_readonly() {
+            return Err(libc::EROFS);
+        }
+        if resolved == path
+            || self
+                .cfg
+                .can_skip_resolved_target_mutability_check(path_mutability)
         {
+            return Ok(());
+        }
+        if self.cfg.mutability_decision(resolved).is_readonly() {
             return Err(libc::EROFS);
         }
         Ok(())
