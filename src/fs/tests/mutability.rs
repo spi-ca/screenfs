@@ -381,8 +381,8 @@ fn writable_default_symlink_returns_erofs_and_hidden_precedence_remains_enoent()
         .ino;
     let hidden = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/hidden-link"));
 
     assert_eq!(
@@ -469,8 +469,8 @@ fn readonly_default_writable_match_non_match_and_hidden_precedence() {
         .ino;
     let hidden = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/hidden.txt"));
 
     let allowed_handle = block_on(fs.open(dummy_req(), allowed, libc::O_WRONLY as u32)).unwrap();
@@ -592,22 +592,30 @@ fn readonly_default_copy_file_range_requires_writable_destination_parent() {
         .unwrap()
         .attr
         .ino;
-    let input_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        input,
-        VirtualPath::new("/input.txt"),
-        OpenOptions::new()
-            .read(true)
-            .open(dir.join("input.txt"))
-            .unwrap(),
-    );
-    let output_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        output,
-        VirtualPath::new("/blocked/out.txt"),
-        OpenOptions::new()
-            .write(true)
-            .open(dir.join("blocked/out.txt"))
-            .unwrap(),
-    );
+    let input_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            input,
+            VirtualPath::new("/input.txt"),
+            OpenOptions::new()
+                .read(true)
+                .open(dir.join("input.txt"))
+                .unwrap(),
+        );
+    let output_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            output,
+            VirtualPath::new("/blocked/out.txt"),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("blocked/out.txt"))
+                .unwrap(),
+        );
     assert_eq!(
         block_on(fs.copy_file_range(dummy_req(), input, input_fh, 0, output, output_fh, 0, 3, 0,))
             .unwrap_err(),
@@ -632,22 +640,30 @@ fn readonly_default_copy_file_range_requires_writable_destination_parent() {
         .unwrap()
         .attr
         .ino;
-    let input_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        input,
-        VirtualPath::new("/input.txt"),
-        OpenOptions::new()
-            .read(true)
-            .open(dir.join("input.txt"))
-            .unwrap(),
-    );
-    let output_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        output,
-        VirtualPath::new("/blocked/out.txt"),
-        OpenOptions::new()
-            .write(true)
-            .open(dir.join("blocked/out.txt"))
-            .unwrap(),
-    );
+    let input_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            input,
+            VirtualPath::new("/input.txt"),
+            OpenOptions::new()
+                .read(true)
+                .open(dir.join("input.txt"))
+                .unwrap(),
+        );
+    let output_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            output,
+            VirtualPath::new("/blocked/out.txt"),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("blocked/out.txt"))
+                .unwrap(),
+        );
     let copied =
         block_on(fs.copy_file_range(dummy_req(), input, input_fh, 1, output, output_fh, 2, 3, 0))
             .unwrap();

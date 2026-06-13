@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use fractal_fuse::{ENOENT, FileAttr, ReplyEntry};
 
 use super::ScreenFs;
-use super::backing::metadata_to_attr;
+use super::backing::DirEntryInfo;
 use crate::errors::{errno_from_io, open_has_write_intent};
 use crate::path::VirtualPath;
 
@@ -16,13 +16,11 @@ impl ScreenFs {
     }
 
     pub(super) fn visible_for_entry(&self, path: &VirtualPath) -> bool {
-        match self
-            .host_path(path, false)
-            .ok()
-            .and_then(|source| fs::symlink_metadata(source).ok())
-        {
-            Some(metadata) => self.cfg.entry_is_readable(path, metadata.is_dir()),
-            None => self.cfg.is_fully_visible(path),
+        match self.stat_child_no_follow(path, 0) {
+            Ok(attr) => self
+                .cfg
+                .entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR),
+            Err(_) => self.cfg.is_fully_visible(path),
         }
     }
 
@@ -44,7 +42,7 @@ impl ScreenFs {
         follow_final_symlink: bool,
     ) -> Result<VirtualPath, i32> {
         let source = self.host_path(path, follow_final_symlink)?;
-        let source_root = self.cfg.source_root.canonicalize().map_err(errno_from_io)?;
+        let source_root = self.source_root_path()?;
         let relative = source.strip_prefix(&source_root).map_err(|_| ENOENT)?;
         if relative.as_os_str().is_empty() {
             Ok(VirtualPath::root())
@@ -149,18 +147,17 @@ impl ScreenFs {
 
     pub(super) fn attr_for_path(&self, path: &VirtualPath, inode: u64) -> Result<FileAttr, i32> {
         self.guard_read_path(path)?;
-        let metadata = fs::symlink_metadata(self.host_path(path, false)?).map_err(errno_from_io)?;
-        Ok(metadata_to_attr(&metadata, inode))
+        self.stat_child_no_follow(path, inode)
     }
 
     pub(super) fn reply_entry_for_path(&self, path: VirtualPath) -> Result<ReplyEntry, i32> {
         self.guard_read_path(&path)?;
-        let source = self.host_path(&path, false)?;
-        let metadata = fs::symlink_metadata(source).map_err(errno_from_io)?;
+        let mut attr = self.stat_child_no_follow(&path, 0)?;
         let inode = self.track_path(path);
+        attr.ino = inode;
         Ok(ReplyEntry {
             ttl: self.cfg.entry_ttl,
-            attr: metadata_to_attr(&metadata, inode),
+            attr,
             generation: 0,
         })
     }
@@ -184,31 +181,19 @@ impl ScreenFs {
             .unwrap_or_else(VirtualPath::root)
     }
 
-    pub(super) fn dir_entries(
-        &self,
-        dir: &VirtualPath,
-    ) -> Result<Vec<(OsString, VirtualPath, fs::Metadata)>, i32> {
+    pub(super) fn dir_entries(&self, dir: &VirtualPath) -> Result<Vec<DirEntryInfo>, i32> {
         self.guard_read_path(dir)?;
-        let mut entries = Vec::new();
-        let source = self.host_path(dir, true)?;
-        for entry in fs::read_dir(source).map_err(errno_from_io)? {
-            let entry = entry.map_err(errno_from_io)?;
-            let name = entry.file_name();
-            let child = dir.join_child(&name);
-            let metadata = fs::symlink_metadata(entry.path()).map_err(errno_from_io)?;
-            if !self.cfg.entry_is_readable(&child, metadata.is_dir()) {
-                continue;
-            }
-            if metadata.file_type().is_symlink()
-                && self
-                    .guard_resolved_target_visibility_if_needed(&child)
-                    .is_err()
-            {
-                continue;
-            }
-            entries.push((name, child, metadata));
-        }
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        let dir_file = self.open_confined(dir, libc::O_RDONLY | libc::O_DIRECTORY, None)?;
+        self.guard_opened_directory_target(dir, &dir_file, false)?;
+        let mut entries = super::backing::read_dir_entries(dir_file, dir, 3)?;
+        entries.retain(|entry| {
+            self.cfg.entry_is_readable(&entry.child, entry.is_dir)
+                && (!entry.is_symlink
+                    || self
+                        .guard_resolved_target_visibility_if_needed(&entry.child)
+                        .is_ok())
+        });
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(entries)
     }
 
@@ -250,7 +235,7 @@ impl ScreenFs {
     ) -> Result<VirtualPath, i32> {
         let fd_path = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
         let source = fs::read_link(fd_path).map_err(errno_from_io)?;
-        let source_root = self.cfg.source_root.canonicalize().map_err(errno_from_io)?;
+        let source_root = self.source_root_path()?;
         let relative = source.strip_prefix(&source_root).map_err(|_| ENOENT)?;
         if relative.as_os_str().is_empty() {
             Ok(VirtualPath::root())
@@ -271,10 +256,49 @@ impl ScreenFs {
         if !self.cfg.is_fully_visible(&resolved) {
             return Err(ENOENT);
         }
+        self.guard_opened_writable_target(path, &resolved, mutation)
+    }
+
+    pub(super) fn guard_opened_directory_target(
+        &self,
+        path: &VirtualPath,
+        file: &File,
+        mutation: bool,
+    ) -> Result<(), i32> {
+        let resolved = self.resolved_virtual_path_for_open_file(file)?;
+        if !self.cfg.entry_is_readable(&resolved, true) {
+            return Err(ENOENT);
+        }
+        self.guard_opened_writable_target(path, &resolved, mutation)
+    }
+
+    pub(super) fn guard_opened_directory_at_path(
+        &self,
+        path: &VirtualPath,
+        file: &File,
+        mutation: bool,
+    ) -> Result<(), i32> {
+        let resolved = self.resolved_virtual_path_for_open_file(file)?;
+        let expected = self.resolved_virtual_path(path, true)?;
+        if resolved != expected {
+            return Err(ENOENT);
+        }
+        if !self.cfg.entry_is_readable(&resolved, true) {
+            return Err(ENOENT);
+        }
+        self.guard_opened_writable_target(path, &resolved, mutation)
+    }
+
+    fn guard_opened_writable_target(
+        &self,
+        path: &VirtualPath,
+        resolved: &VirtualPath,
+        mutation: bool,
+    ) -> Result<(), i32> {
         if mutation
-            && (self.cfg.visibility_blocks_mutation(path, &resolved)
+            && (self.cfg.visibility_blocks_mutation(path, resolved)
                 || self.readonly(path)
-                || self.readonly(&resolved))
+                || self.readonly(resolved))
         {
             return Err(libc::EROFS);
         }

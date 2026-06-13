@@ -157,8 +157,8 @@ impl RuntimeConfig {
             visible_rule_count: visibility.visible.len(),
             readonly_rule_count: mutability.readonly.len(),
             writable_rule_count: mutability.writable.len(),
-            attr_ttl: Duration::from_secs(1),
-            entry_ttl: Duration::from_secs(1),
+            attr_ttl: Duration::ZERO,
+            entry_ttl: Duration::ZERO,
         })
     }
 

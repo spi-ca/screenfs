@@ -1,10 +1,9 @@
 use std::ffi::OsStr;
-use std::fs;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
-use std::sync::Mutex;
+use std::os::unix::fs::FileExt;
+use std::sync::RwLock;
 
 use fractal_fuse::{
     DirectoryEntry, DirectoryEntryPlus, ENOENT, Filesystem, FsResult, ReplyAttr, ReplyCreate,
@@ -12,13 +11,13 @@ use fractal_fuse::{
 };
 
 use crate::config::RuntimeConfig;
-use crate::errors::errno_from_io;
+use crate::errors::{errno_from_io, open_has_write_intent};
 mod backing;
 mod guards;
 mod state;
 
 use self::backing::{
-    apply_setattr, cstring_os, cstring_path, faccessat2_empty, read_xattr_reply,
+    apply_setattr, cstring_os, faccessat2_empty, open_dir_handle, read_xattr_reply,
     sanitize_open_flags, source_root_statfs,
 };
 use self::state::State;
@@ -26,19 +25,36 @@ use self::state::State;
 #[derive(Debug)]
 pub struct ScreenFs {
     cfg: RuntimeConfig,
-    state: Mutex<State>,
+    source_root: File,
+    state: RwLock<State>,
 }
 
 impl ScreenFs {
     pub fn new(cfg: RuntimeConfig) -> Self {
+        let source_root = open_dir_handle(&cfg.source_root).expect("source root must be openable");
         Self {
             cfg,
-            state: Mutex::new(State::new()),
+            source_root,
+            state: RwLock::new(State::new()),
         }
     }
 
     pub fn config(&self) -> &RuntimeConfig {
         &self.cfg
+    }
+
+    fn apply_deferred_truncate(&self, file: &File, flags: u32) -> FsResult<()> {
+        if flags & libc::O_TRUNC as u32 == 0
+            || flags & libc::O_ACCMODE as u32 == libc::O_RDONLY as u32
+        {
+            return Ok(());
+        }
+        let result = unsafe { libc::ftruncate(file.as_raw_fd(), 0) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(errno_from_io(std::io::Error::last_os_error()))
+        }
     }
 }
 
@@ -69,7 +85,7 @@ impl Filesystem for ScreenFs {
     async fn readlink(&self, _req: Request, inode: u64) -> FsResult<ReplyReadlink> {
         let path = self.path_for_inode(inode)?;
         self.guard_read_path(&path)?;
-        let target = fs::read_link(self.host_path(&path, false)?).map_err(errno_from_io)?;
+        let target = self.readlink_child(&path)?;
         self.check_hidden_symlink_target(&path, target.as_os_str())?;
         Ok(ReplyReadlink {
             data: target.as_os_str().as_bytes().to_vec(),
@@ -79,7 +95,10 @@ impl Filesystem for ScreenFs {
     async fn open(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {
         let path = self.path_for_inode(inode)?;
         self.guard_open_flags(&path, flags)?;
-        let file = self.open_confined(&path, sanitize_open_flags(flags, false), None)?;
+        let open_flags = sanitize_open_flags(flags, false) & !libc::O_TRUNC;
+        let file = self.open_confined(&path, open_flags, None)?;
+        self.guard_opened_file_target(&path, &file, open_has_write_intent(flags))?;
+        self.apply_deferred_truncate(&file, flags)?;
         let fh = self.insert_open_file(inode, path, file);
         Ok(ReplyOpen {
             fh,
@@ -96,10 +115,9 @@ impl Filesystem for ScreenFs {
         offset: u64,
         buf: &mut [u8],
     ) -> FsResult<usize> {
-        let (path, mut file) = self.file_handle_snapshot(inode, fh)?;
+        let (path, file) = self.file_handle_snapshot(inode, fh)?;
         self.guard_read_path(&path)?;
-        file.seek(SeekFrom::Start(offset)).map_err(errno_from_io)?;
-        file.read(buf).map_err(errno_from_io)
+        file.read_at(buf, offset).map_err(errno_from_io)
     }
 
     async fn write(
@@ -112,10 +130,9 @@ impl Filesystem for ScreenFs {
         _write_flags: u32,
         _flags: u32,
     ) -> FsResult<usize> {
-        let (path, mut file) = self.file_handle_snapshot(inode, fh)?;
+        let (path, file) = self.file_handle_snapshot(inode, fh)?;
         self.guard_mutation_path(&path, true)?;
-        file.seek(SeekFrom::Start(offset)).map_err(errno_from_io)?;
-        file.write(data).map_err(errno_from_io)
+        file.write_at(data, offset).map_err(errno_from_io)
     }
 
     async fn flush(&self, _req: Request, inode: u64, fh: u64, _lock_owner: u64) -> FsResult<()> {
@@ -134,7 +151,7 @@ impl Filesystem for ScreenFs {
         _flock_release: bool,
     ) -> FsResult<()> {
         let handle = {
-            let mut state = self.state.lock().expect("state mutex poisoned");
+            let mut state = self.state.write().expect("state rwlock poisoned");
             state.remove_file(fh)
         };
         if flush && let Some(handle) = handle {
@@ -201,17 +218,7 @@ impl Filesystem for ScreenFs {
         offset: u64,
         _size: u32,
     ) -> FsResult<Vec<DirectoryEntryPlus>> {
-        let entries = self
-            .opendir_snapshot(inode, fh)?
-            .into_iter()
-            .filter(|entry| entry.offset > offset)
-            .collect::<Vec<_>>();
-        self.add_lookup_refs_for_readdirplus(
-            entries
-                .iter()
-                .filter(|entry| entry.name != b"." && entry.name != b"..")
-                .map(|entry| entry.ino),
-        );
+        let entries = self.readdirplus_snapshot(inode, fh, offset)?;
         Ok(entries
             .into_iter()
             .map(|entry| DirectoryEntryPlus {
@@ -235,11 +242,12 @@ impl Filesystem for ScreenFs {
         let path = self.path_for_inode(inode)?;
         self.guard_access_mask(&path, mask)?;
         let file = self.open_confined(&path, libc::O_PATH, None)?;
+        self.guard_opened_file_target(&path, &file, mask & libc::W_OK as u32 != 0)?;
         faccessat2_empty(&file, mask)
     }
 
     async fn statfs(&self, _req: Request, _inode: u64) -> FsResult<ReplyStatfs> {
-        source_root_statfs(&self.cfg.source_root)
+        source_root_statfs(&self.source_root)
     }
 
     async fn setattr(
@@ -277,14 +285,20 @@ impl Filesystem for ScreenFs {
             return Err(ENOENT);
         }
         let parent_path = self.guard_child_mutation_path(&path)?;
-        std::os::unix::fs::symlink(link, self.host_path(&path, false)?).map_err(errno_from_io)?;
+        let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
+        self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
+        let link = cstring_os(link)?;
+        let result =
+            unsafe { libc::symlinkat(link.as_ptr(), parent_dir.as_raw_fd(), name.as_ptr()) };
+        if result != 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
+        self.invalidate_after_mutation(&[parent_path], std::slice::from_ref(&path), &[]);
         match self.reply_entry_for_path(path.clone()) {
-            Ok(entry) => {
-                self.invalidate_after_mutation(&[parent_path], std::slice::from_ref(&path), &[]);
-                Ok(entry)
-            }
+            Ok(entry) => Ok(entry),
             Err(err) => {
-                let _ = fs::remove_file(self.host_path(&path, false)?);
+                let _ = unsafe { libc::unlinkat(parent_dir.as_raw_fd(), name.as_ptr(), 0) };
+                self.invalidate_after_mutation(&[], std::slice::from_ref(&path), &[]);
                 Err(err)
             }
         }
@@ -299,10 +313,16 @@ impl Filesystem for ScreenFs {
         rdev: u32,
     ) -> FsResult<ReplyEntry> {
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
-        let source = self.host_path(&path, false)?;
-        let c_path = cstring_path(&source)?;
-        let result =
-            unsafe { libc::mknod(c_path.as_ptr(), mode as libc::mode_t, rdev as libc::dev_t) };
+        let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
+        self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
+        let result = unsafe {
+            libc::mknodat(
+                parent_dir.as_raw_fd(),
+                name.as_ptr(),
+                mode as libc::mode_t,
+                rdev as libc::dev_t,
+            )
+        };
         if result != 0 {
             return Err(errno_from_io(std::io::Error::last_os_error()));
         }
@@ -312,14 +332,25 @@ impl Filesystem for ScreenFs {
 
     async fn unlink(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<()> {
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
-        fs::remove_file(self.host_path(&path, false)?).map_err(errno_from_io)?;
+        let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
+        self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
+        let result = unsafe { libc::unlinkat(parent_dir.as_raw_fd(), name.as_ptr(), 0) };
+        if result != 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
         self.invalidate_after_mutation(&[parent_path], &[], &[path]);
         Ok(())
     }
 
     async fn rmdir(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<()> {
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
-        fs::remove_dir(self.host_path(&path, false)?).map_err(errno_from_io)?;
+        let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
+        self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
+        let result =
+            unsafe { libc::unlinkat(parent_dir.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) };
+        if result != 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
         self.invalidate_after_mutation(&[parent_path], &[], &[path]);
         Ok(())
     }
@@ -333,10 +364,43 @@ impl Filesystem for ScreenFs {
         _umask: u32,
     ) -> FsResult<ReplyEntry> {
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
-        let source = self.host_path(&path, false)?;
-        fs::create_dir(&source).map_err(errno_from_io)?;
-        fs::set_permissions(source, fs::Permissions::from_mode(mode & 0o7777))
-            .map_err(errno_from_io)?;
+        let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
+        self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
+        let result = unsafe {
+            libc::mkdirat(
+                parent_dir.as_raw_fd(),
+                name.as_ptr(),
+                ((mode & 0o7777) | 0o700) as libc::mode_t,
+            )
+        };
+        if result != 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
+        let child_fd = unsafe {
+            libc::openat(
+                parent_dir.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if child_fd < 0 {
+            let err = errno_from_io(std::io::Error::last_os_error());
+            let _ = unsafe {
+                libc::unlinkat(parent_dir.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR)
+            };
+            self.invalidate_after_mutation(&[parent_path], &[], std::slice::from_ref(&path));
+            return Err(err);
+        }
+        let chmod_result = unsafe { libc::fchmod(child_fd, (mode & 0o7777) as libc::mode_t) };
+        let close_result = unsafe { libc::close(child_fd) };
+        if chmod_result != 0 || close_result != 0 {
+            let err = errno_from_io(std::io::Error::last_os_error());
+            let _ = unsafe {
+                libc::unlinkat(parent_dir.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR)
+            };
+            self.invalidate_after_mutation(&[parent_path], &[], std::slice::from_ref(&path));
+            return Err(err);
+        }
         self.invalidate_after_mutation(&[parent_path], std::slice::from_ref(&path), &[]);
         self.reply_entry_for_path(path)
     }
@@ -360,8 +424,23 @@ impl Filesystem for ScreenFs {
             (&from_parent, true),
             (&to_parent, true),
         ])?;
-        fs::rename(self.host_path(&from, false)?, self.host_path(&to, false)?)
-            .map_err(errno_from_io)?;
+        let (_from_parent, from_parent_dir, from_name) = self.open_parent_dir(&from)?;
+        let (_to_parent, to_parent_dir, to_name) = self.open_parent_dir(&to)?;
+        self.guard_opened_directory_at_path(&from_parent, &from_parent_dir, true)?;
+        self.guard_opened_directory_at_path(&to_parent, &to_parent_dir, true)?;
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                from_parent_dir.as_raw_fd(),
+                from_name.as_ptr(),
+                to_parent_dir.as_raw_fd(),
+                to_name.as_ptr(),
+                0,
+            ) as libc::c_int
+        };
+        if result != 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
         self.invalidate_after_mutation(&[from_parent, to_parent], &[], &[from, to]);
         Ok(())
     }
@@ -381,11 +460,23 @@ impl Filesystem for ScreenFs {
             (&target, false),
             (&target_parent, true),
         ])?;
-        fs::hard_link(
-            self.host_path(&source, false)?,
-            self.host_path(&target, false)?,
-        )
-        .map_err(errno_from_io)?;
+        let source_parent = Self::parent_path(&source);
+        let (_source_parent, source_parent_dir, source_name) = self.open_parent_dir(&source)?;
+        let (_target_parent, target_parent_dir, target_name) = self.open_parent_dir(&target)?;
+        self.guard_opened_directory_at_path(&source_parent, &source_parent_dir, false)?;
+        self.guard_opened_directory_at_path(&target_parent, &target_parent_dir, true)?;
+        let result = unsafe {
+            libc::linkat(
+                source_parent_dir.as_raw_fd(),
+                source_name.as_ptr(),
+                target_parent_dir.as_raw_fd(),
+                target_name.as_ptr(),
+                0,
+            )
+        };
+        if result != 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
         self.invalidate_after_mutation(&[target_parent], std::slice::from_ref(&target), &[]);
         self.reply_entry_for_path(target)
     }
@@ -399,8 +490,13 @@ impl Filesystem for ScreenFs {
         flags: u32,
     ) -> FsResult<ReplyCreate> {
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
-        let file =
-            self.open_confined(&path, sanitize_open_flags(flags, true), Some(mode & 0o7777))?;
+        if self.stat_child_no_follow(&path, 0).is_ok() {
+            self.guard_mutation_path(&path, true)?;
+        }
+        let open_flags = sanitize_open_flags(flags, true) & !libc::O_TRUNC;
+        let file = self.open_confined(&path, open_flags, Some(mode & 0o7777))?;
+        self.guard_opened_file_target(&path, &file, true)?;
+        self.apply_deferred_truncate(&file, flags)?;
         let (inode, fh) = self.finalize_created_file(&parent_path, path.clone(), file);
         let attr = self.attr_for_path(&path, inode)?;
         Ok(ReplyCreate {
@@ -408,7 +504,9 @@ impl Filesystem for ScreenFs {
             attr,
             generation: 0,
             fh,
-            flags,
+            // FUSE create replies use FOPEN_* reply flags, not the original
+            // open(2) flags. ScreenFS does not request special handle behavior.
+            flags: 0,
         })
     }
 
@@ -446,15 +544,8 @@ impl Filesystem for ScreenFs {
         offset: u64,
         whence: u32,
     ) -> FsResult<u64> {
-        let state = self.state.lock().expect("state mutex poisoned");
-        let handle = state.files.get(&fh).ok_or(ENOENT)?;
-        let result = unsafe {
-            libc::lseek(
-                handle.file.as_raw_fd(),
-                offset as libc::off_t,
-                whence as i32,
-            )
-        };
+        let file = self.file_snapshot_for_handle(fh)?;
+        let result = unsafe { libc::lseek(file.as_raw_fd(), offset as libc::off_t, whence as i32) };
         if result >= 0 {
             Ok(result as u64)
         } else {
@@ -474,22 +565,18 @@ impl Filesystem for ScreenFs {
         length: u64,
         flags: u64,
     ) -> FsResult<usize> {
-        let state = self.state.lock().expect("state mutex poisoned");
-        let input = state.files.get(&fh_in).ok_or(ENOENT)?;
-        let output = state.files.get(&fh_out).ok_or(ENOENT)?;
-        if input.inode != inode_in || output.inode != inode_out {
-            return Err(ENOENT);
-        }
-        self.guard_read_path(&input.path)?;
-        let output_parent = Self::parent_path(&output.path);
-        self.guard_mutation_coordinates(&[], &[(&output.path, true), (&output_parent, true)])?;
+        let ((input_path, input_file), (output_path, output_file)) =
+            self.copy_file_range_snapshot(inode_in, fh_in, inode_out, fh_out)?;
+        self.guard_read_path(&input_path)?;
+        let output_parent = Self::parent_path(&output_path);
+        self.guard_mutation_coordinates(&[], &[(&output_path, true), (&output_parent, true)])?;
         let mut in_off = off_in as libc::off64_t;
         let mut out_off = off_out as libc::off64_t;
         let copied = unsafe {
             libc::copy_file_range(
-                input.file.as_raw_fd(),
+                input_file.as_raw_fd(),
                 &mut in_off,
-                output.file.as_raw_fd(),
+                output_file.as_raw_fd(),
                 &mut out_off,
                 length as usize,
                 flags as u32,

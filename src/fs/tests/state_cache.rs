@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn failed_lookup_does_not_pin_unknown_inode() {
+    let dir = test_dir("failed-lookup-no-pin");
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    assert_eq!(
+        block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("missing"))).unwrap_err(),
+        ENOENT
+    );
+
+    let state = fs.state.read().expect("state rwlock poisoned");
+    assert!(
+        !state
+            .path_inodes
+            .contains_key(&VirtualPath::new("/missing"))
+    );
+    assert_eq!(state.inodes.len(), 1);
+    drop(state);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn readdirplus_dot_entries_do_not_pin_lookup_refs() {
     let dir = test_dir("readdirplus-dot-no-pin");
     std::fs::create_dir(dir.join("a")).unwrap();
@@ -34,7 +55,7 @@ fn forget_evicts_non_root_mapping_after_lookup_refs_drop_and_handles_close() {
 
     fs.forget(dummy_req(), inode, 1);
     {
-        let state = fs.state.lock().expect("state mutex poisoned");
+        let state = fs.state.read().expect("state rwlock poisoned");
         let record = state
             .inodes
             .get(&inode)
@@ -49,7 +70,7 @@ fn forget_evicts_non_root_mapping_after_lookup_refs_drop_and_handles_close() {
 
     block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
     {
-        let state = fs.state.lock().expect("state mutex poisoned");
+        let state = fs.state.read().expect("state rwlock poisoned");
         assert!(!state.inodes.contains_key(&inode));
         assert!(!state.path_inodes.contains_key(&VirtualPath::new("/file")));
     }
@@ -169,6 +190,68 @@ fn successful_mutations_invalidate_parent_snapshots_and_reused_exact_paths() {
         },
     );
 
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readdirplus_pins_returned_child_lookup_refs() {
+    let dir = test_dir("readdirplus-pins-child");
+    std::fs::create_dir(dir.join("listing")).unwrap();
+    std::fs::write(dir.join("listing/child"), b"data").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    let listing = lookup_root_inode(&fs, "listing");
+    let fh = open_directory_handle(&fs, listing);
+    let entries = block_on(fs.readdirplus(dummy_req(), listing, fh, 0, 4096)).unwrap();
+    let child = entries
+        .iter()
+        .find(|entry| entry.name == b"child")
+        .expect("child entry present")
+        .ino;
+
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        let record = state.inodes.get(&child).expect("child inode pinned");
+        assert_eq!(record.lookup_refs, 1);
+    }
+
+    fs.forget(dummy_req(), child, 1);
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        assert!(!state.inodes.contains_key(&child));
+        assert!(
+            !state
+                .path_inodes
+                .contains_key(&VirtualPath::new("/listing/child"))
+        );
+    }
+
+    block_on(fs.releasedir(dummy_req(), listing, fh, 0)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn read_only_state_snapshots_can_run_concurrently() {
+    let dir = test_dir("state-read-concurrent");
+    std::fs::write(dir.join("file"), b"data").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    let inode = lookup_root_inode(&fs, "file");
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap();
+
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            scope.spawn(|| {
+                for _ in 0..100 {
+                    assert_eq!(fs.path_for_inode(inode).unwrap(), VirtualPath::new("/file"));
+                    let (path, _file) = fs.file_handle_snapshot(inode, handle.fh).unwrap();
+                    assert_eq!(path, VirtualPath::new("/file"));
+                }
+            });
+        }
+    });
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
     std::fs::remove_dir_all(dir).unwrap();
 }
 

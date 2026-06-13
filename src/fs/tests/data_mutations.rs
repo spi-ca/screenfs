@@ -1,4 +1,5 @@
 use super::*;
+use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn hidden_xattr_queries_return_enoent() {
@@ -7,8 +8,8 @@ fn hidden_xattr_queries_return_enoent() {
     let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
     let hidden = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/hidden"));
 
     assert_eq!(
@@ -37,8 +38,8 @@ fn xattr_operations_use_confined_fd_and_preserve_symlink_visibility() {
         .ino;
     let hidden_link = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/link1"));
 
     block_on(fs.setxattr(dummy_req(), visible, OsStr::new("user.test"), b"value", 0)).unwrap();
@@ -79,8 +80,8 @@ fn setattr_uses_confined_fd_and_preserves_symlink_visibility() {
         .ino;
     let hidden_link = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/link1"));
 
     block_on(fs.setattr(
@@ -136,16 +137,24 @@ fn readonly_multi_path_xattr_and_fallocate_mutations_return_erofs() {
         .unwrap()
         .attr
         .ino;
-    let a_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        a,
-        VirtualPath::new("/a"),
-        OpenOptions::new().read(true).open(dir.join("a")).unwrap(),
-    );
-    let b_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        b,
-        VirtualPath::new("/b"),
-        OpenOptions::new().write(true).open(dir.join("b")).unwrap(),
-    );
+    let a_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            a,
+            VirtualPath::new("/a"),
+            OpenOptions::new().read(true).open(dir.join("a")).unwrap(),
+        );
+    let b_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            b,
+            VirtualPath::new("/b"),
+            OpenOptions::new().write(true).open(dir.join("b")).unwrap(),
+        );
 
     assert_eq!(
         block_on(fs.link(dummy_req(), a, FUSE_ROOT_ID, OsStr::new("a-link"))).unwrap_err(),
@@ -181,6 +190,76 @@ fn readonly_multi_path_xattr_and_fallocate_mutations_return_erofs() {
 }
 
 #[test]
+fn lseek_uses_tracked_file_handle_and_released_handle_fails() {
+    let dir = test_dir("lseek-handle");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let fh = insert_tracked_file_handle(
+        &fs,
+        inode,
+        "/file",
+        OpenOptions::new()
+            .read(true)
+            .open(dir.join("file"))
+            .unwrap(),
+    );
+
+    assert_eq!(
+        block_on(fs.lseek(dummy_req(), inode, fh, 2, libc::SEEK_SET as u32)).unwrap(),
+        2
+    );
+    assert_eq!(
+        block_on(fs.lseek(dummy_req(), inode, fh, -1_i64 as u64, libc::SEEK_END as u32)).unwrap(),
+        5
+    );
+    block_on(fs.release(dummy_req(), inode, fh, 0, 0, false, false)).unwrap();
+    assert_eq!(
+        block_on(fs.lseek(dummy_req(), inode, fh, 0, libc::SEEK_SET as u32)).unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn read_write_offsets_do_not_depend_on_shared_file_position() {
+    let dir = test_dir("fileext-offsets");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDWR as u32)).unwrap();
+
+    assert_eq!(
+        block_on(fs.lseek(dummy_req(), inode, handle.fh, 4, libc::SEEK_SET as u32)).unwrap(),
+        4
+    );
+    let mut buf = [0_u8; 3];
+    let len = block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap();
+    assert_eq!(&buf[..len], b"abc");
+
+    assert_eq!(
+        block_on(fs.lseek(dummy_req(), inode, handle.fh, 0, libc::SEEK_END as u32)).unwrap(),
+        6
+    );
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 2, b"ZZ", 0, 0)).unwrap(),
+        2
+    );
+    assert_eq!(std::fs::read(dir.join("file")).unwrap(), b"abZZef");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn visible_copy_file_range_copies_data() {
     let dir = test_dir("copy-visible");
     std::fs::write(dir.join("a"), b"abcdef").unwrap();
@@ -196,16 +275,24 @@ fn visible_copy_file_range_copies_data() {
         .unwrap()
         .attr
         .ino;
-    let a_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        a,
-        VirtualPath::new("/a"),
-        OpenOptions::new().read(true).open(dir.join("a")).unwrap(),
-    );
-    let b_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        b,
-        VirtualPath::new("/b"),
-        OpenOptions::new().write(true).open(dir.join("b")).unwrap(),
-    );
+    let a_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            a,
+            VirtualPath::new("/a"),
+            OpenOptions::new().read(true).open(dir.join("a")).unwrap(),
+        );
+    let b_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            b,
+            VirtualPath::new("/b"),
+            OpenOptions::new().write(true).open(dir.join("b")).unwrap(),
+        );
 
     let copied = block_on(fs.copy_file_range(dummy_req(), a, a_fh, 1, b, b_fh, 2, 3, 0)).unwrap();
     assert_eq!(copied, 3);
@@ -221,30 +308,38 @@ fn hidden_copy_file_range_paths_return_enoent_before_readonly() {
     let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
     let hidden = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/hidden"));
     let visible = fs
         .reply_entry_for_path(VirtualPath::new("/visible"))
         .unwrap()
         .attr
         .ino;
-    let hidden_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        hidden,
-        VirtualPath::new("/hidden"),
-        OpenOptions::new()
-            .read(true)
-            .open(dir.join("hidden"))
-            .unwrap(),
-    );
-    let visible_fh = fs.state.lock().expect("state mutex poisoned").insert_file(
-        visible,
-        VirtualPath::new("/visible"),
-        OpenOptions::new()
-            .write(true)
-            .open(dir.join("visible"))
-            .unwrap(),
-    );
+    let hidden_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            hidden,
+            VirtualPath::new("/hidden"),
+            OpenOptions::new()
+                .read(true)
+                .open(dir.join("hidden"))
+                .unwrap(),
+        );
+    let visible_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            visible,
+            VirtualPath::new("/visible"),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("visible"))
+                .unwrap(),
+        );
 
     assert_eq!(
         block_on(fs.copy_file_range(
@@ -287,8 +382,8 @@ fn hidden_multi_path_mutations_return_enoent_before_readonly() {
     let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
     let hidden = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/hidden"));
     let visible = fs
         .reply_entry_for_path(VirtualPath::new("/visible"))

@@ -1,6 +1,7 @@
 use super::*;
 use crate::cli::{CliArgs, LaunchArgs, MutabilityDefault};
 use crate::config::RuntimeConfig;
+use crate::fs::backing::cstring_path;
 use crate::path::{ProcessEnvGuard, VirtualPath};
 use fractal_fuse::abi::FUSE_ROOT_ID;
 use std::fs::{File, OpenOptions};
@@ -111,15 +112,15 @@ fn vpath(path: &str) -> VirtualPath {
 
 fn tracked_inode(fs: &ScreenFs, path: &str) -> u64 {
     fs.state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(vpath(path))
 }
 
 fn insert_tracked_file_handle(fs: &ScreenFs, inode: u64, path: &str, file: File) -> u64 {
     fs.state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .insert_file(inode, vpath(path), file)
 }
 

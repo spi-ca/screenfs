@@ -1,4 +1,6 @@
 use super::*;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn readonly_write_intent_open_and_opendir_return_erofs_but_hidden_stays_enoent() {
@@ -36,8 +38,8 @@ fn symlink_to_hidden_target_returns_enoent_before_readonly_for_write_intent() {
     let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
     let inode = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/link"));
 
     assert_eq!(
@@ -65,8 +67,8 @@ fn symlink_to_hidden_target_returns_enoent_for_lookup_open_and_readlink() {
 
     let inode = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/link"));
     let open_err = block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap_err();
     assert_eq!(open_err, ENOENT);
@@ -92,8 +94,8 @@ fn multi_hop_symlink_to_hidden_target_returns_enoent() {
 
     let inode = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/link1"));
     assert_eq!(
         block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap_err(),
@@ -125,8 +127,8 @@ fn ancestor_symlink_into_hidden_subtree_returns_enoent_for_child() {
     );
     let inode = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/visible-dir-link/subdir/file"));
     assert_eq!(
         block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap_err(),
@@ -170,8 +172,8 @@ fn symlink_to_bridge_visible_target_is_not_exported() {
     );
     let inode = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/link-to-bridge"));
     assert_eq!(
         block_on(fs.readlink(dummy_req(), inode)).unwrap_err(),
@@ -215,8 +217,8 @@ fn broader_visible_rule_does_not_expose_more_specific_hidden_symlink_target() {
 
     let inode = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/link"));
     assert_eq!(
         block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap_err(),
@@ -349,8 +351,8 @@ fn hidden_access_returns_enoent_for_read_and_write_masks() {
     let fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
     let hidden = fs
         .state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/hidden"));
 
     assert_eq!(
@@ -393,13 +395,13 @@ fn statfs_reflects_backing_filesystem_instead_of_placeholder_values() {
         .attr
         .ino;
     fs.state
-        .lock()
-        .expect("state mutex poisoned")
+        .write()
+        .expect("state rwlock poisoned")
         .inode_for_path(VirtualPath::new("/nested"));
 
     let stats = block_on(fs.statfs(dummy_req(), visible)).unwrap();
     let host = host_statfs(&dir);
-    let tracked_inodes = fs.state.lock().expect("state mutex poisoned").inodes.len() as u64;
+    let tracked_inodes = fs.state.read().expect("state rwlock poisoned").inodes.len() as u64;
 
     assert_eq!(stats.blocks, host.blocks);
     assert_eq!(stats.files, host.files);
@@ -450,6 +452,84 @@ fn open_honors_host_access_mode_truncate_and_append_flags() {
     let len = block_on(fs.read(dummy_req(), inode, appended.fh, 0, &mut buf)).unwrap();
     assert_eq!(&buf[..len], b"abcz");
     block_on(fs.release(dummy_req(), inode, appended.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn write_intent_open_hidden_symlink_does_not_truncate_target() {
+    let dir = test_dir("open-hidden-symlink-no-truncate");
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+    let inode = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .inode_for_path(VirtualPath::new("/link"));
+
+    let err =
+        block_on(fs.open(dummy_req(), inode, (libc::O_WRONLY | libc::O_TRUNC) as u32)).unwrap_err();
+
+    assert_eq!(err, ENOENT);
+    assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"secret");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn create_existing_symlink_to_hidden_target_returns_enoent_before_side_effects() {
+    let dir = test_dir("create-hidden-symlink-target");
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+    std::os::unix::fs::symlink("hidden", dir.join("link")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+
+    let err = block_on(fs.create(
+        dummy_req(),
+        FUSE_ROOT_ID,
+        OsStr::new("link"),
+        0o644,
+        (libc::O_CREAT | libc::O_TRUNC | libc::O_RDWR) as u32,
+    ))
+    .unwrap_err();
+
+    assert_eq!(err, ENOENT);
+    assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"secret");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn mutation_under_visible_symlink_parent_uses_resolved_parent() {
+    let dir = test_dir("symlink-parent-mutation");
+    std::fs::create_dir(dir.join("target")).unwrap();
+    std::os::unix::fs::symlink("target", dir.join("alias")).unwrap();
+    std::fs::write(dir.join("target/remove-me"), b"old").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let alias = lookup_root_inode(&fs, "alias");
+
+    block_on(fs.mkdir(dummy_req(), alias, OsStr::new("child"), 0o755, 0)).unwrap();
+    assert!(dir.join("target/child").is_dir());
+
+    block_on(fs.unlink(dummy_req(), alias, OsStr::new("remove-me"))).unwrap();
+    assert!(!dir.join("target/remove-me").exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn mkdir_restrictive_mode_returns_success_after_creation() {
+    let dir = test_dir("mkdir-restrictive-mode");
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    block_on(fs.mkdir(dummy_req(), FUSE_ROOT_ID, OsStr::new("private"), 0o000, 0)).unwrap();
+    assert!(dir.join("private").is_dir());
+    assert_eq!(
+        std::fs::metadata(dir.join("private"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0
+    );
+
+    std::fs::remove_dir(dir.join("private")).unwrap();
     std::fs::remove_dir_all(dir).unwrap();
 }
 

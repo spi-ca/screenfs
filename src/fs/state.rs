@@ -2,15 +2,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
+use std::sync::Arc;
 
 use fractal_fuse::abi::FUSE_ROOT_ID;
 use fractal_fuse::{ENOENT, FileAttr, FileType};
 
-use crate::errors::errno_from_io;
 use crate::path::VirtualPath;
 
 use super::ScreenFs;
-use super::backing::{file_type_from_metadata, metadata_to_attr};
 
 #[derive(Debug)]
 pub(super) struct State {
@@ -33,8 +32,11 @@ pub(super) struct InodeRecord {
 pub(super) struct FileHandle {
     pub(super) inode: u64,
     pub(super) path: VirtualPath,
-    pub(super) file: File,
+    pub(super) file: Arc<File>,
 }
+
+pub(super) type FileSnapshot = (VirtualPath, Arc<File>);
+pub(super) type CopyFileRangeSnapshot = (FileSnapshot, FileSnapshot);
 
 #[derive(Debug, Clone)]
 pub(super) struct DirectorySnapshotEntry {
@@ -158,7 +160,14 @@ impl State {
 
     pub(super) fn insert_file(&mut self, inode: u64, path: VirtualPath, file: File) -> u64 {
         let fh = self.next_handle();
-        self.files.insert(fh, FileHandle { inode, path, file });
+        self.files.insert(
+            fh,
+            FileHandle {
+                inode,
+                path,
+                file: Arc::new(file),
+            },
+        );
         if inode != FUSE_ROOT_ID
             && let Some(record) = self.inodes.get_mut(&inode)
         {
@@ -246,11 +255,38 @@ impl State {
             self.invalidate_exact_path(&path);
         }
     }
+
+    pub(super) fn readdirplus_snapshot(
+        &mut self,
+        inode: u64,
+        fh: u64,
+        offset: u64,
+    ) -> Result<Vec<DirectorySnapshotEntry>, i32> {
+        let entries = {
+            let handle = self.directories.get(&fh).ok_or(ENOENT)?;
+            if handle.inode != inode {
+                return Err(ENOENT);
+            }
+            handle
+                .entries
+                .iter()
+                .filter(|entry| entry.offset > offset)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        self.add_lookup_refs(
+            entries
+                .iter()
+                .filter(|entry| entry.name != b"." && entry.name != b"..")
+                .map(|entry| entry.ino),
+        );
+        Ok(entries)
+    }
 }
 
 impl ScreenFs {
     pub(super) fn path_for_inode(&self, inode: u64) -> Result<VirtualPath, i32> {
-        let state = self.state.lock().expect("state mutex poisoned");
+        let state = self.state.read().expect("state rwlock poisoned");
         state.path_for_inode(inode).ok_or(ENOENT)
     }
 
@@ -261,15 +297,15 @@ impl ScreenFs {
 
     pub(super) fn track_path(&self, path: VirtualPath) -> u64 {
         self.state
-            .lock()
-            .expect("state mutex poisoned")
+            .write()
+            .expect("state rwlock poisoned")
             .lookup_path(path)
     }
 
     pub(super) fn insert_open_file(&self, inode: u64, path: VirtualPath, file: File) -> u64 {
         self.state
-            .lock()
-            .expect("state mutex poisoned")
+            .write()
+            .expect("state rwlock poisoned")
             .insert_file(inode, path, file)
     }
 
@@ -280,30 +316,50 @@ impl ScreenFs {
         entries: Vec<DirectorySnapshotEntry>,
     ) -> u64 {
         self.state
-            .lock()
-            .expect("state mutex poisoned")
+            .write()
+            .expect("state rwlock poisoned")
             .insert_directory(inode, path, entries)
     }
 
     pub(super) fn remove_open_directory(&self, fh: u64) {
         self.state
-            .lock()
-            .expect("state mutex poisoned")
+            .write()
+            .expect("state rwlock poisoned")
             .remove_directory(fh);
     }
 
-    pub(super) fn file_handle_snapshot(
-        &self,
-        inode: u64,
-        fh: u64,
-    ) -> Result<(VirtualPath, File), i32> {
-        let state = self.state.lock().expect("state mutex poisoned");
+    pub(super) fn file_handle_snapshot(&self, inode: u64, fh: u64) -> Result<FileSnapshot, i32> {
+        let state = self.state.read().expect("state rwlock poisoned");
         let handle = state.files.get(&fh).ok_or(ENOENT)?;
         if handle.inode != inode {
             return Err(ENOENT);
         }
-        let file = handle.file.try_clone().map_err(errno_from_io)?;
-        Ok((handle.path.clone(), file))
+        Ok((handle.path.clone(), Arc::clone(&handle.file)))
+    }
+
+    pub(super) fn file_snapshot_for_handle(&self, fh: u64) -> Result<Arc<File>, i32> {
+        let state = self.state.read().expect("state rwlock poisoned");
+        let handle = state.files.get(&fh).ok_or(ENOENT)?;
+        Ok(Arc::clone(&handle.file))
+    }
+
+    pub(super) fn copy_file_range_snapshot(
+        &self,
+        inode_in: u64,
+        fh_in: u64,
+        inode_out: u64,
+        fh_out: u64,
+    ) -> Result<CopyFileRangeSnapshot, i32> {
+        let state = self.state.read().expect("state rwlock poisoned");
+        let input = state.files.get(&fh_in).ok_or(ENOENT)?;
+        let output = state.files.get(&fh_out).ok_or(ENOENT)?;
+        if input.inode != inode_in || output.inode != inode_out {
+            return Err(ENOENT);
+        }
+        Ok((
+            (input.path.clone(), Arc::clone(&input.file)),
+            (output.path.clone(), Arc::clone(&output.file)),
+        ))
     }
 
     pub(super) fn directory_snapshot(
@@ -314,11 +370,11 @@ impl ScreenFs {
         let parent = Self::parent_path(dir);
         let children = self.dir_entries(dir)?;
         let (parent_ino, child_inos) = {
-            let mut state = self.state.lock().expect("state mutex poisoned");
+            let mut state = self.state.write().expect("state rwlock poisoned");
             let parent_ino = state.inode_for_path(parent.clone());
             let child_inos = children
                 .iter()
-                .map(|(_, child, _)| state.inode_for_path(child.clone()))
+                .map(|entry| state.inode_for_path(entry.child.clone()))
                 .collect::<Vec<_>>();
             (parent_ino, child_inos)
         };
@@ -338,13 +394,15 @@ impl ScreenFs {
                 attr: self.attr_for_path(&parent, parent_ino)?,
             },
         ];
-        for ((name, _child, metadata), child_ino) in children.into_iter().zip(child_inos) {
+        for (entry, child_ino) in children.into_iter().zip(child_inos) {
+            let mut attr = entry.attr;
+            attr.ino = child_ino;
             snapshot.push(DirectorySnapshotEntry {
                 ino: child_ino,
                 offset: snapshot.len() as u64 + 1,
-                kind: file_type_from_metadata(&metadata),
-                name: name.as_bytes().to_vec(),
-                attr: metadata_to_attr(&metadata, child_ino),
+                kind: entry.kind,
+                name: entry.name.as_bytes().to_vec(),
+                attr,
             });
         }
         Ok(snapshot)
@@ -355,7 +413,7 @@ impl ScreenFs {
         inode: u64,
         fh: u64,
     ) -> Result<Vec<DirectorySnapshotEntry>, i32> {
-        let state = self.state.lock().expect("state mutex poisoned");
+        let state = self.state.read().expect("state rwlock poisoned");
         let handle = state.directories.get(&fh).ok_or(ENOENT)?;
         if handle.inode != inode {
             return Err(ENOENT);
@@ -363,11 +421,16 @@ impl ScreenFs {
         Ok(handle.entries.clone())
     }
 
-    pub(super) fn add_lookup_refs_for_readdirplus(&self, inodes: impl IntoIterator<Item = u64>) {
+    pub(super) fn readdirplus_snapshot(
+        &self,
+        inode: u64,
+        fh: u64,
+        offset: u64,
+    ) -> Result<Vec<DirectorySnapshotEntry>, i32> {
         self.state
-            .lock()
-            .expect("state mutex poisoned")
-            .add_lookup_refs(inodes);
+            .write()
+            .expect("state rwlock poisoned")
+            .readdirplus_snapshot(inode, fh, offset)
     }
 
     pub(super) fn finalize_created_file(
@@ -376,7 +439,7 @@ impl ScreenFs {
         path: VirtualPath,
         file: File,
     ) -> (u64, u64) {
-        let mut state = self.state.lock().expect("state mutex poisoned");
+        let mut state = self.state.write().expect("state rwlock poisoned");
         state.invalidate_directory_snapshots(std::slice::from_ref(parent_path));
         state.invalidate_exact_path(&path);
         let inode = state.lookup_path(path.clone());
@@ -390,7 +453,7 @@ impl ScreenFs {
         exact_paths: &[VirtualPath],
         tree_paths: &[VirtualPath],
     ) {
-        let mut state = self.state.lock().expect("state mutex poisoned");
+        let mut state = self.state.write().expect("state rwlock poisoned");
         state.invalidate_directory_snapshots(parents);
         for path in exact_paths {
             state.invalidate_exact_path(path);
@@ -402,8 +465,8 @@ impl ScreenFs {
 
     pub(super) fn forget_tracked_inode(&self, inode: u64, nlookup: u64) {
         self.state
-            .lock()
-            .expect("state mutex poisoned")
+            .write()
+            .expect("state rwlock poisoned")
             .forget_inode(inode, nlookup);
     }
 }

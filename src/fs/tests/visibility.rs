@@ -746,8 +746,8 @@ fn opendir_returns_real_handle_and_readdir_variants_share_stable_snapshot() {
     assert_ne!(handle.fh, 0);
     assert!(
         fs.state
-            .lock()
-            .expect("state mutex poisoned")
+            .read()
+            .expect("state rwlock poisoned")
             .directories
             .contains_key(&handle.fh)
     );
@@ -788,8 +788,8 @@ fn releasedir_removes_directory_handle_and_snapshot() {
     let handle = block_on(fs.opendir(dummy_req(), listing, libc::O_RDONLY as u32)).unwrap();
     assert!(
         fs.state
-            .lock()
-            .expect("state mutex poisoned")
+            .read()
+            .expect("state rwlock poisoned")
             .directories
             .contains_key(&handle.fh)
     );
@@ -797,8 +797,8 @@ fn releasedir_removes_directory_handle_and_snapshot() {
     block_on(fs.releasedir(dummy_req(), listing, handle.fh, 0)).unwrap();
     assert!(
         !fs.state
-            .lock()
-            .expect("state mutex poisoned")
+            .read()
+            .expect("state rwlock poisoned")
             .directories
             .contains_key(&handle.fh)
     );

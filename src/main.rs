@@ -48,15 +48,57 @@ fn main() -> std::io::Result<()> {
         cfg.writable_rule_count()
     );
 
-    let opts = MountOptions::new()
+    let opts = screenfs_mount_options();
+
+    let mount_root = cfg.mount_root.clone();
+    // `fractal-fuse = 0.4.0` enforces `FUSE_OVER_IO_URING` during
+    // `Session::run`'s `FUSE_INIT` negotiation. Preserve the current
+    // fail-fast contract by surfacing that error directly with no fallback.
+    Session::new(mount_root, opts)?.run(ScreenFs::new(cfg))
+}
+
+/// Build the stable mount options ScreenFS passes to `fusermount3`.
+///
+/// Keep the async scope transport-only here: these options configure the FUSE
+/// mount itself, while `fractal-fuse = 0.4.0` enforces `FUSE_OVER_IO_URING`
+/// during `Session::run`'s `FUSE_INIT` negotiation. Do not use this helper to
+/// opt backing host filesystem I/O into `io_uring`.
+fn screenfs_mount_options() -> MountOptions {
+    MountOptions::new()
         .fs_name("screenfs")
         // Handler-level readonly is the source of truth. Do not set mount-level ro
         // until mount smoke proves it preserves hidden-before-EROFS semantics.
         .read_only(false)
         .force_readdir_plus(true)
         .default_permissions(false)
-        .allow_other(false);
+        .allow_other(false)
+}
 
-    let mount_root = cfg.mount_root.clone();
-    Session::new(mount_root, opts)?.run(ScreenFs::new(cfg))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screenfs_mount_options_preserve_current_mount_policy() {
+        let opts = screenfs_mount_options();
+
+        assert_eq!(opts.fs_name.as_deref(), Some("screenfs"));
+        assert!(!opts.read_only);
+        assert!(opts.force_readdir_plus);
+        assert!(!opts.default_permissions);
+        assert!(!opts.allow_other);
+        assert!(!opts.allow_root);
+        assert!(!opts.dont_mask);
+        assert!(!opts.no_open_support);
+        assert!(!opts.no_open_dir_support);
+        assert!(!opts.handle_killpriv);
+        assert!(!opts.write_back);
+        assert!(!opts.passthrough);
+        assert!(!opts.posix_locks);
+        assert!(!opts.flock_locks);
+        assert!(opts.uid.is_none());
+        assert!(opts.gid.is_none());
+        assert!(opts.rootmode.is_none());
+        assert!(opts.custom_options.is_none());
+    }
 }

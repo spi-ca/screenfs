@@ -1,8 +1,8 @@
-use std::ffi::{CString, OsStr};
-use std::fs::{self, File};
-use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{FileTypeExt, MetadataExt};
+use std::ffi::{CStr, CString, OsStr, OsString};
+use std::fs::File;
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use fractal_fuse::{FileAttr, FileType, ReplyStatfs, ReplyXattr, SetAttr, SetAttrTime, Timestamp};
@@ -28,7 +28,7 @@ impl ScreenFs {
         path: &VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<std::path::PathBuf, i32> {
-        path.resolve_host_path(&self.cfg.source_root, follow_final_symlink)
+        path.resolve_host_path(&self.source_root_path()?, follow_final_symlink)
             .map_err(errno_from_io)
     }
 
@@ -38,7 +38,11 @@ impl ScreenFs {
         flags: i32,
         mode: Option<u32>,
     ) -> Result<File, i32> {
-        open_beneath_source_root(&self.cfg.source_root, path, flags, mode)
+        open_beneath_source_root(&self.source_root, path, flags, mode)
+    }
+
+    pub(super) fn source_root_path(&self) -> Result<std::path::PathBuf, i32> {
+        fd_path(&self.source_root)
     }
 }
 
@@ -70,12 +74,11 @@ pub(super) fn sanitize_open_flags(flags: u32, creating: bool) -> i32 {
 }
 
 pub(super) fn open_beneath_source_root(
-    source_root: &Path,
+    source_root: &File,
     path: &VirtualPath,
     flags: i32,
     mode: Option<u32>,
 ) -> Result<File, i32> {
-    let root = open_dir_handle(source_root)?;
     let relative = path.to_source_relative_path();
     let relative = if relative.as_os_str().is_empty() {
         Path::new(".")
@@ -91,7 +94,7 @@ pub(super) fn open_beneath_source_root(
     let fd = unsafe {
         libc::syscall(
             libc::SYS_openat2,
-            root.as_raw_fd(),
+            source_root.as_raw_fd(),
             c_path.as_ptr(),
             &how,
             std::mem::size_of::<OpenHow>(),
@@ -106,7 +109,7 @@ pub(super) fn open_beneath_source_root(
     }
 }
 
-fn open_dir_handle(path: &Path) -> Result<File, i32> {
+pub(super) fn open_dir_handle(path: &Path) -> Result<File, i32> {
     let c_path = cstring_path(path)?;
     let fd = unsafe {
         libc::open(
@@ -152,10 +155,13 @@ pub(super) fn cstring_os(value: &OsStr) -> Result<CString, i32> {
     CString::new(value.as_bytes()).map_err(|_| libc::EINVAL)
 }
 
-pub(super) fn source_root_statfs(source_root: &Path) -> Result<ReplyStatfs, i32> {
-    let c_path = cstring_path(source_root)?;
+pub(super) fn fd_path(file: &File) -> Result<std::path::PathBuf, i32> {
+    std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(errno_from_io)
+}
+
+pub(super) fn source_root_statfs(source_root: &File) -> Result<ReplyStatfs, i32> {
     let mut stats = std::mem::MaybeUninit::<libc::statvfs>::zeroed();
-    let result = unsafe { libc::statvfs(c_path.as_ptr(), stats.as_mut_ptr()) };
+    let result = unsafe { libc::fstatvfs(source_root.as_raw_fd(), stats.as_mut_ptr()) };
     if result != 0 {
         return Err(errno_from_io(std::io::Error::last_os_error()));
     }
@@ -242,39 +248,192 @@ fn timespec_from_setattr(value: SetAttrTime) -> libc::timespec {
     }
 }
 
-pub(super) fn metadata_to_attr(metadata: &fs::Metadata, ino: u64) -> FileAttr {
-    FileAttr {
-        ino,
-        size: metadata.size(),
-        blocks: metadata.blocks(),
-        atime: Timestamp::new(metadata.atime() as u64, metadata.atime_nsec() as u32),
-        mtime: Timestamp::new(metadata.mtime() as u64, metadata.mtime_nsec() as u32),
-        ctime: Timestamp::new(metadata.ctime() as u64, metadata.ctime_nsec() as u32),
-        mode: metadata.mode(),
-        nlink: metadata.nlink() as u32,
-        uid: metadata.uid(),
-        gid: metadata.gid(),
-        rdev: metadata.rdev() as u32,
-        blksize: metadata.blksize() as u32,
+#[derive(Debug, Clone)]
+pub(super) struct DirEntryInfo {
+    pub(super) name: OsString,
+    pub(super) child: VirtualPath,
+    pub(super) attr: FileAttr,
+    pub(super) kind: FileType,
+    pub(super) is_dir: bool,
+    pub(super) is_symlink: bool,
+}
+
+impl ScreenFs {
+    pub(super) fn open_parent_dir(
+        &self,
+        path: &VirtualPath,
+    ) -> Result<(VirtualPath, File, CString), i32> {
+        let parent = Self::parent_path(path);
+        let name = path.as_path().file_name().ok_or(libc::EINVAL)?;
+        let parent_dir = self.open_confined(&parent, libc::O_PATH | libc::O_DIRECTORY, None)?;
+        Ok((parent, parent_dir, cstring_os(name)?))
+    }
+
+    pub(super) fn stat_child_no_follow(
+        &self,
+        path: &VirtualPath,
+        ino: u64,
+    ) -> Result<FileAttr, i32> {
+        if path.as_path() == Path::new("/") {
+            let file = self.open_confined(path, libc::O_PATH | libc::O_DIRECTORY, None)?;
+            return fstat_attr(&file, ino);
+        }
+        let (parent, parent_dir, name) = self.open_parent_dir(path)?;
+        self.guard_opened_directory_target(&parent, &parent_dir, false)?;
+        fstatat_attr(&parent_dir, &name, libc::AT_SYMLINK_NOFOLLOW, ino)
+    }
+
+    pub(super) fn readlink_child(&self, path: &VirtualPath) -> Result<OsString, i32> {
+        let (parent, parent_dir, name) = self.open_parent_dir(path)?;
+        self.guard_opened_directory_target(&parent, &parent_dir, false)?;
+        readlinkat_os(&parent_dir, &name)
     }
 }
 
-pub(super) fn file_type_from_metadata(metadata: &fs::Metadata) -> FileType {
-    let ft = metadata.file_type();
-    if ft.is_dir() {
-        FileType::Directory
-    } else if ft.is_symlink() {
-        FileType::Symlink
-    } else if ft.is_block_device() {
-        FileType::BlockDevice
-    } else if ft.is_char_device() {
-        FileType::CharDevice
-    } else if ft.is_fifo() {
-        FileType::NamedPipe
-    } else if ft.is_socket() {
-        FileType::Socket
+pub(super) fn fstat_attr(file: &File, ino: u64) -> Result<FileAttr, i32> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::zeroed();
+    let result = unsafe { libc::fstat(file.as_raw_fd(), stat.as_mut_ptr()) };
+    if result == 0 {
+        let stat = unsafe { stat.assume_init() };
+        Ok(stat_to_attr(&stat, ino))
     } else {
-        FileType::RegularFile
+        Err(errno_from_io(std::io::Error::last_os_error()))
+    }
+}
+
+pub(super) fn fstatat_attr(
+    parent_dir: &File,
+    name: &CStr,
+    flags: i32,
+    ino: u64,
+) -> Result<FileAttr, i32> {
+    fstatat_attr_fd(parent_dir.as_raw_fd(), name, flags, ino)
+}
+
+fn fstatat_attr_fd(fd: i32, name: &CStr, flags: i32, ino: u64) -> Result<FileAttr, i32> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::zeroed();
+    let result = unsafe { libc::fstatat(fd, name.as_ptr(), stat.as_mut_ptr(), flags) };
+    if result == 0 {
+        let stat = unsafe { stat.assume_init() };
+        Ok(stat_to_attr(&stat, ino))
+    } else {
+        Err(errno_from_io(std::io::Error::last_os_error()))
+    }
+}
+
+pub(super) fn readlinkat_os(parent_dir: &File, name: &CStr) -> Result<OsString, i32> {
+    let mut size = 256usize;
+    loop {
+        let mut data = vec![0_u8; size];
+        let read = unsafe {
+            libc::readlinkat(
+                parent_dir.as_raw_fd(),
+                name.as_ptr(),
+                data.as_mut_ptr().cast(),
+                data.len(),
+            )
+        };
+        if read < 0 {
+            return Err(errno_from_io(std::io::Error::last_os_error()));
+        }
+        let read = read as usize;
+        if read < data.len() {
+            data.truncate(read);
+            return Ok(OsString::from_vec(data));
+        }
+        size *= 2;
+    }
+}
+
+pub(super) fn stat_to_attr(stat: &libc::stat, ino: u64) -> FileAttr {
+    FileAttr {
+        ino,
+        size: stat.st_size as u64,
+        blocks: stat.st_blocks as u64,
+        atime: Timestamp::new(stat.st_atime as u64, stat.st_atime_nsec as u32),
+        mtime: Timestamp::new(stat.st_mtime as u64, stat.st_mtime_nsec as u32),
+        ctime: Timestamp::new(stat.st_ctime as u64, stat.st_ctime_nsec as u32),
+        mode: stat.st_mode,
+        nlink: stat.st_nlink as u32,
+        uid: stat.st_uid,
+        gid: stat.st_gid,
+        rdev: stat.st_rdev as u32,
+        blksize: stat.st_blksize as u32,
+    }
+}
+
+pub(super) fn file_type_from_mode(mode: libc::mode_t) -> FileType {
+    match mode & libc::S_IFMT {
+        libc::S_IFDIR => FileType::Directory,
+        libc::S_IFLNK => FileType::Symlink,
+        libc::S_IFBLK => FileType::BlockDevice,
+        libc::S_IFCHR => FileType::CharDevice,
+        libc::S_IFIFO => FileType::NamedPipe,
+        libc::S_IFSOCK => FileType::Socket,
+        _ => FileType::RegularFile,
+    }
+}
+
+pub(super) fn read_dir_entries(
+    dir: File,
+    base: &VirtualPath,
+    start_offset: u64,
+) -> Result<Vec<DirEntryInfo>, i32> {
+    let dir_fd = dir.into_raw_fd();
+    let dirp = unsafe { libc::fdopendir(dir_fd) };
+    if dirp.is_null() {
+        let err = errno_from_io(std::io::Error::last_os_error());
+        unsafe { libc::close(dir_fd) };
+        return Err(err);
+    }
+    let mut entries = Vec::new();
+    loop {
+        errno_reset();
+        let dent = unsafe { libc::readdir(dirp) };
+        if dent.is_null() {
+            let err = std::io::Error::last_os_error();
+            unsafe { libc::closedir(dirp) };
+            return if err.raw_os_error().unwrap_or(0) == 0 {
+                Ok(entries)
+            } else {
+                Err(errno_from_io(err))
+            };
+        }
+        let dent = unsafe { &*dent };
+        let name = unsafe { CStr::from_ptr(dent.d_name.as_ptr()) };
+        if name.to_bytes() == b"." || name.to_bytes() == b".." {
+            continue;
+        }
+        let name_os = OsStr::from_bytes(name.to_bytes()).to_os_string();
+        let child = base.join_child(&name_os);
+        let attr = match fstatat_attr_fd(
+            dir_fd,
+            name,
+            libc::AT_SYMLINK_NOFOLLOW,
+            start_offset + entries.len() as u64 + 1,
+        ) {
+            Ok(attr) => attr,
+            Err(err) => {
+                unsafe { libc::closedir(dirp) };
+                return Err(err);
+            }
+        };
+        let kind = file_type_from_mode(attr.mode);
+        entries.push(DirEntryInfo {
+            name: name_os,
+            child,
+            is_dir: matches!(kind, FileType::Directory),
+            is_symlink: matches!(kind, FileType::Symlink),
+            kind,
+            attr,
+        });
+    }
+}
+
+fn errno_reset() {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    unsafe {
+        *libc::__errno_location() = 0;
     }
 }
 
