@@ -88,13 +88,13 @@ cargo clippy --all-targets --all-features
 for input in docs/diagrams/*.mmd; do
   base="${input%.mmd}"
 
-  npx -y @mermaid-js/mermaid-cli \
+  bunx @mermaid-js/mermaid-cli \
     -i "$input" \
     -o "${base}.svg" \
     -c docs/diagrams/mermaid-config.json \
     -p docs/diagrams/puppeteer-config.json
 
-  npx -y @mermaid-js/mermaid-cli \
+  bunx @mermaid-js/mermaid-cli \
     -i "$input" \
     -o "${base}.png" \
     -c docs/diagrams/mermaid-config.json \

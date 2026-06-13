@@ -33,7 +33,7 @@
 단일 SVG:
 
 ```bash
-npx -y @mermaid-js/mermaid-cli \
+bunx @mermaid-js/mermaid-cli \
   -i docs/diagrams/system-context.mmd \
   -o docs/diagrams/system-context.svg \
   -c docs/diagrams/mermaid-config.json \
@@ -43,7 +43,7 @@ npx -y @mermaid-js/mermaid-cli \
 단일 PNG(2x 필수):
 
 ```bash
-npx -y @mermaid-js/mermaid-cli \
+bunx @mermaid-js/mermaid-cli \
   -i docs/diagrams/system-context.mmd \
   -o docs/diagrams/system-context.png \
   -c docs/diagrams/mermaid-config.json \
@@ -57,13 +57,13 @@ npx -y @mermaid-js/mermaid-cli \
 for input in docs/diagrams/*.mmd; do
   base="${input%.mmd}"
 
-  npx -y @mermaid-js/mermaid-cli \
+  bunx @mermaid-js/mermaid-cli \
     -i "$input" \
     -o "${base}.svg" \
     -c docs/diagrams/mermaid-config.json \
     -p docs/diagrams/puppeteer-config.json
 
-  npx -y @mermaid-js/mermaid-cli \
+  bunx @mermaid-js/mermaid-cli \
     -i "$input" \
     -o "${base}.png" \
     -c docs/diagrams/mermaid-config.json \
