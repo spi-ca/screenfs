@@ -36,7 +36,7 @@ Current handle state stores `Arc<std::fs::File>` and snapshots the shared file h
 
 ## Dependency/API evidence
 
-Current direct dependencies in `Cargo.toml` do not expose a host-side io_uring API for ScreenFS. `compio-runtime = 0.11.0` is a direct dependency only for runtime blocking-offload of existing sync syscalls; `compio-driver` and `io-uring` remain transitive dependencies of `fractal-fuse = 0.4.0` and are not used as ScreenFS host-side data-path io_uring APIs. The repository patches `compio-runtime = 0.11.0` from `vendor/compio-runtime-0.11.0` to keep the `time` feature buildable on the current stable toolchain; the local patch replaces the `timeout` helper's macro-based `select!` with `futures_util::future::select` and does not change ScreenFS backing I/O semantics.
+Current direct dependencies in `Cargo.toml` do not expose a host-side io_uring API for ScreenFS. `compio-runtime = 0.11.0` is a direct dependency only for runtime blocking-offload of existing sync syscalls; `compio-driver` and `io-uring` remain transitive dependencies of `fractal-fuse = 0.4.0` and are not used as ScreenFS host-side data-path io_uring APIs.
 
 Local source inspection found:
 
