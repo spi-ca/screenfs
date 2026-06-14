@@ -45,7 +45,17 @@ impl ScreenFs {
     }
 
     pub(super) fn source_root_path(&self) -> Result<std::path::PathBuf, i32> {
-        fd_path(&self.source_root)
+        #[cfg(not(feature = "perf-counters"))]
+        {
+            canonical_fd_path(&self.source_root)
+        }
+        #[cfg(feature = "perf-counters")]
+        {
+            let start = Instant::now();
+            let result = canonical_fd_path(&self.source_root);
+            self.perf.record_source_root_path(start.elapsed());
+            result
+        }
     }
 }
 
@@ -181,6 +191,10 @@ pub(super) fn cstring_os(value: &OsStr) -> Result<CString, i32> {
 
 pub(super) fn fd_path(file: &File) -> Result<std::path::PathBuf, i32> {
     std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(errno_from_io)
+}
+
+fn canonical_fd_path(file: &File) -> Result<std::path::PathBuf, i32> {
+    fd_path(file)?.canonicalize().map_err(errno_from_io)
 }
 
 pub(super) fn source_root_statfs(source_root: &File) -> Result<ReplyStatfs, i32> {

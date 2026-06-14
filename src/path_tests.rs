@@ -92,9 +92,16 @@ fn resolves_host_paths_within_source_root_without_changing_virtual_lexical_join(
             .as_path(),
         source.join("linkdir/file.txt").as_path()
     );
+    let canonical_source = source.canonicalize().unwrap();
     assert_eq!(
         VirtualPath::new("/linkdir/file.txt")
             .resolve_host_path(&source, true)
+            .unwrap(),
+        source.join("real/file.txt").canonicalize().unwrap()
+    );
+    assert_eq!(
+        VirtualPath::new("/linkdir/file.txt")
+            .resolve_host_path_from_canonical_source_root(&canonical_source, true)
             .unwrap(),
         source.join("real/file.txt").canonicalize().unwrap()
     );
@@ -113,9 +120,16 @@ fn rejects_following_symlinks_outside_source_root_but_allows_link_itself() {
     std::os::unix::fs::symlink("../outside/secret.txt", source.join("escape-file")).unwrap();
     std::os::unix::fs::symlink("../outside", source.join("escape-dir")).unwrap();
 
+    let canonical_source = source.canonicalize().unwrap();
     assert_eq!(
         VirtualPath::new("/escape-file")
             .resolve_host_path(&source, false)
+            .unwrap(),
+        source.join("escape-file")
+    );
+    assert_eq!(
+        VirtualPath::new("/escape-file")
+            .resolve_host_path_from_canonical_source_root(&canonical_source, false)
             .unwrap(),
         source.join("escape-file")
     );
@@ -123,9 +137,17 @@ fn rejects_following_symlinks_outside_source_root_but_allows_link_itself() {
         .resolve_host_path(&source, true)
         .unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    let err = VirtualPath::new("/escape-file")
+        .resolve_host_path_from_canonical_source_root(&canonical_source, true)
+        .unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
 
     let err = VirtualPath::new("/escape-dir/secret.txt")
         .resolve_host_path(&source, true)
+        .unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    let err = VirtualPath::new("/escape-dir/secret.txt")
+        .resolve_host_path_from_canonical_source_root(&canonical_source, true)
         .unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
 

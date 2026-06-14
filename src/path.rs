@@ -68,34 +68,36 @@ impl VirtualPath {
         follow_final_symlink: bool,
     ) -> std::io::Result<PathBuf> {
         let source_root = source_root.canonicalize()?;
-        let mut current = source_root.clone();
-        let parts = self
+        self.resolve_host_path_from_canonical_source_root(&source_root, follow_final_symlink)
+    }
+
+    pub(crate) fn resolve_host_path_from_canonical_source_root(
+        &self,
+        source_root: &Path,
+        follow_final_symlink: bool,
+    ) -> std::io::Result<PathBuf> {
+        let mut current = source_root.to_path_buf();
+        let mut parts = self
             .0
             .components()
             .filter_map(|component| match component {
-                Component::Normal(part) => Some(part.to_os_string()),
+                Component::Normal(part) => Some(part),
                 _ => None,
             })
-            .collect::<Vec<_>>();
-        let follow_count = if follow_final_symlink {
-            parts.len()
-        } else {
-            parts.len().saturating_sub(1)
-        };
+            .peekable();
 
-        for part in parts.iter().take(follow_count) {
+        while let Some(part) = parts.next() {
+            if !follow_final_symlink && parts.peek().is_none() {
+                return Ok(current.join(part));
+            }
             current.push(part);
             current = current.canonicalize()?;
-            if !current.starts_with(&source_root) {
+            if !current.starts_with(source_root) {
                 return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
             }
         }
 
-        if follow_final_symlink || parts.is_empty() {
-            Ok(current)
-        } else {
-            Ok(current.join(&parts[parts.len() - 1]))
-        }
+        Ok(current)
     }
 }
 

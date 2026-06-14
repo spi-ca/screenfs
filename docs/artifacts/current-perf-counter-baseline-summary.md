@@ -2,11 +2,13 @@
 
 This artifact records the smoke-sized perf-enabled benchmark runs used to choose and check the first low-risk performance cleanup. It is attribution evidence only, not a formal performance claim. The runs used `--iterations 3 --warmups 1` with reduced workload sizes, so they do not satisfy the claim-grade bar in `docs/benchmarks.md`.
 
+The embedded before/after numbers in this summary are historical relative to the current counter surface: they predate the later `source_root_path` / `resolved_virtual_path_from_path` / `resolved_virtual_path_from_open_fd` split and therefore show only the retained aggregate `resolved_virtual_path` line. The checked-in current benchmark artifact has since been regenerated with the split counters.
+
 ## Commands
 
 Before cleanup, the working-copy smoke used the same reduced sizing and wrote temporary `/tmp` JSON/Markdown artifacts. The compact structured subset from that run is embedded below.
 
-The current checked-in smoke artifact was generated after the cleanup with the perf feature enabled by the harness:
+The current checked-in smoke artifact was generated after the resolved-path counter split with the perf feature enabled by the harness, so its raw perf block includes `source_root_path`, `resolved_virtual_path`, `resolved_virtual_path_from_path`, and `resolved_virtual_path_from_open_fd` lines:
 
 ```bash
 scripts/bench-screenfs.py --build --perf-counters --iterations 3 --warmups 1 \
@@ -31,7 +33,7 @@ Selected counters from `/tmp/screenfs-perf-baseline-before.json`:
 | `readdirplus_attr_generation_scan` | 9 | 11652350 | 1294705 |
 | `readdir_attr_generation_scan` | 15 | 6856919 | 457127 |
 
-This identified path-resolution and policy-decision surfaces as safe first investigation targets. The selected cleanup avoids duplicate `source_root_path()` retrieval in `ScreenFs::resolved_virtual_path()` and avoids a redundant visible-descendant bridge lookup after `visibility_decision()` has already returned `BridgeVisible`.
+This identified path-resolution and policy-decision surfaces as safe first investigation targets. Read the historical `resolved_virtual_path` line here as the pre-split aggregate helper attribution that was available at the time. Current code additionally emits `source_root_path`, `resolved_virtual_path_from_path`, and `resolved_virtual_path_from_open_fd` while retaining aggregate `resolved_virtual_path`; use those split lines for current helper-focused runs. The same smoke also motivated preferring request-local canonical source-root reuse via `resolve_host_path_from_canonical_source_root()` and avoiding a redundant visible-descendant bridge lookup after `visibility_decision()` has already returned `BridgeVisible`.
 
 ## Smoke before/after check
 

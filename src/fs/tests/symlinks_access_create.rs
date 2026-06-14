@@ -328,6 +328,19 @@ fn symlink_to_outside_source_root_stays_visible_but_following_ops_return_enoent(
 }
 
 #[test]
+fn deleted_source_root_resolved_path_fails_closed() {
+    let source = test_dir("deleted-source-root-resolve");
+    let fs = fs_for(&source, Vec::new(), Vec::new());
+    std::fs::remove_dir_all(source.join("mount")).unwrap();
+    std::fs::remove_dir(&source).unwrap();
+
+    assert!(
+        fs.resolved_virtual_path(&VirtualPath::root(), true)
+            .is_err()
+    );
+}
+
+#[test]
 fn symlink_directory_escape_rejects_opendir_access_and_create_before_side_effects() {
     let root = test_dir("symlink-dir-source-root-escape");
     let source = root.join("source");

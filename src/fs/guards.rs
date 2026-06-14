@@ -47,15 +47,17 @@ impl<'a> RequestPathResolver<'a> {
         path: &VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<VirtualPath, i32> {
+        let source_root = self.source_root()?;
         #[cfg(feature = "perf-counters")]
         let start = std::time::Instant::now();
-        let source_root = self.source_root()?;
         let source = path
-            .resolve_host_path(source_root, follow_final_symlink)
+            .resolve_host_path_from_canonical_source_root(source_root, follow_final_symlink)
             .map_err(errno_from_io)?;
         let result = virtual_path_from_source_path(source_root, &source);
         #[cfg(feature = "perf-counters")]
-        self.fs.perf.record_resolved_virtual_path(start.elapsed());
+        self.fs
+            .perf
+            .record_resolved_virtual_path_from_path(start.elapsed());
         result
     }
 
@@ -72,14 +74,16 @@ impl<'a> RequestPathResolver<'a> {
     }
 
     fn resolved_virtual_path_for_open_file(&mut self, file: &File) -> Result<VirtualPath, i32> {
+        let source_root = self.source_root()?;
         #[cfg(feature = "perf-counters")]
         let start = std::time::Instant::now();
         let fd_path = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
         let source = fs::read_link(fd_path).map_err(errno_from_io)?;
-        let source_root = self.source_root()?;
         let result = virtual_path_from_source_path(source_root, &source);
         #[cfg(feature = "perf-counters")]
-        self.fs.perf.record_resolved_virtual_path(start.elapsed());
+        self.fs
+            .perf
+            .record_resolved_virtual_path_from_open_fd(start.elapsed());
         result
     }
 }
@@ -131,15 +135,16 @@ impl ScreenFs {
         path: &VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<VirtualPath, i32> {
+        let source_root = self.source_root_path()?;
         #[cfg(feature = "perf-counters")]
         let start = std::time::Instant::now();
-        let source_root = self.source_root_path()?;
         let source = path
-            .resolve_host_path(&source_root, follow_final_symlink)
+            .resolve_host_path_from_canonical_source_root(&source_root, follow_final_symlink)
             .map_err(errno_from_io)?;
         let result = virtual_path_from_source_path(&source_root, &source);
         #[cfg(feature = "perf-counters")]
-        self.perf.record_resolved_virtual_path(start.elapsed());
+        self.perf
+            .record_resolved_virtual_path_from_path(start.elapsed());
         result
     }
 

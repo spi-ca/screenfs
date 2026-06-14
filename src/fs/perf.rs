@@ -15,7 +15,10 @@ pub(super) struct PerfCounters {
     state_write_wait: LatencyCounter,
     state_write_hold: LatencyCounter,
     open_confined: LatencyCounter,
+    source_root_path: LatencyCounter,
     resolved_virtual_path: LatencyCounter,
+    resolved_virtual_path_from_path: LatencyCounter,
+    resolved_virtual_path_from_open_fd: LatencyCounter,
     read_size_buckets: LabeledLatencyCounters,
     write_size_buckets: LabeledLatencyCounters,
     readdir_attr_generation: LatencyCounter,
@@ -56,7 +59,10 @@ pub(crate) struct PerfSnapshot {
     pub(super) state_write_wait: LatencySnapshot,
     pub(super) state_write_hold: LatencySnapshot,
     pub(super) open_confined: LatencySnapshot,
+    pub(super) source_root_path: LatencySnapshot,
     pub(super) resolved_virtual_path: LatencySnapshot,
+    pub(super) resolved_virtual_path_from_path: LatencySnapshot,
+    pub(super) resolved_virtual_path_from_open_fd: LatencySnapshot,
     pub(super) read_size_buckets: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) write_size_buckets: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) readdir_attr_generation: LatencySnapshot,
@@ -143,8 +149,18 @@ impl PerfCounters {
         self.open_confined.record(elapsed);
     }
 
-    pub(super) fn record_resolved_virtual_path(&self, elapsed: Duration) {
+    pub(super) fn record_source_root_path(&self, elapsed: Duration) {
+        self.source_root_path.record(elapsed);
+    }
+
+    pub(super) fn record_resolved_virtual_path_from_path(&self, elapsed: Duration) {
         self.resolved_virtual_path.record(elapsed);
+        self.resolved_virtual_path_from_path.record(elapsed);
+    }
+
+    pub(super) fn record_resolved_virtual_path_from_open_fd(&self, elapsed: Duration) {
+        self.resolved_virtual_path.record(elapsed);
+        self.resolved_virtual_path_from_open_fd.record(elapsed);
     }
 
     pub(super) fn record_read(&self, size: usize, elapsed: Duration) {
@@ -185,7 +201,10 @@ impl PerfCounters {
             state_write_wait: self.state_write_wait.snapshot(),
             state_write_hold: self.state_write_hold.snapshot(),
             open_confined: self.open_confined.snapshot(),
+            source_root_path: self.source_root_path.snapshot(),
             resolved_virtual_path: self.resolved_virtual_path.snapshot(),
+            resolved_virtual_path_from_path: self.resolved_virtual_path_from_path.snapshot(),
+            resolved_virtual_path_from_open_fd: self.resolved_virtual_path_from_open_fd.snapshot(),
             read_size_buckets: self.read_size_buckets.snapshot(),
             write_size_buckets: self.write_size_buckets.snapshot(),
             readdir_attr_generation: self.readdir_attr_generation.snapshot(),
@@ -231,10 +250,21 @@ impl PerfCounters {
             snapshot.state_write_hold,
         );
         write_latency(&mut output, "open_confined_openat2", snapshot.open_confined);
+        write_latency(&mut output, "source_root_path", snapshot.source_root_path);
         write_latency(
             &mut output,
             "resolved_virtual_path",
             snapshot.resolved_virtual_path,
+        );
+        write_latency(
+            &mut output,
+            "resolved_virtual_path_from_path",
+            snapshot.resolved_virtual_path_from_path,
+        );
+        write_latency(
+            &mut output,
+            "resolved_virtual_path_from_open_fd",
+            snapshot.resolved_virtual_path_from_open_fd,
         );
         write_labeled_latency(&mut output, "read_size_bucket", &snapshot.read_size_buckets);
         write_labeled_latency(

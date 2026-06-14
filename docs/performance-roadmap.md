@@ -69,27 +69,32 @@ FUSE_OVER_IO_URING
 
 ### Request-local path/source-root reuse
 
-현재 구현에는 이미 [`../src/fs/guards.rs`](../src/fs/guards.rs)의 첫 번째 request-local reuse 정리가 들어가 있다. `RequestPathResolver`가 단일 FUSE request 범위에서 `source_root_path()` 결과를 재사용하고, mutation coordinate 검사와 opened-target revalidation에서 반복되던 resolved virtual path/source path 변환 helper를 공통화한다.
+현재 구현에는 이미 [`../src/fs/guards.rs`](../src/fs/guards.rs)의 첫 번째 request-local reuse 정리가 들어가 있다. `RequestPathResolver`가 단일 FUSE request 범위에서 `source_root_path()` fd-path lookup 결과를 재사용하고, mutation coordinate 검사와 opened-target revalidation에서 반복되던 resolved virtual path/source path 변환 helper를 공통화한다. 현재 perf summary는 `source_root_path`, `resolved_virtual_path_from_path`, `resolved_virtual_path_from_open_fd`를 별도로 내보내며, aggregate `resolved_virtual_path`도 path/open-fd helper 합계로 유지한다. 따라서 이 hot path의 다음 정리 목표는 attribution split 자체가 아니라 request-local canonical source root reuse로 `VirtualPath::resolve_host_path()`의 per-call `source_root.canonicalize()`를 피하는 것이다. 그 정리는 [`../src/path.rs`](../src/path.rs)의 `resolve_host_path_from_canonical_source_root()`를 통해 같은 confinement/`ENOENT` 의미론을 유지해야 하며, component traversal도 inner walk에서 `Component` `Vec`를 만들지 않는 iterator 기반 정리를 유지해야 한다.
 
 현재 evidence:
 
-- 구현: [`../src/fs/guards.rs`](../src/fs/guards.rs) (`RequestPathResolver`, `source_root()`, `resolved_virtual_path()`, `resolved_virtual_path_for_open_file()`, `guard_mutation_coordinates()`)
-- 집중 회귀 테스트: [`../src/fs/tests/symlinks_access_create.rs`](../src/fs/tests/symlinks_access_create.rs) (`mutation_under_visible_symlink_parent_uses_resolved_parent`)
+- 구현: [`../src/fs/guards.rs`](../src/fs/guards.rs) (`RequestPathResolver`, `source_root()`, `resolved_virtual_path()`, `resolved_virtual_path_for_open_file()`, `guard_mutation_coordinates()`), [`../src/path.rs`](../src/path.rs) (`resolve_host_path()`, `resolve_host_path_from_canonical_source_root()`)
+- 집중 회귀 테스트: [`../src/fs/tests/symlinks_access_create.rs`](../src/fs/tests/symlinks_access_create.rs) (`mutation_under_visible_symlink_parent_uses_resolved_parent`, `symlink_to_outside_source_root_stays_visible_but_following_ops_return_enoent`, `symlink_directory_escape_rejects_opendir_access_and_create_before_side_effects`)
+- path helper 회귀 테스트: [`../src/path_tests.rs`](../src/path_tests.rs) (`rejects_following_symlinks_outside_source_root_but_allows_link_itself`)
 - current operation/TOCTOU 근거: [`artifacts/current-toctou-hardening-evidence.md`](artifacts/current-toctou-hardening-evidence.md) (pinned `source_root`, opened-target revalidation, resolved-parent mutation path)
 - mounted probe coverage 한계: [`benchmarks.md`](benchmarks.md) (`symlink_parent_mkdir_rmdir`, Current harness coverage limits)
 
 가드레일:
 
 - reuse 범위는 같은 request 내부로만 제한한다.
-- 기존 `resolve_host_path`/`virtual_path_from_source_path` 기반 계산과 errno 매핑을 유지한다.
+- canonical source root reuse가 필요해도 `resolve_host_path_from_canonical_source_root()`/`virtual_path_from_source_path` 기반 계산과 errno 매핑을 유지한다.
 - cross-request symlink decision cache나 host negative cache로 확대하지 않는다.
 - hidden `ENOENT`, symlink target fully-visible gate, mutability `EROFS` 판단을 cache hit만으로 생략하지 않는다.
+- path walk cleanup이 들어가더라도 component를 미리 `Vec`로 모으는 방식으로 되돌리지 않는다.
 
 증거 요구:
 
-- 현재 변경은 semantics-preserving refactor/reuse로만 문서화한다.
+- 현재 변경은 semantics-preserving refactor/reuse, canonical source-root reuse 준비, 또는 attribution split로만 문서화한다.
+- `resolved_virtual_path` hot path claim은 retained aggregate `resolved_virtual_path` line만 단독으로 인용하지 말고 `source_root_path`, `resolved_virtual_path_from_path`, `resolved_virtual_path_from_open_fd`와 함께 남긴다. 그래도 `resolved_virtual_path_from_path` 내부의 더 미세한 하위 단계는 추가 counter/trace 없이는 단정하지 않는다.
+- correctness evidence에는 [`../src/path_tests.rs`](../src/path_tests.rs) (`rejects_following_symlinks_outside_source_root_but_allows_link_itself`)와 [`../src/fs/tests/symlinks_access_create.rs`](../src/fs/tests/symlinks_access_create.rs) (`symlink_to_outside_source_root_stays_visible_but_following_ops_return_enoent`, `symlink_directory_escape_rejects_opendir_access_and_create_before_side_effects`)가 포함돼야 한다.
+- helper attribution evidence에는 [`../src/fs/tests/perf.rs`](../src/fs/tests/perf.rs) (`perf_counters_split_resolved_virtual_path_sources`, 필요 시 `perf_counters_record_data_size_buckets`)가 포함돼야 한다.
 - `scripts/bench-screenfs.py`의 `symlink_parent_mkdir_rmdir`는 이 surface 주변의 symlink-parent mutation guard/path-resolution path를 겨냥한 ScreenFS-only mounted workload/probe지만, counter/trace 없이 live FUSE request가 특정 내부 helper를 탔다고 증명하지는 못한다.
-- speedup 주장은 perf counter, trace, microbenchmark, 또는 변경 surface를 겨냥한 before/after benchmark artifact가 나온 뒤에만 한다.
+- user-visible speedup 주장은 claim-grade benchmark, perf counter, trace, microbenchmark, 또는 변경 surface를 겨냥한 before/after benchmark artifact가 나온 뒤에만 한다.
 - broad mounted-vs-native harness 결과만으로 이 미세 최적화 효과를 단정하지 않는다.
 
 ### State lock stance
@@ -307,7 +312,9 @@ userspace path resolution cache로 confinement 대체
 - policy decision count/latency와 matcher candidate count
 - state lock read/write wait/hold count/latency
 - `open_confined_openat2` count/latency
-- `resolved_virtual_path` count/latency
+- `source_root_path` count/latency
+- aggregate `resolved_virtual_path` count/latency (retained sum of `resolved_virtual_path_from_path` + `resolved_virtual_path_from_open_fd`)
+- `resolved_virtual_path_from_path` / `resolved_virtual_path_from_open_fd` count/latency
 - `read_size_bucket.<bucket>` / `write_size_bucket.<bucket>` count/latency
 - `readdir_attr_generation_scan` count/latency plus `readdir_attr_generation_entries` scanned entry count
 - `readdirplus_attr_generation_scan` count/latency plus `readdirplus_attr_generation_entries` scanned entry count
@@ -317,21 +324,22 @@ userspace path resolution cache로 confinement 대체
 
 남은 후보 counter:
 
+- 필요하면 `resolved_virtual_path_from_path` 내부 attribution을 더 세분화
 - matcher candidate를 matcher family별로 더 세분화
 - histogram 또는 benchmark artifact 저장 형식의 추가 구조화
 
 ## Measurement-guided optimization notes
 
-Perf-enabled benchmark evidence should drive optimization order. The smoke baseline summarized in [`artifacts/current-perf-counter-baseline-summary.md`](artifacts/current-perf-counter-baseline-summary.md) showed `resolved_virtual_path` as a high-attribution helper (`count=145166`, `total_ns=394848335`) and `policy_decision` as another broad hot path (`count=171732`, `total_ns=183484872`) compared with `open_confined_openat2` (`count=98298`, `total_ns=47566036`). Low-risk follow-ups keep `ScreenFs::resolved_virtual_path()` on the same single-`source_root_path()` pattern already used by `RequestPathResolver`, and avoid recomputing visible-descendant bridge checks after `visibility_decision()` has already returned `BridgeVisible`. Both preserve `resolve_host_path`/`virtual_path_from_source_path` errno and visibility semantics. The smoke before/after artifact does not support a user-visible speedup claim; treat these as attribution-guided cleanup only, and require claim-grade before/after samples before claiming performance improvement. The checked-in current smoke artifacts are [`artifacts/current-perf-counter-benchmark-result.json`](artifacts/current-perf-counter-benchmark-result.json), [`artifacts/current-perf-counter-benchmark-result.md`](artifacts/current-perf-counter-benchmark-result.md), and [`artifacts/current-perf-counter-benchmark-result.svg`](artifacts/current-perf-counter-benchmark-result.svg).
+Perf-enabled benchmark evidence should drive optimization order. The historical smoke baseline summarized in [`artifacts/current-perf-counter-baseline-summary.md`](artifacts/current-perf-counter-baseline-summary.md) showed aggregate `resolved_virtual_path` attribution (`count=145166`, `total_ns=394848335`) and `policy_decision` (`count=171732`, `total_ns=183484872`) as broader hot surfaces than `open_confined_openat2` (`count=98298`, `total_ns=47566036`). That baseline was enough to justify deeper attribution, not to prove which sub-step inside `resolved_virtual_path` dominated. Current code now retains aggregate `resolved_virtual_path` and additionally emits `source_root_path`, `resolved_virtual_path_from_path`, and `resolved_virtual_path_from_open_fd`, so the next low-risk follow-up is to read those split counters and then evaluate request-local canonical source-root reuse in `ScreenFs::resolved_virtual_path()`/`RequestPathResolver` via `resolve_host_path_from_canonical_source_root()` so per-call `source_root.canonicalize()` can be avoided without changing confinement or `ENOENT` semantics. Any path-walk cleanup should keep iterator-based component traversal rather than materializing a component `Vec`. The smoke before/after artifact does not support a user-visible speedup claim; treat these as attribution-guided cleanup only, and require claim-grade before/after samples before claiming performance improvement. The checked-in current smoke artifacts are [`artifacts/current-perf-counter-benchmark-result.json`](artifacts/current-perf-counter-benchmark-result.json), [`artifacts/current-perf-counter-benchmark-result.md`](artifacts/current-perf-counter-benchmark-result.md), and [`artifacts/current-perf-counter-benchmark-result.svg`](artifacts/current-perf-counter-benchmark-result.svg).
 
 ## Recommended order
 
 ```text
 1. 문서/상태 정합성을 유지한다
-2. opt-in perf counter와 benchmark surface를 확장한다
+2. opt-in perf counter와 benchmark surface를 유지·확장하고 현재 split attribution(`source_root_path`, `resolved_virtual_path_from_*`)을 먼저 읽는다
 3. policy/matcher hot path와 state lock hold time을 계측한다
 4. read/write buffer size와 concurrency benchmark를 보강한다
-5. request-local path/source-root reuse를 mounted probe workload와 before/after 비교로 계측한다
+5. request-local canonical source-root reuse를 mounted probe workload와 before/after 비교로 계측한다
 6. readdir vs readdirplus attr 비용과 open_confined/openat2 호출 빈도/latency를 측정한다
 7. invalidate_after_mutation 범위와 evicted entry 수를 측정한다
 8. evidence가 쌓인 뒤에만 negative/hidden path cache, state lock split, host-side io_uring를 검토한다
