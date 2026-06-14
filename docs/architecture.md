@@ -1,191 +1,115 @@
 # ScreenFS 아키텍처 개요
 
-이 문서는 현재 목표 계약(`README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`)을 기준으로 정리한 아키텍처 요약이다. 구현 코드(`src/*.rs`)는 이 계약을 만족하도록 갱신되어야 한다. shared matcher는 bare slashless direct-child, anchored direct-child, subtree shorthand, recursive glob family를 정규화하되, current `visibility.visible` surface는 exact/subtree와 direct-child anchor bridge만 허용해야 한다. `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks` 같은 recursive descendant visible glob/shorthand은 recursive bridge discovery가 필요하므로 shorthand와 canonical form 모두 current contract가 아니다. recursive family와 recursive literal directory shorthand는 `visibility.hidden`, `mutability.readonly`, `mutability.writable`에서만 current이며, shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`만 허용되고 내부적으로 `<prefix>/**/<literal-tail>/**`로 normalize되어도 추가 discovery cost를 만들면 안 된다. `/**/`는 최대 한 번만 허용되고 tail component는 모두 literal이다. current evidence는 `docs/operations.md`를 따른다.
+이 문서는 `README.md`, [`requirements.md`](requirements.md), [`design.md`](design.md)의 목표 계약을 코드 구조와 연결해 읽기 위한 요약이다. Current evidence는 [`operations.md`](operations.md)를 따른다.
 
-- source of truth: 목표 계약은 `README.md`, `docs/requirements.md`, `docs/design.md`; 구현은 `src/`에서 이 계약을 따라야 한다.
-- 이 문서는 승인된 목표 계약을 `visibility.*` / `mutability.*` 축으로 설명한다.
-- current CLI/config reference는 두 축 문서를 따른다.
-- 런타임 전제: non-root + `fusermount3`, FUSE request/reply transport의 `FUSE_OVER_IO_URING` 필수, 협상 실패 시 fallback 없이 fail-fast
-- 통합 경계: mount owner와 동일 host uid 접근이 기본 전제이며, chroot 권한 모델과 `/proc`·`/sys`·`/dev`·`/run` native semantics는 상위 supervisor 책임이다
-- 다이어그램 source of truth: `docs/diagrams/*.mmd`
-- 다이어그램 렌더링 계약: `docs/diagrams/README.md`
+## 1. System context
 
-## 1. 시스템 컨텍스트
+ScreenFS는 `source_root`를 backing tree로 삼아 FUSE mount를 만들고, 그 mount를 sandbox/chroot 같은 whole-root consumer가 읽는다.
 
-ScreenFS는 `source_root`(대표 예시는 `/`)를 backing tree로 삼아 FUSE mount를 만들고, 그 mount를 sandbox/chroot 같은 상위 consumer가 읽는 구조다. `pi-bash-sandbox`는 대표 통합 예시지만 시스템 경계 자체는 특정 supervisor 하나에 고정되지 않는다. 아래 그림의 mount path는 `/tmp/screenfs-root` 예시일 뿐 고정 경로가 아니다.
-
-정책 모델은 두 축이다.
-
-- visibility axis
-  - `visibility.default`
-  - `visibility.hidden`
-  - `visibility.visible`
-  - bridge-visible ancestor
-- mutability axis
-  - `mutability.default`
-  - `mutability.readonly`
-  - `mutability.writable`
-  - hidden-before-mutability precedence
-
-현재 소스/증거를 이 축으로 읽으면 hidden `ENOENT`, bridge-visible ancestor, readonly/writable override, mount-root recursion exclusion이 핵심 축이다. mount-level `ro`만으로는 충분하지 않다.
+```text
+host filesystem (/)
+  -> ScreenFS FUSE mount (/tmp/screenfs-root 예시)
+  -> whole-root consumer (sandbox/chroot 등)
+```
 
 ![ScreenFS system context](diagrams/system-context.svg)
 
-다이어그램 원본: [diagrams/README.md](diagrams/README.md)
+정책 모델은 두 축이다.
 
-구현 파일 바로가기: `README.md`, `docs/design.md`, `docs/operations.md`
+- **visibility**: hidden / bridge-visible / visible
+- **mutability**: readonly / writable
 
-## 2. 모듈 아키텍처
+hidden `ENOENT`가 mutability `EROFS`보다 먼저 적용된다. mount-level `ro`만으로는 이 selective policy를 대체할 수 없다.
 
-현재 코드는 `main -> cli/config -> fs`를 중심으로 구성되어 있고, `src/fs.rs`는 module root/orchestrator로서 `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`에 inode/file-handle state, path guard, confined host access를 위임한다. `src/matcher.rs`의 `PathRuleMatcher`는 visibility/mutability rule compilation과 runtime policy checks에 공유된다.
+## 2. Runtime boundaries
+
+- 기본 실행 전제는 non-root이며, effective uid 0 실행은 mount 전에 거부한다.
+- mount는 `fusermount3`, FUSE3, `FUSE_OVER_IO_URING` 협상 성공 기준이다.
+- `FUSE_OVER_IO_URING`은 FUSE request/reply transport 요구이며 backing filesystem 전체를 host-side `io_uring`로 전환한다는 뜻이 아니다.
+- 기본 접근 모델은 mount owner와 동일 host uid다. `allow_other`와 chroot/user namespace 구성은 상위 supervisor 책임이다.
+- `/proc`, `/sys`, `/dev`, `/run`의 native semantics 재현도 ScreenFS 단독 책임이 아니다.
+
+## 3. Module architecture
 
 ![ScreenFS module architecture](diagrams/module-architecture.svg)
 
-다이어그램 원본: [diagrams/README.md](diagrams/README.md)
+Current module responsibilities:
 
-핵심 포인트:
+| Module | Responsibility |
+| --- | --- |
+| `src/main.rs` | mount option 구성, `Session::run(ScreenFs::new(cfg))` 진입 |
+| `src/cli.rs` | launch input parsing, CLI/config override validation, help/fail-fast surface |
+| `src/config.rs` | `RuntimeConfig`, internal mount-root hidden rule, policy source/precedence, matcher compilation |
+| `src/path.rs` | lexical virtual path normalization, source-root rebasing, symlink target lexical resolution |
+| `src/matcher.rs` + `src/matcher/*` | shared rule grammar, descriptor/specificity/containment, candidate index |
+| `src/errors.rs` | hidden `ENOENT`, readonly `EROFS`, host errno preservation |
+| `src/fs.rs` | FUSE operation orchestrator |
+| `src/fs/state.rs` | inode/path map, refs, file/dir handles, directory cookie state |
+| `src/fs/guards.rs` | visibility/mutability guards, symlink target checks, mutation coordinate checks |
+| `src/fs/backing.rs` | source-root confinement, fd/dirfd-relative host filesystem delegation |
 
-- `src/main.rs`: mount option 구성과 `Session::run(ScreenFs::new(cfg))` 진입점
-- `src/cli.rs`: launch input 파싱, default/override 관계 검증, help text와 fail-fast 진입점
-- `src/config.rs`: `RuntimeConfig` 구성, mount-root recursion exclusion internal hidden rule 주입, visibility/mutability source 기록, matcher compilation, config/launch precedence 조립
-- `src/path.rs`: lexical virtual path normalization, symlink target lexical resolution, source-root confinement 보조, relative/`~` exact·prefixed-glob rule input rebasing helper
-- `src/matcher.rs`: `PathRuleMatcher`와 `MatcherScope`를 제공하는 facade다. matcher internals는 `src/matcher/grammar.rs`(supported grammar parsing과 glob compilation), `src/matcher/descriptor.rs`(descriptor, specificity ordering, containment/overlap reasoning), `src/matcher/index.rs`(candidate ordering/index와 descendant metadata)로 나뉜다. 목표 계약에서는 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 family별로 compile하고, `visibility.visible` validator가 subtree/direct-child current subset만 통과시켜야 한다. recursive literal directory shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`만 허용하고 canonical trailing `/**` descriptor로 normalize되어 same-specificity conflict/dedup/containment 결과와 matcher cost가 동일해야 한다. `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 form은 fail-fast 대상이다. dynamic bridge scan root나 recursive visible glob support를 추가하지 않는다.
-- `src/fs.rs`: `ScreenFs` FUSE 구현의 module root/orchestrator. request entrypoint를 `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`와 조합한다.
-- `src/fs/state.rs`: inode/path map, lookup/open refcount, file handles, and directory handle page/cookie state를 관리한다. 현재 구현은 `opendir`에서 full-directory snapshot을 만들지 않고, `readdir`/`readdirplus` 요청마다 FUSE `size` budget에 맞는 page만 구성한다. Directory handle state는 returned resume cookie를 child name에 매핑하는 lightweight state를 유지하지만 child attr/inode 전체 snapshot은 유지하지 않는다. `readdirplus` page-local lookup-ref pinning은 같은 state consistency domain의 write lock에서 처리한다.
-- `src/fs/guards.rs`: hidden guard, bridge-visible guard, symlink final-target visibility guard, mutation coordinate guard, directory filtering과 reply-building 전 검사를 담당한다. bridge-visible/fully-visible/readability semantics는 `RuntimeConfig` helper를 통해 적용하며 guard마다 `visibility_decision`을 재해석하지 않는다.
-- `src/fs/backing.rs`: `source_root` confinement 하의 host delegation, open/statfs/fd-based xattr/setattr helper를 담당한다.
-- `src/errors.rs`: hidden 우선 `ENOENT`, mutation 차단 `EROFS`, host errno 보존 규칙을 담당한다.
-
-구현 파일 바로가기: `src/main.rs`, `src/cli.rs`, `src/config.rs`, `src/path.rs`, `src/matcher.rs`, `src/errors.rs`, `src/fs.rs`, `src/fs/state.rs`, `src/fs/guards.rs`, `src/fs/backing.rs`
-
-## 3. 요청 처리 결정 흐름
-
-목표 요청 처리 흐름은 virtual path 계산 후 visibility block이 먼저, discovery-free visible rule category에 따른 bridge-visible 합성과 현재 directory/parent 기준 directory filtering, 필요 시 symlink target point-of-use fully-visible 검사, 그 뒤 mutability block 판정이 이어지고, host filesystem delegation이 마지막 순서로 진행된다.
-
-1. virtual path 계산
-2. `visibility.hidden` / `visibility.visible` 평가
-3. subtree/direct-child visible rule metadata만으로 bridge-visible ancestor를 합성하고 recursive bridge discovery는 수행하지 않음
-4. `readdir`/`readdirplus`라면 현재 directory/parent와 관련된 matcher bucket만 보고 unrelated bucket은 건너뛰는 visibility filtering 수행
-5. visibility fast path가 hide 불가를 증명하지 못하면 symlink chain과 ancestor symlink를 반영한 resolved virtual target이 fully visible인지 point-of-use에서 검사
-6. mutation이면 fully visible coordinate만 mutability block으로 넘기고 `mutability.default` + 더 구체적인 readonly/writable override 평가
-7. mutability fast path는 default별 allow/block만 줄일 수 있으며 visibility 재검사 면제 근거가 아니다
-8. hidden이 아니고 mutation이 허용되면 confined fd 또는 fd-relative host filesystem delegation
+## 4. Request decision flow
 
 ![ScreenFS request decision flow](diagrams/request-decision-flow.svg)
 
-다이어그램 원본: [diagrams/README.md](diagrams/README.md)
+1. FUSE request에서 virtual path를 얻는다.
+2. lexical normalization을 수행한다.
+3. internal mount-root recursion exclusion을 적용한다.
+4. visibility를 평가한다.
+5. hidden이면 `ENOENT` 또는 listing omission으로 끝낸다.
+6. bridge-visible이면 traverse/list만 허용하고 mutation은 `EROFS`다.
+7. symlink가 관여하면 resolved virtual target이 fully visible인지 point-of-use에서 확인한다.
+8. fully visible write coordinate에 mutability를 적용한다.
+9. 허용되면 confined host operation으로 위임한다.
 
-정책 축 세부 흐름:
+Visibility와 mutability 축 상세 흐름:
 
 ![ScreenFS visibility axis](diagrams/visibility-axis.svg)
 
 ![ScreenFS mutability axis](diagrams/mutability-axis.svg)
 
-다이어그램 원본: [diagrams/README.md](diagrams/README.md)
-
-핵심 포인트:
-
-- hidden path는 가능한 한 존재하지 않는 것처럼 보여야 한다.
-- hidden 판단은 mutability보다 먼저 적용된다.
-- readonly/writable은 visible mutation에만 적용된다.
-- symlink는 entry path뿐 아니라 resolved virtual target도 검사하며, target이 fully visible이 아니고 hidden 또는 bridge-visible이면 `ENOENT`다.
-- visibility fast path는 policy가 hide 가능성을 배제할 때만 생략할 수 있고, mutability fast path는 visibility 증명 수단이 아니다.
-- prior listing success, cross-request direct-path memoized result, symlink decision cache는 point-of-use 면제 근거가 아니다. single-request 안에서만 이미 계산한 resolved final target 재사용이 허용된다.
-- `rename`/`link`/`symlink`/`copy_file_range` 같은 multi-path 연산은 source/target/parent 각각을 다시 검사한다.
-- bridge-visible ancestor는 traversal/listing 전용이며 mutation에는 `EROFS`다.
-
-구현 파일 바로가기: `src/fs.rs`, `src/errors.rs`, `docs/design.md`
-
-## 4. 경로 정규화와 confinement
-
-`PathRuleMatcher` 기반 matching은 host canonical path가 아니라 lexical virtual path 기준으로 동작한다. 이후 backing 접근은 `source_root` 밖으로 빠져나가지 않도록 제한한다. 아래 다이어그램은 특히 visible symlink entry를 직접 다루는 경로를 기준으로 읽는 것이 정확하다.
+## 5. Path and rule architecture
 
 ![ScreenFS path resolution and confinement](diagrams/path-resolution.svg)
 
-다이어그램 원본: [diagrams/README.md](diagrams/README.md)
+- Matching 기준은 host canonical path가 아니라 lexical virtual absolute path다.
+- `.`와 중복 `/`는 제거하고, `..`는 virtual `/` 위로 올라가지 못한다.
+- relative path, `./...`, `~/...`, bare slashless glob은 launch cwd/HOME을 host path로 해석한 뒤 `source_root` 내부일 때만 virtual prefix로 rebase한다.
+- shared matcher family는 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree로 나뉜다.
+- current `visibility.visible`은 exact/subtree와 direct-child anchor bridge만 허용한다. recursive visible glob/shorthand는 fail-fast다.
+- `visibility.hidden`, `mutability.readonly`, `mutability.writable`은 recursive family와 recursive literal directory shorthand를 사용할 수 있다.
 
-핵심 포인트:
+## 6. Directory and state model
 
-- `.` 제거, 중복 `/` 정리, `..`는 virtual `/` 위로 못 올라감
-- shared matcher family는 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree로 나뉜다. `/dir/**`는 `/dir`와 같은 subtree descriptor로 compile되고, bare slashless glob `<pattern>`은 launch process cwd를 `source_root` relative normalized prefix로 rebase한 `./<pattern>` direct-child shorthand다. prefixless recursive tail `**/<pattern>`은 같은 cwd anchor의 `./**/<pattern>` recursive shorthand target이다. recursive literal non-visible subtree family는 canonical form(`**/.git/hooks/**`)과 recursive literal directory shorthand(`**/.git`, `**/.git/hooks`, `~/**/aaa/hook`)를 함께 받아들이되 shorthand를 canonical descriptor로 normalize한다. 허용 shorthand는 `**/<literal-dir>`와 `<prefix>/**/<literal-tail>`뿐이고 `/**/`는 최대 한 번만 허용되며 tail component는 모두 literal이다. 이는 subtree shorthand(`/dir/**`, `~/aa/**`)와 다른 문법이다.
-- current `visibility.visible` subset은 `/dir`, `/dir/**` 같은 subtree와 `/dir/*`, `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`, bare/cwd/HOME 동등형 direct-child rule뿐이다. direct-child visible rule은 normalized anchor ancestor만 bridge-visible candidate로 쓰고 immediate child를 `lookup`/`readdir`/`readdirplus`에서 현재 directory/parent 기준으로 평가하며 unrelated matcher bucket은 건너뛴다.
-- `visibility.visible`에 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form이 들어오면 recursive bridge discovery가 필요하므로 fail-fast다. 같은 recursive family와 recursive literal directory shorthand는 hidden/readonly/writable에서만 current다.
-- relative path와 leading `~`, `~/...` prefix는 host path로 해석된 뒤 `source_root` 내부일 때만 virtual absolute path 또는 virtual glob prefix로 rebase된다.
-- `HOME` 없음, relative path/prefixed glob/bare slashless shorthand/prefixless recursive shorthand를 정규화할 launch cwd가 `source_root` 밖, `source_root` 밖으로 확장됨, `~user`, prefix 내부 wildcard, broader unsupported wildcard forms(`foo/*/bar.pem`, `**/secret?.pem`, unanchored `**/*`, one-sided subset 밖의 bare wildcard `*`, `a*b`, `*secret*`)은 fail-fast/unsupported로 남는다.
-- descendant-subtree broader forms(`~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]`, shorthand subset 밖 trailing `/**`-less broader/ambiguous form)도 부분 해석 없이 fail-fast다.
-- recursive literal directory shorthand support는 normalization/path-matcher-only여야 한다. `**/.git/hooks`, `~/**/aaa/hook` 같은 supported shorthand는 각각 `**/.git/hooks/**`, `~/**/aaa/hook/**`와 같은 matcher cost를 유지해야 하며 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery를 추가하면 안 된다.
-- symlink target은 lexical virtual target으로 재해석해 fully-visible 여부를 다시 검사하며, hidden 또는 bridge-visible target은 `readlink`/dereference에서 `ENOENT`다.
-- visibility fast path는 hide 가능성을 배제하지 못하면 listing/lookup/getattr/readlink/dereference/open 시점마다 symlink-dependent check를 다시 수행해야 한다. mutability fast path도 hidden/non-fully-visible 가능성이 남아 있으면 이 재검사를 건너뛸 수 없다.
-- 이 fast path는 current supported grammar에만 적용되며 unsupported visible recursive form이나 broader wildcard form을 근사하지 않는다.
-- host backing 접근은 `source_root` 밖 escape를 허용하지 않는다.
+- Directory listing은 FUSE `size` budget에 맞는 bounded page를 반환한다.
+- `readdirplus` lookup ref는 실제 반환 page의 child에만 증가시킨다.
+- full-directory child attr/inode snapshot cache나 stable listing result cache는 current contract가 아니다.
+- State는 inode/path identity, refcount, handle table, directory cookie, mutation invalidation을 한 consistency domain으로 다룬다.
+- current lock stance는 single `RwLock<State>`다. lock split은 contention evidence와 lock-order design 없이 하지 않는다.
+- Host I/O와 blocking sync syscall은 state lock 밖에서 수행한다.
 
-구현 파일 바로가기: `src/path.rs`, `src/matcher.rs`, `src/fs.rs`
+## 7. Confinement and TOCTOU stance
 
-## 5. 운영/통합 경계
+- Host access는 `source_root` 밖 escape를 허용하지 않는다.
+- 가능한 operation은 fd 또는 dirfd-relative syscall로 위임한다.
+- Mutation 직전 opened parent dirfd가 요청된 virtual parent path에 남아 있는지 best-effort로 재확인한다.
+- 외부 same-UID actor가 validation 이후 pin된 inode를 이동/삭제하면 Linux/POSIX fd lifetime semantics를 따른다.
+- 이 stance는 path 재해석 race를 줄이지만, validation과 syscall 사이 current virtual path membership을 원자적으로 보장하지는 않는다.
 
-이 아키텍처가 전제하는 운영 경계는 다음과 같다.
+## 8. Verification questions
 
-- mount 생성은 non-root 사용자 + `fusermount3` 기준이다.
-- `FUSE_OVER_IO_URING` 협상 실패 시 mount를 degraded fallback으로 열지 않고 fail-fast 한다. 이 요구사항은 FUSE transport에 한정되며 backing filesystem metadata/data path의 wholesale `io_uring` 전환을 뜻하지 않는다.
-- 이미 열린 file handle의 `read`/`write`/`copy_file_range` 및 evidence가 있는 `fallocate` data path만 selective async/io_uring follow-up 후보가 될 수 있다. metadata/path policy operation과 recursive discovery는 이 후보 범위에 포함되지 않는다.
-- `flush`/`fsync`/`release(flush)`의 runtime blocking-offload(`compio_runtime::spawn_blocking` 또는 승인된 동등 surface)는 별도 low-risk concurrency cleanup이다. 이미 열린 file handle snapshot/removal 이후 state lock 밖 blocking pool로 blocking sync syscall 실행 위치만 옮기며, host-side `io_uring`, cache/discovery, public API, `read`/`write`의 `FileExt::read_at`/`write_at` 경로를 바꾸지 않는다.
-- 기본 접근 모델은 mount owner와 동일 host uid다.
-- 현재 hardening contract는 POSIX fd lifetime semantics와 best-effort current-path validation을 따른다. ScreenFS는 `source_root`와 operation parent/object를 fd로 pin한 뒤 fd-relative host syscall을 사용하고, mutation 직전 opened parent dirfd가 요청된 virtual parent path에 남아 있는지 재확인한다. 다만 외부 same-UID actor가 그 재확인 이후 이미 pin된 directory/file을 rename/unlink하면 fd-relative operation은 path 위치가 아니라 pin된 inode에 계속 적용될 수 있다.
-- 다른 host uid 접근은 `allow_other`와 `/etc/fuse.conf` 정책이 별도로 필요하다.
-- `chroot` 실행 권한, user namespace, supervisor 구성은 `ScreenFS` 바깥 책임이다 (`pi-bash-sandbox`는 대표 예시일 뿐 유일한 상위 레이어는 아님).
-- `/proc`·`/sys`·`/dev`·`/run`의 native semantics 재현도 `ScreenFS` 단독 책임이 아니다.
+아키텍처 변경 시 최소 질문:
 
-구현 파일 바로가기: `README.md`, `docs/design.md`, `docs/operations.md`
+- hidden entry가 listing에서 빠지고 직접 접근은 `ENOENT`인가?
+- hidden/non-fully-visible symlink target이 mutability보다 먼저 `ENOENT`인가?
+- bridge-visible ancestor가 traverse/list 전용이고 mutation은 `EROFS`인가?
+- current `visibility.visible` subset이 recursive discovery 없이 유지되는가?
+- direct-child visible rule이 immediate child만 평가하고 hidden sibling을 노출하지 않는가?
+- `readdir`/`readdirplus`가 bounded page와 stable resume cookie를 유지하는가?
+- shared matcher가 exact/subtree, direct-child, recursive non-visible, recursive literal non-visible family를 분리해 다루는가?
+- state lock이 host I/O 또는 blocking syscall 구간에 잡히지 않는가?
+- `source_root` confinement와 fd/dirfd-relative delegation이 유지되는가?
 
-## 6. 검증 경계
+## 9. Diagram contract
 
-이 문서는 구조를 설명하는 artifact이고, live proof의 source of truth는 `docs/operations.md`다. 이 artifact를 읽고 바로 연결되어야 하는 최소 검증 질문은 다음이다.
-
-- `visibility.hidden` entry가 `readdir`/`readdirplus`에서 실제로 빠지는가
-- hidden 직접 접근이 `ENOENT`인가
-- visibility axis diagram이 hidden/bridge-visible/visible 흐름, symlink fully-visible gate, listing 제한을 설명하는가
-- mutability axis diagram이 hidden-before-EROFS와 affected-coordinate writable 요구를 설명하는가
-- `visibility.visible` carve-out이 subtree/direct-child current category로만 문서화되고, direct-child bridge가 immediate child evaluation만 사용하며 hidden sibling을 노출하지 않는가
-- `readdir`/`readdirplus` filtering이 현재 directory/parent와 무관한 matcher bucket을 건너뛰어도 결과를 바꾸지 않는 evidence가 있는가
-- `visibility.visible`이 `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks/**`, `**/.git/hooks`, `/repo/**/.git/hooks/**`, `/repo/**/.git/hooks`, cwd/HOME-relative recursive descendant canonical/shorthand form을 unsupported/fail-fast로 거부하는가
-- `mutability.default=writable`에서 readonly match가 `EROFS`인가, 그리고 readonly match 불가 fast allow가 visibility proof 뒤에서만 쓰이는가
-- `mutability.default=readonly`에서 writable carve-out success와 carve-out 밖 `EROFS`가 갈리는가, 그리고 writable carve-out 불가 fast `EROFS`가 hidden-before-`EROFS`를 뒤집지 않는가
-- nested `mutability.readonly` re-block가 다시 `EROFS`를 만드는가
-- hidden-before-mutability precedence가 유지되는가
-- shared matcher가 `**/*.pem`=`./**/*.pem`, `*.pem`=`./*.pem`, `/dir/**`=`/dir`, `/dir/*.pem` ⊂ `/dir/*` ⊂ `/dir`, `**/.git/hooks`=`**/.git/hooks/**`, `/repo/**/.git/hooks`=`/repo/**/.git/hooks/**` 관계를 계속 보존하는가
-- recursive literal directory shorthand 추가가 normalization/path-matcher-only로 남아 recursive bridge discovery, lazy discovery, startup scan, background indexing, listing 결과 cache, symlink decision cache, 기타 새로운 filesystem discovery를 도입하지 않았는가, 그리고 `~/**/bbb/**/ccc` 같은 multi-recursive form을 fail-fast로 유지하는가
-- `source-root=/`에서 `/bin`, `/usr`, `/etc` 같은 whole-view 경로가 실제로 보이는가
-- mount-root recursion exclusion이 listing/lookup에 다시 나타나지 않는가
-- symlink entry가 resolved virtual target이 fully visible할 때만 읽히고 bridge-visible target이면 `ENOENT`인가
-- symlink point-of-use check가 prior listing success, cross-request direct-path memoized result, symlink decision cache로 대체되지 않고 single-request resolved-target reuse만 허용된다는 evidence가 있는가
-- `/tmp/*` 같은 direct-child visible rule에 대해 recursive traversal이 일어나지 않고 현재 directory/parent와 무관한 matcher bucket을 건너뛴다는 성능-oriented smoke 또는 동등한 계측이 남아 있는가
-- `unshare -UrR` 기반 chroot smoke가 성공하는가, 그리고 `/dev/null` 같은 device-node semantics가 supervisor/namespace layer 책임으로 명확히 남는가
-- current baseline 설명이 현재 two-axis 계약과 일치하는가
-
-구현 파일 바로가기: `docs/operations.md`, `README.md`
-
-## 7. 현재 구현이 드러내는 아키텍처 요약
-
-```text
-Launch inputs
-  -> RuntimeConfig
-  -> PathRuleMatcher + internal mount-root prefix
-  -> compiled visibility hidden/visible rule sets
-  -> current mutability default + compiled readonly/writable rule sets
-  -> src/fs.rs orchestrator + fs/{state,guards,backing}
-  -> VirtualPath normalization + hidden-before-mutability evaluator
-  -> confined host filesystem access
-  -> FUSE replies to whole-root consumer (예: sandbox/chroot)
-```
-
-구현 파일 바로가기: `src/cli.rs`, `src/config.rs`, `src/fs.rs`, `src/path.rs`
-
-## 8. 문서 간 역할 분담
-
-- `README.md`: 프로젝트 목적, 운영 예시, 현재 상태 요약
-- `docs/requirements.md`: v1 요구사항과 금지/비목표
-- `docs/design.md`: 의미론과 모듈 경계에 대한 계약
-- `docs/operations.md`: 검증 방식과 smoke evidence
-- `docs/architecture.md`: 위 문서와 현재 코드를 함께 읽기 쉽게 시각화한 요약
-
-구현 파일 바로가기: `README.md`, `docs/requirements.md`, `docs/design.md`, `docs/operations.md`
+다이어그램 원본은 `docs/diagrams/*.mmd`다. `*.mmd` 또는 Mermaid config를 바꾸면 [`diagrams/README.md`](diagrams/README.md)에 따라 대응 `*.svg`, `*.png`를 함께 재생성하고 PNG에는 `--scale 2`를 적용한다.

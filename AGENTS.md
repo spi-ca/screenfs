@@ -43,7 +43,7 @@
 ```bash
 cargo check
 find README.md AGENTS.md docs -maxdepth 2 -type f -print
-find .pi/agents .pi/skills .pi/prompts -maxdepth 3 -type f -print | sort
+find .pi/agents .pi/skills .pi/prompts .pi/extensions -maxdepth 3 -type f -print | sort
 ```
 
 코드 변경이 포함되면 추가 확인:

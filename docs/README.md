@@ -1,60 +1,57 @@
 # Documentation
 
-이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 현재 정책 모델은 `visibility`/`mutability` 두 축이며, launch-cwd anchored glob normalization contract(`*.pem` direct-child, `**/*.pem` recursive shorthand 포함)을 다룬다. bare slashless direct-child semantics의 최신 source/live evidence는 `operations.md`와 `artifacts/current-bare-basename-glob-smoke-transcript.md`에 정리되어 있고, prefixless recursive cwd-anchor semantics와 explicit root-anchor distinction(`/**/*.pem`)의 current source evidence는 `operations.md`가 다룬다. 빠른 진입점은 아래 순서를 권장한다.
+이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 빠른 진입점은 아래 순서다.
 
 ## Core documents
 
-- [Requirements](requirements.md) — 제품 목적, whole-root 제약, two-axis contract
-- [Design](design.md) — visibility/bridge-visible/mutability 의미론과 구현 계약
-- [Architecture](architecture.md) — 코드 경계, 데이터 흐름, 다이어그램 요약
-- [Operations](operations.md) — recorded build/test/live-smoke evidence와 검증 체크리스트
-- [Benchmarks](benchmarks.md) — formal performance benchmark workflow and result recording rules
-- [Performance roadmap](performance-roadmap.md) — 성능 guardrail, 현재 상태, measure-first backlog, deferred 후보
+- [Requirements](requirements.md): 목적, 전제, non-goals, 사용자-facing 요구사항
+- [Design](design.md): visibility/mutability 의미론, rule grammar, operation contract
+- [Architecture](architecture.md): 모듈 경계, request flow, runtime boundary
+- [Operations](operations.md): 검증 명령, smoke/evidence 기록 규칙, current evidence map
+- [Benchmarks](benchmarks.md): formal performance benchmark workflow
+- [Performance roadmap](performance-roadmap.md): measure-first 성능 backlog와 deferred 후보
 
-## Current policy model at a glance
+## Policy model
+
+ScreenFS의 canonical surface는 두 축뿐이다.
 
 ```yaml
 visibility:
   default: visible | hidden
-  hidden:
-    - <pattern>
-  visible:
-    - <pattern>
+  hidden: []
+  visible: []
 
 mutability:
   default: writable | readonly
-  readonly:
-    - <pattern>
-  writable:
-    - <pattern>
+  readonly: []
+  writable: []
 ```
 
-- `visibility.hidden`은 hidden `ENOENT`를 만든다.
-- `visibility.visible`은 hidden-by-default allowlist 또는 hidden 영역 내부 carve-out이다.
-- `visibility.visible` descendant에 도달시키기 위해 필요한 ancestor directory는 bridge-visible이 될 수 있다.
-- `mutability.readonly`와 `mutability.writable`은 visible path mutation만 조절한다.
-- hidden 판정은 mutability보다 항상 먼저 적용된다.
-- 이 목표 계약에는 제거된 CLI/config surface를 위한 compatibility mapping이나 shim이 없다.
-
-## Integration mapping summary
-
-외부 supervisor의 read/write policy는 ScreenFS current surface에 들어오기 전에 `visibility.*`와 `mutability.*` 두 축으로 정규화한다. ScreenFS 문서와 CLI/config는 이 두 축만 canonical contract로 다룬다.
+- hidden path는 listing에서 빠지고 직접 접근은 `ENOENT`다.
+- bridge-visible ancestor는 visible descendant에 도달하기 위한 traverse/list 전용 상태다.
+- visible path mutation은 mutability 축으로 `writable` 또는 `readonly`를 판정한다.
+- hidden `ENOENT`는 mutability `EROFS`보다 먼저 적용된다.
+- 제거된 CLI/config surface를 위한 compatibility mapping이나 shim은 없다.
 
 ## Supporting references
 
-- [Pi role agents](pi-agents.md) — repo-local Pi workflow, role, resource 설명
-- [Diagram artifacts README](diagrams/README.md) — Mermaid source of truth와 SVG/PNG 렌더링 계약
-- [Benchmarks](benchmarks.md) — ScreenFS/native comparative performance benchmark harness
+- [Pi role agents](pi-agents.md): repo-local Pi workflow와 resource
+- [Diagram artifacts README](diagrams/README.md): Mermaid source of truth와 SVG/PNG 렌더링 계약
+- [Guidelines](guidelines/): agent-facing docs와 coding-agent 행동 지침
 
 ## Evidence artifacts
 
-Transcript artifact는 current contract baseline만 나열한다. 목표 계약 reference와 baseline 분류의 source of truth는 루트 [README](../README.md)와 [operations.md](operations.md)다.
+Transcript artifact는 current contract baseline만 나열한다. 목표 계약 reference와 baseline 분류의 source of truth는 [operations.md](operations.md)다.
 
-Current baseline:
+Current baseline artifacts:
 
-- [Current bare basename glob smoke](artifacts/current-bare-basename-glob-smoke-transcript.md) — bare direct-child baseline (`*.pem`=`./*.pem`)
-- [Current whole-root/chroot smoke](artifacts/current-whole-root-chroot-smoke-transcript.md)
-- [Current default-writable smoke](artifacts/current-default-writable-smoke-transcript.md)
-- [Current visible direct-child/subtree compatibility smoke](artifacts/current-compatibility-pattern-smoke-transcript.md) — `/dir/*`, `./dir/*`, `~/dir/*`, `/dir/**`, `./dir/**`, `~/dir/**`, `*`, `**/*` fail-fast current baseline
-- [Current perf-counter baseline summary](artifacts/current-perf-counter-baseline-summary.md) — perf-enabled smoke attribution and no-speedup cleanup note
-- [Current perf-counter benchmark result JSON](artifacts/current-perf-counter-benchmark-result.json), [Markdown](artifacts/current-perf-counter-benchmark-result.md), [SVG](artifacts/current-perf-counter-benchmark-result.svg) — checked-in perf-enabled benchmark smoke result and box plot
+- [Bare basename glob smoke](artifacts/current-bare-basename-glob-smoke-transcript.md)
+- [Whole-root/chroot smoke](artifacts/current-whole-root-chroot-smoke-transcript.md)
+- [Default-writable smoke](artifacts/current-default-writable-smoke-transcript.md)
+- [Visible direct-child/subtree compatibility smoke](artifacts/current-compatibility-pattern-smoke-transcript.md)
+- [FUSE transport contract evidence](artifacts/current-fuse-transport-contract-evidence.md)
+- [File data-path async feasibility](artifacts/current-file-data-path-async-feasibility.md)
+- [State-lock concurrency evidence](artifacts/current-state-lock-concurrency-evidence.md)
+- [TOCTOU hardening evidence](artifacts/current-toctou-hardening-evidence.md)
+- [Perf-counter baseline summary](artifacts/current-perf-counter-baseline-summary.md)
+- [Perf-counter benchmark result](artifacts/current-perf-counter-benchmark-result.md)
