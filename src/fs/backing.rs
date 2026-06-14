@@ -4,6 +4,7 @@ use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+use std::time::Duration;
 #[cfg(feature = "perf-counters")]
 use std::time::Instant;
 
@@ -286,6 +287,12 @@ fn timespec_from_setattr(value: SetAttrTime) -> libc::timespec {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct DirectoryScanStats {
+    pub(super) attr_generation: Duration,
+    pub(super) attr_entries: u64,
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct DirEntryInfo {
     pub(super) name: OsString,
@@ -416,8 +423,9 @@ pub(super) fn visit_dir_entries(
     dir: File,
     base: &VirtualPath,
     start_offset: u64,
+    mut include_name: impl FnMut(&[u8]) -> bool,
     mut visit: impl FnMut(DirEntryInfo) -> Result<(), i32>,
-) -> Result<(), i32> {
+) -> Result<DirectoryScanStats, i32> {
     let dir_fd = dir.into_raw_fd();
     let dirp = unsafe { libc::fdopendir(dir_fd) };
     if dirp.is_null() {
@@ -426,6 +434,7 @@ pub(super) fn visit_dir_entries(
         return Err(err);
     }
     let mut seen = 0_u64;
+    let mut stats = DirectoryScanStats::default();
     loop {
         errno_reset();
         let dent = unsafe { libc::readdir(dirp) };
@@ -433,17 +442,21 @@ pub(super) fn visit_dir_entries(
             let err = std::io::Error::last_os_error();
             unsafe { libc::closedir(dirp) };
             return if err.raw_os_error().unwrap_or(0) == 0 {
-                Ok(())
+                Ok(stats)
             } else {
                 Err(errno_from_io(err))
             };
         }
         let dent = unsafe { &*dent };
         let name = unsafe { CStr::from_ptr(dent.d_name.as_ptr()) };
-        if name.to_bytes() == b"." || name.to_bytes() == b".." {
+        let name_bytes = name.to_bytes();
+        if name_bytes == b"." || name_bytes == b".." || !include_name(name_bytes) {
             continue;
         }
-        let name_os = OsStr::from_bytes(name.to_bytes()).to_os_string();
+
+        #[cfg(feature = "perf-counters")]
+        let attr_generation_start = Instant::now();
+        let name_os = OsStr::from_bytes(name_bytes).to_os_string();
         let child = base.join_child(&name_os);
         let attr = match fstatat_attr_fd(
             dir_fd,
@@ -457,6 +470,11 @@ pub(super) fn visit_dir_entries(
                 return Err(err);
             }
         };
+        #[cfg(feature = "perf-counters")]
+        {
+            stats.attr_generation += attr_generation_start.elapsed();
+        }
+        stats.attr_entries += 1;
         seen += 1;
         let kind = file_type_from_mode(attr.mode);
         if let Err(err) = visit(DirEntryInfo {

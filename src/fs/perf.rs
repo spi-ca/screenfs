@@ -5,11 +5,22 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::matcher::MatcherCandidateMetrics;
+use crate::path::ResolveHostPathMetrics;
+
 #[derive(Debug, Default)]
 pub(super) struct PerfCounters {
     fuse_operations: LabeledLatencyCounters,
     policy_decisions: LatencyCounter,
     matcher_candidates: AtomicU64,
+    matcher_family_candidates: LabeledCountCounters,
+    matcher_candidate_order: LabeledLatencyCounters,
+    matcher_candidate_order_duplicates: AtomicU64,
+    matcher_candidate_order_duplicates_by_order: LabeledCountCounters,
+    matcher_candidate_order_seen_slots: AtomicU64,
+    matcher_candidate_order_seen_slots_by_order: LabeledCountCounters,
+    matcher_candidate_order_ancestor_steps: AtomicU64,
+    matcher_candidate_order_ancestor_steps_by_order: LabeledCountCounters,
     state_read_wait: LatencyCounter,
     state_read_hold: LatencyCounter,
     state_write_wait: LatencyCounter,
@@ -18,13 +29,25 @@ pub(super) struct PerfCounters {
     source_root_path: LatencyCounter,
     resolved_virtual_path: LatencyCounter,
     resolved_virtual_path_from_path: LatencyCounter,
+    resolved_virtual_path_from_path_component_walk: LatencyCounter,
+    resolved_virtual_path_from_path_canonicalize: LatencyCounter,
+    resolved_virtual_path_from_path_source_root_confinement: LatencyCounter,
+    resolved_virtual_path_from_path_virtual_conversion: LatencyCounter,
     resolved_virtual_path_from_open_fd: LatencyCounter,
     read_size_buckets: LabeledLatencyCounters,
     write_size_buckets: LabeledLatencyCounters,
+    readdir_directory_scan: LatencyCounter,
     readdir_attr_generation: LatencyCounter,
     readdir_attr_entries: AtomicU64,
+    readdir_symlink_visibility: LatencyCounter,
+    readdir_candidate_selection: LatencyCounter,
+    readdir_page_commit: LatencyCounter,
+    readdirplus_directory_scan: LatencyCounter,
     readdirplus_attr_generation: LatencyCounter,
     readdirplus_attr_entries: AtomicU64,
+    readdirplus_symlink_visibility: LatencyCounter,
+    readdirplus_candidate_selection: LatencyCounter,
+    readdirplus_page_commit: LatencyCounter,
     invalidations: AtomicU64,
     invalidated_entries: AtomicU64,
     evicted_entries: AtomicU64,
@@ -42,6 +65,11 @@ struct LabeledLatencyCounters {
     counters: Mutex<BTreeMap<&'static str, LatencyTotals>>,
 }
 
+#[derive(Debug, Default)]
+struct LabeledCountCounters {
+    counters: Mutex<BTreeMap<&'static str, u64>>,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct LatencyTotals {
     count: u64,
@@ -54,6 +82,14 @@ pub(crate) struct PerfSnapshot {
     pub(super) fuse_operations: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) policy_decisions: LatencySnapshot,
     pub(super) matcher_candidates: u64,
+    pub(super) matcher_family_candidates: BTreeMap<&'static str, u64>,
+    pub(super) matcher_candidate_order: BTreeMap<&'static str, LatencySnapshot>,
+    pub(super) matcher_candidate_order_duplicates: u64,
+    pub(super) matcher_candidate_order_duplicates_by_order: BTreeMap<&'static str, u64>,
+    pub(super) matcher_candidate_order_seen_slots: u64,
+    pub(super) matcher_candidate_order_seen_slots_by_order: BTreeMap<&'static str, u64>,
+    pub(super) matcher_candidate_order_ancestor_steps: u64,
+    pub(super) matcher_candidate_order_ancestor_steps_by_order: BTreeMap<&'static str, u64>,
     pub(super) state_read_wait: LatencySnapshot,
     pub(super) state_read_hold: LatencySnapshot,
     pub(super) state_write_wait: LatencySnapshot,
@@ -62,13 +98,25 @@ pub(crate) struct PerfSnapshot {
     pub(super) source_root_path: LatencySnapshot,
     pub(super) resolved_virtual_path: LatencySnapshot,
     pub(super) resolved_virtual_path_from_path: LatencySnapshot,
+    pub(super) resolved_virtual_path_from_path_component_walk: LatencySnapshot,
+    pub(super) resolved_virtual_path_from_path_canonicalize: LatencySnapshot,
+    pub(super) resolved_virtual_path_from_path_source_root_confinement: LatencySnapshot,
+    pub(super) resolved_virtual_path_from_path_virtual_conversion: LatencySnapshot,
     pub(super) resolved_virtual_path_from_open_fd: LatencySnapshot,
     pub(super) read_size_buckets: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) write_size_buckets: BTreeMap<&'static str, LatencySnapshot>,
+    pub(super) readdir_directory_scan: LatencySnapshot,
     pub(super) readdir_attr_generation: LatencySnapshot,
     pub(super) readdir_attr_entries: u64,
+    pub(super) readdir_symlink_visibility: LatencySnapshot,
+    pub(super) readdir_candidate_selection: LatencySnapshot,
+    pub(super) readdir_page_commit: LatencySnapshot,
+    pub(super) readdirplus_directory_scan: LatencySnapshot,
     pub(super) readdirplus_attr_generation: LatencySnapshot,
     pub(super) readdirplus_attr_entries: u64,
+    pub(super) readdirplus_symlink_visibility: LatencySnapshot,
+    pub(super) readdirplus_candidate_selection: LatencySnapshot,
+    pub(super) readdirplus_page_commit: LatencySnapshot,
     pub(super) invalidations: u64,
     pub(super) invalidated_entries: u64,
     pub(super) evicted_entries: u64,
@@ -130,9 +178,38 @@ impl PerfCounters {
         self.policy_decisions.record(elapsed);
     }
 
-    pub(super) fn record_matcher_candidates(&self, count: usize) {
+    pub(super) fn record_matcher_candidates(
+        &self,
+        order: &'static str,
+        metrics: MatcherCandidateMetrics,
+    ) {
         self.matcher_candidates
-            .fetch_add(count as u64, Ordering::Relaxed);
+            .fetch_add(metrics.count as u64, Ordering::Relaxed);
+        self.matcher_family_candidates
+            .record("subtree", metrics.family_counts.subtree as u64);
+        self.matcher_family_candidates.record(
+            "direct_child_glob",
+            metrics.family_counts.direct_child_glob as u64,
+        );
+        self.matcher_family_candidates
+            .record("recursive", metrics.family_counts.recursive as u64);
+        self.matcher_candidate_order
+            .record(order, metrics.candidate_order.elapsed);
+        let duplicates = metrics.candidate_order.duplicates_skipped as u64;
+        self.matcher_candidate_order_duplicates
+            .fetch_add(duplicates, Ordering::Relaxed);
+        self.matcher_candidate_order_duplicates_by_order
+            .record(order, duplicates);
+        let seen_slots = metrics.candidate_order.seen_slots as u64;
+        self.matcher_candidate_order_seen_slots
+            .fetch_add(seen_slots, Ordering::Relaxed);
+        self.matcher_candidate_order_seen_slots_by_order
+            .record(order, seen_slots);
+        let ancestor_steps = metrics.candidate_order.ancestor_steps as u64;
+        self.matcher_candidate_order_ancestor_steps
+            .fetch_add(ancestor_steps, Ordering::Relaxed);
+        self.matcher_candidate_order_ancestor_steps_by_order
+            .record(order, ancestor_steps);
     }
 
     pub(super) fn record_state_read_lock(&self, wait: Duration, hold: Duration) {
@@ -158,6 +235,24 @@ impl PerfCounters {
         self.resolved_virtual_path_from_path.record(elapsed);
     }
 
+    pub(super) fn record_resolved_virtual_path_from_path_details(
+        &self,
+        metrics: ResolveHostPathMetrics,
+        virtual_conversion: Duration,
+    ) {
+        self.resolved_virtual_path_from_path_component_walk
+            .record(metrics.component_walk);
+        self.resolved_virtual_path_from_path_canonicalize
+            .record_many(metrics.canonicalize_count, metrics.canonicalize_total);
+        self.resolved_virtual_path_from_path_source_root_confinement
+            .record_many(
+                metrics.source_root_confinement_count,
+                metrics.source_root_confinement_total,
+            );
+        self.resolved_virtual_path_from_path_virtual_conversion
+            .record(virtual_conversion);
+    }
+
     pub(super) fn record_resolved_virtual_path_from_open_fd(&self, elapsed: Duration) {
         self.resolved_virtual_path.record(elapsed);
         self.resolved_virtual_path_from_open_fd.record(elapsed);
@@ -171,16 +266,44 @@ impl PerfCounters {
         self.write_size_buckets.record(size_bucket(size), elapsed);
     }
 
+    pub(super) fn record_readdir_directory_scan(&self, elapsed: Duration) {
+        self.readdir_directory_scan.record(elapsed);
+    }
+
+    pub(super) fn record_readdirplus_directory_scan(&self, elapsed: Duration) {
+        self.readdirplus_directory_scan.record(elapsed);
+    }
+
     pub(super) fn record_readdir_attr_generation(&self, entries: u64, elapsed: Duration) {
-        self.readdir_attr_generation.record(elapsed);
-        self.readdir_attr_entries
-            .fetch_add(entries, Ordering::Relaxed);
+        self.record_directory_attr_generation(false, entries, elapsed);
     }
 
     pub(super) fn record_readdirplus_attr_generation(&self, entries: u64, elapsed: Duration) {
-        self.readdirplus_attr_generation.record(elapsed);
-        self.readdirplus_attr_entries
-            .fetch_add(entries, Ordering::Relaxed);
+        self.record_directory_attr_generation(true, entries, elapsed);
+    }
+
+    pub(super) fn record_readdir_symlink_visibility(&self, elapsed: Duration) {
+        self.readdir_symlink_visibility.record(elapsed);
+    }
+
+    pub(super) fn record_readdirplus_symlink_visibility(&self, elapsed: Duration) {
+        self.readdirplus_symlink_visibility.record(elapsed);
+    }
+
+    pub(super) fn record_readdir_candidate_selection(&self, elapsed: Duration) {
+        self.readdir_candidate_selection.record(elapsed);
+    }
+
+    pub(super) fn record_readdirplus_candidate_selection(&self, elapsed: Duration) {
+        self.readdirplus_candidate_selection.record(elapsed);
+    }
+
+    pub(super) fn record_readdir_page_commit(&self, elapsed: Duration) {
+        self.readdir_page_commit.record(elapsed);
+    }
+
+    pub(super) fn record_readdirplus_page_commit(&self, elapsed: Duration) {
+        self.readdirplus_page_commit.record(elapsed);
     }
 
     pub(super) fn record_invalidation(&self, stats: InvalidationStats) {
@@ -196,6 +319,26 @@ impl PerfCounters {
             fuse_operations: self.fuse_operations.snapshot(),
             policy_decisions: self.policy_decisions.snapshot(),
             matcher_candidates: self.matcher_candidates.load(Ordering::Relaxed),
+            matcher_family_candidates: self.matcher_family_candidates.snapshot(),
+            matcher_candidate_order: self.matcher_candidate_order.snapshot(),
+            matcher_candidate_order_duplicates: self
+                .matcher_candidate_order_duplicates
+                .load(Ordering::Relaxed),
+            matcher_candidate_order_duplicates_by_order: self
+                .matcher_candidate_order_duplicates_by_order
+                .snapshot(),
+            matcher_candidate_order_seen_slots: self
+                .matcher_candidate_order_seen_slots
+                .load(Ordering::Relaxed),
+            matcher_candidate_order_seen_slots_by_order: self
+                .matcher_candidate_order_seen_slots_by_order
+                .snapshot(),
+            matcher_candidate_order_ancestor_steps: self
+                .matcher_candidate_order_ancestor_steps
+                .load(Ordering::Relaxed),
+            matcher_candidate_order_ancestor_steps_by_order: self
+                .matcher_candidate_order_ancestor_steps_by_order
+                .snapshot(),
             state_read_wait: self.state_read_wait.snapshot(),
             state_read_hold: self.state_read_hold.snapshot(),
             state_write_wait: self.state_write_wait.snapshot(),
@@ -204,13 +347,33 @@ impl PerfCounters {
             source_root_path: self.source_root_path.snapshot(),
             resolved_virtual_path: self.resolved_virtual_path.snapshot(),
             resolved_virtual_path_from_path: self.resolved_virtual_path_from_path.snapshot(),
+            resolved_virtual_path_from_path_component_walk: self
+                .resolved_virtual_path_from_path_component_walk
+                .snapshot(),
+            resolved_virtual_path_from_path_canonicalize: self
+                .resolved_virtual_path_from_path_canonicalize
+                .snapshot(),
+            resolved_virtual_path_from_path_source_root_confinement: self
+                .resolved_virtual_path_from_path_source_root_confinement
+                .snapshot(),
+            resolved_virtual_path_from_path_virtual_conversion: self
+                .resolved_virtual_path_from_path_virtual_conversion
+                .snapshot(),
             resolved_virtual_path_from_open_fd: self.resolved_virtual_path_from_open_fd.snapshot(),
             read_size_buckets: self.read_size_buckets.snapshot(),
             write_size_buckets: self.write_size_buckets.snapshot(),
+            readdir_directory_scan: self.readdir_directory_scan.snapshot(),
             readdir_attr_generation: self.readdir_attr_generation.snapshot(),
             readdir_attr_entries: self.readdir_attr_entries.load(Ordering::Relaxed),
+            readdir_symlink_visibility: self.readdir_symlink_visibility.snapshot(),
+            readdir_candidate_selection: self.readdir_candidate_selection.snapshot(),
+            readdir_page_commit: self.readdir_page_commit.snapshot(),
+            readdirplus_directory_scan: self.readdirplus_directory_scan.snapshot(),
             readdirplus_attr_generation: self.readdirplus_attr_generation.snapshot(),
             readdirplus_attr_entries: self.readdirplus_attr_entries.load(Ordering::Relaxed),
+            readdirplus_symlink_visibility: self.readdirplus_symlink_visibility.snapshot(),
+            readdirplus_candidate_selection: self.readdirplus_candidate_selection.snapshot(),
+            readdirplus_page_commit: self.readdirplus_page_commit.snapshot(),
             invalidations: self.invalidations.load(Ordering::Relaxed),
             invalidated_entries: self.invalidated_entries.load(Ordering::Relaxed),
             evicted_entries: self.evicted_entries.load(Ordering::Relaxed),
@@ -229,6 +392,49 @@ impl PerfCounters {
             snapshot.matcher_candidates
         )
         .expect("write to string");
+        write_labeled_counts(
+            &mut output,
+            "matcher_family_candidates",
+            &snapshot.matcher_family_candidates,
+        );
+        write_labeled_latency(
+            &mut output,
+            "matcher_candidate_order",
+            &snapshot.matcher_candidate_order,
+        );
+        writeln!(
+            &mut output,
+            "  matcher_candidate_order_duplicates: count={}",
+            snapshot.matcher_candidate_order_duplicates
+        )
+        .expect("write to string");
+        write_labeled_counts(
+            &mut output,
+            "matcher_candidate_order_duplicates",
+            &snapshot.matcher_candidate_order_duplicates_by_order,
+        );
+        writeln!(
+            &mut output,
+            "  matcher_candidate_order_seen_slots: count={}",
+            snapshot.matcher_candidate_order_seen_slots
+        )
+        .expect("write to string");
+        write_labeled_counts(
+            &mut output,
+            "matcher_candidate_order_seen_slots",
+            &snapshot.matcher_candidate_order_seen_slots_by_order,
+        );
+        writeln!(
+            &mut output,
+            "  matcher_candidate_order_ancestor_steps: count={}",
+            snapshot.matcher_candidate_order_ancestor_steps
+        )
+        .expect("write to string");
+        write_labeled_counts(
+            &mut output,
+            "matcher_candidate_order_ancestor_steps",
+            &snapshot.matcher_candidate_order_ancestor_steps_by_order,
+        );
         write_latency(
             &mut output,
             "state_read_lock_wait",
@@ -263,6 +469,26 @@ impl PerfCounters {
         );
         write_latency(
             &mut output,
+            "resolved_virtual_path_from_path_component_walk",
+            snapshot.resolved_virtual_path_from_path_component_walk,
+        );
+        write_latency(
+            &mut output,
+            "resolved_virtual_path_from_path_canonicalize",
+            snapshot.resolved_virtual_path_from_path_canonicalize,
+        );
+        write_latency(
+            &mut output,
+            "resolved_virtual_path_from_path_source_root_confinement",
+            snapshot.resolved_virtual_path_from_path_source_root_confinement,
+        );
+        write_latency(
+            &mut output,
+            "resolved_virtual_path_from_path_virtual_conversion",
+            snapshot.resolved_virtual_path_from_path_virtual_conversion,
+        );
+        write_latency(
+            &mut output,
             "resolved_virtual_path_from_open_fd",
             snapshot.resolved_virtual_path_from_open_fd,
         );
@@ -271,6 +497,11 @@ impl PerfCounters {
             &mut output,
             "write_size_bucket",
             &snapshot.write_size_buckets,
+        );
+        write_latency(
+            &mut output,
+            "readdir_directory_scan",
+            snapshot.readdir_directory_scan,
         );
         write_latency(
             &mut output,
@@ -285,6 +516,26 @@ impl PerfCounters {
         .expect("write to string");
         write_latency(
             &mut output,
+            "readdir_symlink_visibility",
+            snapshot.readdir_symlink_visibility,
+        );
+        write_latency(
+            &mut output,
+            "readdir_candidate_selection",
+            snapshot.readdir_candidate_selection,
+        );
+        write_latency(
+            &mut output,
+            "readdir_page_commit",
+            snapshot.readdir_page_commit,
+        );
+        write_latency(
+            &mut output,
+            "readdirplus_directory_scan",
+            snapshot.readdirplus_directory_scan,
+        );
+        write_latency(
+            &mut output,
             "readdirplus_attr_generation_scan",
             snapshot.readdirplus_attr_generation,
         );
@@ -294,6 +545,21 @@ impl PerfCounters {
             snapshot.readdirplus_attr_entries
         )
         .expect("write to string");
+        write_latency(
+            &mut output,
+            "readdirplus_symlink_visibility",
+            snapshot.readdirplus_symlink_visibility,
+        );
+        write_latency(
+            &mut output,
+            "readdirplus_candidate_selection",
+            snapshot.readdirplus_candidate_selection,
+        );
+        write_latency(
+            &mut output,
+            "readdirplus_page_commit",
+            snapshot.readdirplus_page_commit,
+        );
         writeln!(
             &mut output,
             "  invalidations: count={} invalidated_entries={} evicted_entries={}",
@@ -301,6 +567,19 @@ impl PerfCounters {
         )
         .expect("write to string");
         output
+    }
+
+    fn record_directory_attr_generation(&self, with_plus: bool, entries: u64, elapsed: Duration) {
+        let (counter, entry_counter) = if with_plus {
+            (
+                &self.readdirplus_attr_generation,
+                &self.readdirplus_attr_entries,
+            )
+        } else {
+            (&self.readdir_attr_generation, &self.readdir_attr_entries)
+        };
+        counter.record(elapsed);
+        entry_counter.fetch_add(entries, Ordering::Relaxed);
     }
 }
 
@@ -310,6 +589,9 @@ impl LatencyCounter {
     }
 
     fn record_many(&self, count: u64, elapsed: Duration) {
+        if count == 0 {
+            return;
+        }
         self.count.fetch_add(count, Ordering::Relaxed);
         let ns = elapsed.as_nanos().min(u128::from(u64::MAX)) as u64;
         self.total_ns.fetch_add(ns, Ordering::Relaxed);
@@ -354,6 +636,21 @@ impl LabeledLatencyCounters {
     }
 }
 
+impl LabeledCountCounters {
+    fn record(&self, label: &'static str, count: u64) {
+        let mut counters = self.counters.lock().expect("perf counter mutex poisoned");
+        let total = counters.entry(label).or_default();
+        *total = total.saturating_add(count);
+    }
+
+    fn snapshot(&self) -> BTreeMap<&'static str, u64> {
+        self.counters
+            .lock()
+            .expect("perf counter mutex poisoned")
+            .clone()
+    }
+}
+
 fn size_bucket(size: usize) -> &'static str {
     match size {
         0..=4096 => "0_4k",
@@ -384,5 +681,15 @@ fn write_labeled_latency(
 ) {
     for (label, snapshot) in snapshots {
         write_latency(output, &format!("{prefix}.{label}"), *snapshot);
+    }
+}
+
+fn write_labeled_counts(
+    output: &mut String,
+    prefix: &str,
+    snapshots: &BTreeMap<&'static str, u64>,
+) {
+    for (label, count) in snapshots {
+        writeln!(output, "  {prefix}.{label}: count={count}").expect("write to string");
     }
 }

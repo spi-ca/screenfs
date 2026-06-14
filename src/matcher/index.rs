@@ -1,16 +1,40 @@
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use crate::path::VirtualPath;
 
 use super::descriptor::{RuleDescriptor, RuleTarget};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct MatcherCandidateFamilyCounts {
+    pub(crate) subtree: usize,
+    pub(crate) direct_child_glob: usize,
+    pub(crate) recursive: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CandidateOrderMetrics {
+    pub(crate) elapsed: Duration,
+    pub(crate) duplicates_skipped: usize,
+    pub(crate) seen_slots: usize,
+    pub(crate) ancestor_steps: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct MatcherCandidateMetrics {
+    pub(crate) count: usize,
+    pub(crate) family_counts: MatcherCandidateFamilyCounts,
+    pub(crate) candidate_order: CandidateOrderMetrics,
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct MatcherIndex {
     subtree_by_anchor: BTreeMap<VirtualPath, Vec<usize>>,
     direct_child_glob_by_anchor: BTreeMap<VirtualPath, Vec<usize>>,
     recursive_order: Vec<usize>,
-    bridge_descendant_by_path: BTreeMap<VirtualPath, Vec<usize>>,
+    bridge_subtree_descendant_by_path: BTreeMap<VirtualPath, Vec<usize>>,
+    bridge_direct_child_glob_descendant_by_path: BTreeMap<VirtualPath, Vec<usize>>,
     order_rank: Vec<usize>,
     pub(super) has_global_descendant_match: bool,
 }
@@ -28,7 +52,10 @@ impl MatcherIndex {
         let mut subtree_by_anchor: BTreeMap<VirtualPath, Vec<usize>> = BTreeMap::new();
         let mut direct_child_glob_by_anchor: BTreeMap<VirtualPath, Vec<usize>> = BTreeMap::new();
         let mut recursive_order = Vec::new();
-        let mut bridge_descendant_by_path: BTreeMap<VirtualPath, Vec<usize>> = BTreeMap::new();
+        let mut bridge_subtree_descendant_by_path: BTreeMap<VirtualPath, Vec<usize>> =
+            BTreeMap::new();
+        let mut bridge_direct_child_glob_descendant_by_path: BTreeMap<VirtualPath, Vec<usize>> =
+            BTreeMap::new();
         let mut order_rank = vec![usize::MAX; descriptors.len()];
         for (rank, index) in match_order.iter().enumerate() {
             order_rank[*index] = rank;
@@ -41,9 +68,9 @@ impl MatcherIndex {
                         .entry(descriptor.anchor.clone())
                         .or_default()
                         .push(*index);
-                    for ancestor in path_ancestors(&descriptor.anchor) {
-                        bridge_descendant_by_path
-                            .entry(ancestor)
+                    for ancestor in ancestor_paths(descriptor.anchor.as_path()) {
+                        bridge_subtree_descendant_by_path
+                            .entry(VirtualPath::new(ancestor))
                             .or_default()
                             .push(*index);
                     }
@@ -55,9 +82,9 @@ impl MatcherIndex {
                         .entry(descriptor.anchor.clone())
                         .or_default()
                         .push(*index);
-                    for ancestor in path_ancestors(&descriptor.anchor) {
-                        bridge_descendant_by_path
-                            .entry(ancestor)
+                    for ancestor in ancestor_paths(descriptor.anchor.as_path()) {
+                        bridge_direct_child_glob_descendant_by_path
+                            .entry(VirtualPath::new(ancestor))
                             .or_default()
                             .push(*index);
                     }
@@ -77,7 +104,8 @@ impl MatcherIndex {
             subtree_by_anchor,
             direct_child_glob_by_anchor,
             recursive_order,
-            bridge_descendant_by_path,
+            bridge_subtree_descendant_by_path,
+            bridge_direct_child_glob_descendant_by_path,
             order_rank,
             has_global_descendant_match,
         }
@@ -85,55 +113,151 @@ impl MatcherIndex {
 
     pub(super) fn candidate_order(&self, path: &VirtualPath) -> Vec<usize> {
         let mut candidates = Vec::new();
-        for ancestor in path_ancestors(path) {
-            if let Some(indices) = self.subtree_by_anchor.get(&ancestor) {
-                push_unique(&mut candidates, indices);
-            }
-            if let Some(indices) = self.direct_child_glob_by_anchor.get(&ancestor) {
-                push_unique(&mut candidates, indices);
-            }
-        }
-        push_unique(&mut candidates, &self.recursive_order);
-        self.sort_candidates_by_match_order(candidates)
+        self.extend_path_candidates(path, &mut candidates, None);
+        self.sort_and_dedup_candidates_by_match_order(candidates)
+    }
+
+    pub(super) fn candidate_metrics(&self, path: &VirtualPath) -> MatcherCandidateMetricsResult {
+        let start = Instant::now();
+        let mut candidates = Vec::new();
+        let mut metrics = MatcherCandidateMetrics::default();
+        metrics.candidate_order.seen_slots = self.order_rank.len();
+        self.extend_path_candidates(path, &mut candidates, Some(&mut metrics));
+        let raw_count = candidates.len();
+        let candidates = self.sort_and_dedup_candidates_by_match_order(candidates);
+        metrics.candidate_order.duplicates_skipped = raw_count.saturating_sub(candidates.len());
+        metrics.count = candidates.len();
+        metrics.candidate_order.elapsed = start.elapsed();
+        MatcherCandidateMetricsResult(metrics)
     }
 
     pub(super) fn descendant_candidate_order(&self, path: &VirtualPath) -> Vec<usize> {
         let mut candidates = Vec::new();
-        if let Some(indices) = self.bridge_descendant_by_path.get(path) {
-            push_unique(&mut candidates, indices);
-        }
-        for ancestor in path_ancestors(path) {
-            if let Some(indices) = self.direct_child_glob_by_anchor.get(&ancestor) {
-                push_unique(&mut candidates, indices);
-            }
-        }
-        push_unique(&mut candidates, &self.recursive_order);
-        self.sort_candidates_by_match_order(candidates)
+        self.extend_descendant_candidates(path, &mut candidates, None);
+        self.sort_and_dedup_candidates_by_match_order(candidates)
     }
 
-    fn sort_candidates_by_match_order(&self, mut candidates: Vec<usize>) -> Vec<usize> {
+    pub(super) fn descendant_candidate_metrics(
+        &self,
+        path: &VirtualPath,
+    ) -> MatcherCandidateMetricsResult {
+        let start = Instant::now();
+        let mut candidates = Vec::new();
+        let mut metrics = MatcherCandidateMetrics::default();
+        metrics.candidate_order.seen_slots = self.order_rank.len();
+        self.extend_descendant_candidates(path, &mut candidates, Some(&mut metrics));
+        let raw_count = candidates.len();
+        let candidates = self.sort_and_dedup_candidates_by_match_order(candidates);
+        metrics.candidate_order.duplicates_skipped = raw_count.saturating_sub(candidates.len());
+        metrics.count = candidates.len();
+        metrics.candidate_order.elapsed = start.elapsed();
+        MatcherCandidateMetricsResult(metrics)
+    }
+
+    fn extend_path_candidates(
+        &self,
+        path: &VirtualPath,
+        candidates: &mut Vec<usize>,
+        mut metrics: Option<&mut MatcherCandidateMetrics>,
+    ) {
+        for ancestor in ancestor_paths(path.as_path()) {
+            if let Some(metrics) = metrics.as_deref_mut() {
+                metrics.candidate_order.ancestor_steps += 1;
+            }
+            if let Some(indices) = self.subtree_by_anchor.get(ancestor) {
+                if let Some(metrics) = metrics.as_deref_mut() {
+                    metrics.family_counts.subtree += indices.len();
+                }
+                candidates.extend(indices);
+            }
+            if let Some(indices) = self.direct_child_glob_by_anchor.get(ancestor) {
+                if let Some(metrics) = metrics.as_deref_mut() {
+                    metrics.family_counts.direct_child_glob += indices.len();
+                }
+                candidates.extend(indices);
+            }
+        }
+        if let Some(metrics) = metrics {
+            metrics.family_counts.recursive += self.recursive_order.len();
+        }
+        candidates.extend(&self.recursive_order);
+    }
+
+    fn extend_descendant_candidates(
+        &self,
+        path: &VirtualPath,
+        candidates: &mut Vec<usize>,
+        mut metrics: Option<&mut MatcherCandidateMetrics>,
+    ) {
+        if let Some(indices) = self.bridge_subtree_descendant_by_path.get(path.as_path()) {
+            if let Some(metrics) = metrics.as_deref_mut() {
+                metrics.family_counts.subtree += indices.len();
+            }
+            candidates.extend(indices);
+        }
+        if let Some(indices) = self
+            .bridge_direct_child_glob_descendant_by_path
+            .get(path.as_path())
+        {
+            if let Some(metrics) = metrics.as_deref_mut() {
+                metrics.family_counts.direct_child_glob += indices.len();
+            }
+            candidates.extend(indices);
+        }
+        for ancestor in ancestor_paths(path.as_path()) {
+            if let Some(metrics) = metrics.as_deref_mut() {
+                metrics.candidate_order.ancestor_steps += 1;
+            }
+            if let Some(indices) = self.direct_child_glob_by_anchor.get(ancestor) {
+                if let Some(metrics) = metrics.as_deref_mut() {
+                    metrics.family_counts.direct_child_glob += indices.len();
+                }
+                candidates.extend(indices);
+            }
+        }
+        if let Some(metrics) = metrics {
+            metrics.family_counts.recursive += self.recursive_order.len();
+        }
+        candidates.extend(&self.recursive_order);
+    }
+
+    fn sort_and_dedup_candidates_by_match_order(&self, mut candidates: Vec<usize>) -> Vec<usize> {
         candidates.sort_by_key(|index| self.order_rank[*index]);
+        candidates.dedup();
         candidates
     }
 }
 
-fn push_unique(out: &mut Vec<usize>, indices: &[usize]) {
-    for index in indices {
-        if !out.contains(index) {
-            out.push(*index);
-        }
+#[derive(Debug, Clone)]
+pub(super) struct MatcherCandidateMetricsResult(MatcherCandidateMetrics);
+
+impl MatcherCandidateMetricsResult {
+    #[allow(dead_code)]
+    pub(super) fn metrics(&self) -> MatcherCandidateMetrics {
+        self.0
     }
 }
 
-fn path_ancestors(path: &VirtualPath) -> Vec<VirtualPath> {
-    let mut ancestors = Vec::new();
-    let mut current = Some(path.as_path());
-    while let Some(path) = current {
-        ancestors.push(VirtualPath::new(path));
-        if path == Path::new("/") {
-            break;
-        }
-        current = path.parent();
+fn ancestor_paths(path: &Path) -> AncestorPaths<'_> {
+    AncestorPaths {
+        current: Some(path),
     }
-    ancestors
+}
+
+struct AncestorPaths<'a> {
+    current: Option<&'a Path>,
+}
+
+impl<'a> Iterator for AncestorPaths<'a> {
+    type Item = &'a Path;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let path = self.current?;
+        self.current = if path == Path::new("/") {
+            None
+        } else {
+            path.parent()
+        };
+        Some(path)
+    }
 }

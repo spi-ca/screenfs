@@ -19,11 +19,13 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
     let source = test_dir("perf-readdirplus");
     std::fs::write(source.join("file.txt"), "hello").unwrap();
     std::fs::create_dir(source.join("dir")).unwrap();
-    let fs = fs_for_perf(&source);
+    std::os::unix::fs::symlink("file.txt", source.join("link.txt")).unwrap();
+    let fs = fs_for(&source, vec!["*.tmp".to_string()], vec![]);
 
     let names = root_listing_names(&fs);
     assert!(names.iter().any(|name| name == "file.txt"));
     assert!(names.iter().any(|name| name == "dir"));
+    assert!(names.iter().any(|name| name == "link.txt"));
 
     let snapshot = fs.perf_snapshot().expect("perf counters enabled");
     assert!(
@@ -36,6 +38,32 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
     );
     assert!(snapshot.policy_decisions.count > 0, "{snapshot:?}");
     assert!(snapshot.matcher_candidates > 0, "{snapshot:?}");
+    assert!(
+        snapshot
+            .matcher_family_candidates
+            .get("subtree")
+            .copied()
+            .unwrap_or(0)
+            > 0,
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot
+            .matcher_family_candidates
+            .get("direct_child_glob")
+            .copied()
+            .unwrap_or(0)
+            > 0,
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot.matcher_candidate_order.contains_key("path"),
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot.matcher_candidate_order_seen_slots > 0,
+        "{snapshot:?}"
+    );
     assert!(snapshot.state_read_wait.count > 0, "{snapshot:?}");
     assert!(snapshot.state_read_hold.count > 0, "{snapshot:?}");
     assert!(snapshot.state_write_wait.count > 0, "{snapshot:?}");
@@ -46,12 +74,30 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
         "{snapshot:?}"
     );
     assert!(snapshot.readdirplus_attr_entries > 0, "{snapshot:?}");
+    assert!(
+        snapshot.readdirplus_symlink_visibility.count > 0,
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot.readdirplus_candidate_selection.count > 0,
+        "{snapshot:?}"
+    );
+    assert!(snapshot.readdirplus_page_commit.count > 0, "{snapshot:?}");
 
     let fh = open_directory_handle(&fs, FUSE_ROOT_ID);
     let _ = block_on(fs.readdir(dummy_req(), FUSE_ROOT_ID, fh, 0, 4096)).unwrap();
     let snapshot = fs.perf_snapshot().expect("perf counters enabled");
     assert!(snapshot.readdir_attr_generation.count > 0, "{snapshot:?}");
     assert!(snapshot.readdir_attr_entries > 0, "{snapshot:?}");
+    assert!(
+        snapshot.readdir_symlink_visibility.count > 0,
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot.readdir_candidate_selection.count > 0,
+        "{snapshot:?}"
+    );
+    assert!(snapshot.readdir_page_commit.count > 0, "{snapshot:?}");
     std::fs::remove_dir_all(source).unwrap();
 }
 
@@ -81,6 +127,31 @@ fn perf_counters_split_resolved_virtual_path_sources() {
     assert!(snapshot.source_root_path.count > 0, "{snapshot:?}");
     assert!(snapshot.resolved_virtual_path.count > 0, "{snapshot:?}");
     assert!(
+        snapshot
+            .resolved_virtual_path_from_path_component_walk
+            .count
+            > 0,
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot.resolved_virtual_path_from_path_canonicalize.count > 0,
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot
+            .resolved_virtual_path_from_path_source_root_confinement
+            .count
+            > 0,
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot
+            .resolved_virtual_path_from_path_virtual_conversion
+            .count
+            > 0,
+        "{snapshot:?}"
+    );
+    assert!(
         snapshot.resolved_virtual_path_from_path.count > 0,
         "{snapshot:?}"
     );
@@ -95,6 +166,41 @@ fn perf_counters_split_resolved_virtual_path_sources() {
         "{snapshot:?}"
     );
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn perf_counters_resume_filter_skips_repeated_attr_work() {
+    let dir = test_dir("perf-readdir-resume-filter");
+    std::fs::create_dir(dir.join("listing")).unwrap();
+    for name in ["alpha", "beta", "gamma"] {
+        std::fs::write(dir.join("listing").join(name), b"data").unwrap();
+    }
+    let fs = fs_for_perf(&dir);
+
+    let listing = lookup_root_inode(&fs, "listing");
+    let fh = open_directory_handle(&fs, listing);
+    let first = block_on(fs.readdir(
+        dummy_req(),
+        listing,
+        fh,
+        0,
+        (fractal_fuse::abi::fuse_dirent_size(1)
+            + fractal_fuse::abi::fuse_dirent_size(2)
+            + fractal_fuse::abi::fuse_dirent_size("alpha".len())) as u32,
+    ))
+    .unwrap();
+    let first_snapshot = fs.perf_snapshot().expect("perf counters enabled");
+    let alpha_cookie = first.last().unwrap().offset;
+
+    let _second = block_on(fs.readdir(dummy_req(), listing, fh, alpha_cookie, 4096)).unwrap();
+    let second_snapshot = fs.perf_snapshot().expect("perf counters enabled");
+
+    assert_eq!(
+        second_snapshot.readdir_attr_entries - first_snapshot.readdir_attr_entries,
+        2,
+        "{first_snapshot:?}\n{second_snapshot:?}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

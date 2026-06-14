@@ -168,24 +168,38 @@ impl ScreenFs {
 
     #[cfg(feature = "perf-counters")]
     fn record_matcher_candidates_for_visibility(&self, path: &crate::path::VirtualPath) {
-        let count = self
-            .cfg
-            .internal_hidden_matcher
-            .candidate_descriptor_count(path)
-            + self.cfg.hidden_matcher.candidate_descriptor_count(path)
-            + self.cfg.visible_matcher.candidate_descriptor_count(path)
-            + self
-                .cfg
+        self.perf.record_matcher_candidates(
+            "path",
+            self.cfg
+                .internal_hidden_matcher
+                .candidate_descriptor_metrics(path),
+        );
+        self.perf.record_matcher_candidates(
+            "path",
+            self.cfg.hidden_matcher.candidate_descriptor_metrics(path),
+        );
+        self.perf.record_matcher_candidates(
+            "path",
+            self.cfg.visible_matcher.candidate_descriptor_metrics(path),
+        );
+        self.perf.record_matcher_candidates(
+            "descendant",
+            self.cfg
                 .visible_matcher
-                .descendant_candidate_descriptor_count(path);
-        self.perf.record_matcher_candidates(count);
+                .descendant_candidate_descriptor_metrics(path),
+        );
     }
 
     #[cfg(feature = "perf-counters")]
     fn record_matcher_candidates_for_mutability(&self, path: &crate::path::VirtualPath) {
-        let count = self.cfg.readonly_matcher.candidate_descriptor_count(path)
-            + self.cfg.writable_matcher.candidate_descriptor_count(path);
-        self.perf.record_matcher_candidates(count);
+        self.perf.record_matcher_candidates(
+            "path",
+            self.cfg.readonly_matcher.candidate_descriptor_metrics(path),
+        );
+        self.perf.record_matcher_candidates(
+            "path",
+            self.cfg.writable_matcher.candidate_descriptor_metrics(path),
+        );
     }
 
     #[cfg(not(feature = "perf-counters"))]
@@ -425,7 +439,19 @@ impl ScreenFs {
             )?;
         }
 
-        self.commit_directory_page(inode, fh, page, with_plus)
+        #[cfg(feature = "perf-counters")]
+        let commit_start = Instant::now();
+        let committed = self.commit_directory_page(inode, fh, page, with_plus)?;
+        #[cfg(feature = "perf-counters")]
+        {
+            let elapsed = commit_start.elapsed();
+            if with_plus {
+                self.perf.record_readdirplus_page_commit(elapsed);
+            } else {
+                self.perf.record_readdir_page_commit(elapsed);
+            }
+        }
+        Ok(committed)
     }
 
     fn collect_child_directory_page(
@@ -442,43 +468,71 @@ impl ScreenFs {
         self.guard_opened_directory_target(path, &dir_file, false)?;
         let mut candidates = BTreeMap::new();
         #[cfg(feature = "perf-counters")]
-        let attr_generation_start = Instant::now();
+        let mut symlink_visibility_elapsed = std::time::Duration::default();
         #[cfg(feature = "perf-counters")]
-        let mut attr_generation_entries = 0_u64;
-        backing::visit_dir_entries(dir_file, path, 3, |entry| {
-            #[cfg(feature = "perf-counters")]
-            {
-                attr_generation_entries += 1;
-            }
-            let name_bytes = entry.name.as_bytes();
-            if resume_name.is_some_and(|resume| name_bytes <= resume) {
-                return Ok(());
-            }
-            if !self.entry_is_readable(&entry.child, entry.is_dir) {
-                return Ok(());
-            }
-            if entry.is_symlink
-                && self
-                    .guard_resolved_target_visibility_if_needed(&entry.child)
-                    .is_err()
-            {
-                return Ok(());
-            }
-            candidates.insert(name_bytes.to_vec(), entry);
-            if candidates.len() > candidate_limit {
-                candidates.pop_last();
-            }
-            Ok(())
-        })?;
+        let mut candidate_selection_elapsed = std::time::Duration::default();
+        #[cfg(feature = "perf-counters")]
+        let directory_scan_start = Instant::now();
+        let scan = backing::visit_dir_entries(
+            dir_file,
+            path,
+            3,
+            |name_bytes| resume_name.is_none_or(|resume| name_bytes > resume),
+            |entry| {
+                let name_bytes = entry.name.as_bytes();
+                if !self.entry_is_readable(&entry.child, entry.is_dir) {
+                    return Ok(());
+                }
+                if entry.is_symlink {
+                    #[cfg(feature = "perf-counters")]
+                    let symlink_visibility_start = Instant::now();
+                    let visible = self
+                        .guard_resolved_target_visibility_if_needed(&entry.child)
+                        .is_ok();
+                    #[cfg(feature = "perf-counters")]
+                    {
+                        symlink_visibility_elapsed += symlink_visibility_start.elapsed();
+                    }
+                    if !visible {
+                        return Ok(());
+                    }
+                }
+                #[cfg(feature = "perf-counters")]
+                let candidate_selection_start = Instant::now();
+                candidates.insert(name_bytes.to_vec(), entry);
+                if candidates.len() > candidate_limit {
+                    candidates.pop_last();
+                }
+                #[cfg(feature = "perf-counters")]
+                {
+                    candidate_selection_elapsed += candidate_selection_start.elapsed();
+                }
+                Ok(())
+            },
+        )?;
+        #[cfg(not(feature = "perf-counters"))]
+        let _ = scan;
         #[cfg(feature = "perf-counters")]
         {
-            let elapsed = attr_generation_start.elapsed();
+            let directory_scan_elapsed = directory_scan_start.elapsed();
             if with_plus {
                 self.perf
-                    .record_readdirplus_attr_generation(attr_generation_entries, elapsed);
+                    .record_readdirplus_directory_scan(directory_scan_elapsed);
+                self.perf
+                    .record_readdirplus_attr_generation(scan.attr_entries, scan.attr_generation);
+                self.perf
+                    .record_readdirplus_symlink_visibility(symlink_visibility_elapsed);
+                self.perf
+                    .record_readdirplus_candidate_selection(candidate_selection_elapsed);
             } else {
                 self.perf
-                    .record_readdir_attr_generation(attr_generation_entries, elapsed);
+                    .record_readdir_directory_scan(directory_scan_elapsed);
+                self.perf
+                    .record_readdir_attr_generation(scan.attr_entries, scan.attr_generation);
+                self.perf
+                    .record_readdir_symlink_visibility(symlink_visibility_elapsed);
+                self.perf
+                    .record_readdir_candidate_selection(candidate_selection_elapsed);
             }
         }
 

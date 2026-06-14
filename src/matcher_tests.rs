@@ -74,16 +74,33 @@ fn matcher_indexes_candidates_by_family_and_normalized_anchor() {
     assert!(!matcher.matches_path(&VirtualPath::new("/b/file.txt")));
     assert!(matcher.matches_path(&VirtualPath::new("/a/nested/file.lock")));
 
-    let a_txt_candidates = matcher.candidate_descriptor_count(&VirtualPath::new("/a/file.txt"));
+    let a_txt_path = VirtualPath::new("/a/file.txt");
+    let a_txt_candidates = matcher.candidate_descriptor_count(&a_txt_path);
     let b_txt_candidates = matcher.candidate_descriptor_count(&VirtualPath::new("/b/file.txt"));
     assert!(a_txt_candidates < matcher.descriptors().len());
     assert!(b_txt_candidates < matcher.descriptors().len());
     assert_eq!(a_txt_candidates, b_txt_candidates);
 
+    let a_txt_metrics = matcher.candidate_descriptor_metrics(&a_txt_path);
+    assert_eq!(a_txt_metrics.count, a_txt_candidates);
+    assert_eq!(a_txt_metrics.family_counts.direct_child_glob, 1);
+    assert_eq!(a_txt_metrics.family_counts.recursive, 1);
+    assert!(a_txt_metrics.candidate_order.ancestor_steps > 0);
+    assert_eq!(
+        a_txt_metrics.candidate_order.seen_slots,
+        matcher.descriptors().len()
+    );
+
     let a_descendant_candidates =
         matcher.descendant_candidate_descriptor_count(&VirtualPath::new("/a"));
     let unrelated_descendant_candidates =
         matcher.descendant_candidate_descriptor_count(&VirtualPath::new("/unrelated"));
+    let a_descendant_metrics =
+        matcher.descendant_candidate_descriptor_metrics(&VirtualPath::new("/a"));
+    assert_eq!(a_descendant_metrics.count, a_descendant_candidates);
+    assert!(a_descendant_metrics.family_counts.direct_child_glob > 0);
+    assert!(a_descendant_metrics.family_counts.recursive > 0);
+    assert!(a_descendant_metrics.candidate_order.duplicates_skipped > 0);
     assert!(a_descendant_candidates < matcher.descriptors().len());
     assert!(unrelated_descendant_candidates < a_descendant_candidates);
     assert!(matcher.may_match_descendant_of(&VirtualPath::new("/a")));

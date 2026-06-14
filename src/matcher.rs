@@ -13,6 +13,8 @@ pub use descriptor::{RuleDescriptor, RuleSpecificity};
 use grammar::{CompiledGlob, looks_like_glob, split_supported_subtree_shorthand};
 use index::MatcherIndex;
 
+pub(crate) use index::MatcherCandidateMetrics;
+
 #[derive(Debug, Clone)]
 pub struct PathRuleMatcher {
     descriptors: Vec<RuleDescriptor>,
@@ -149,6 +151,14 @@ impl PathRuleMatcher {
         self.index.candidate_order(path).len()
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn candidate_descriptor_metrics(
+        &self,
+        path: &VirtualPath,
+    ) -> MatcherCandidateMetrics {
+        self.index.candidate_metrics(path).metrics()
+    }
+
     pub fn descriptors(&self) -> &[RuleDescriptor] {
         &self.descriptors
     }
@@ -169,6 +179,14 @@ impl PathRuleMatcher {
 
     pub fn descendant_candidate_descriptor_count(&self, path: &VirtualPath) -> usize {
         self.index.descendant_candidate_order(path).len()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn descendant_candidate_descriptor_metrics(
+        &self,
+        path: &VirtualPath,
+    ) -> MatcherCandidateMetrics {
+        self.index.descendant_candidate_metrics(path).metrics()
     }
 
     pub fn has_recursive_bridge_discovery_rule(&self) -> bool {

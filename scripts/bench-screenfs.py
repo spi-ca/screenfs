@@ -55,6 +55,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dir-entries", type=int, default=5000, help="Directory entries for listing workload.")
     parser.add_argument("--hidden-misses", type=int, default=2000, help="Repeated hidden-path ENOENT checks for the ScreenFS-only workload.")
     parser.add_argument(
+        "--matcher-extra-rules",
+        type=int,
+        default=0,
+        help="Add synthetic hidden/readonly rules and fixture files for matcher-heavy attribution experiments.",
+    )
+    parser.add_argument(
+        "--matcher-misses",
+        type=int,
+        default=2000,
+        help="Repeated hidden-path ENOENT checks for the matcher-heavy ScreenFS-only workload.",
+    )
+    parser.add_argument(
         "--symlink-parent-mutations",
         type=int,
         default=2000,
@@ -217,6 +229,17 @@ def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
     target = symlink_dir / "target.txt"
     target.write_text("visible symlink target\n", encoding="utf-8")
     os.symlink("target.txt", symlink_dir / "link.txt")
+
+    if args.matcher_extra_rules:
+        matcher_dir = root / "matcher-heavy"
+        matcher_dir.mkdir()
+        for index in range(args.matcher_extra_rules):
+            hidden_bucket = matcher_dir / f"hidden-{index:04d}"
+            hidden_bucket.mkdir()
+            (hidden_bucket / "secret.txt").write_text("hidden matcher payload\n", encoding="utf-8")
+            visible_bucket = matcher_dir / f"visible-{index:04d}"
+            visible_bucket.mkdir()
+            (visible_bucket / f"readonly-{index:04d}.txt").write_text("readonly matcher payload\n", encoding="utf-8")
 
     symlink_parent_dir = root / "symlink-parent"
     symlink_parent_dir.mkdir()
@@ -387,6 +410,23 @@ def hidden_stat_miss(root: Path, args: argparse.Namespace, side: str) -> None:
             raise RuntimeError("hidden_stat_miss expected ENOENT through ScreenFS")
 
 
+def matcher_hidden_stat_miss(root: Path, args: argparse.Namespace, side: str) -> None:
+    if args.matcher_extra_rules <= 0:
+        return
+    matcher_dir = root / ".screenfs-bench" / "matcher-heavy"
+    for index in range(args.matcher_misses):
+        rule_index = index % args.matcher_extra_rules
+        path = matcher_dir / f"hidden-{rule_index:04d}" / "secret.txt"
+        try:
+            path.stat()
+        except FileNotFoundError:
+            if side == "mounted":
+                continue
+            raise
+        if side == "mounted":
+            raise RuntimeError("matcher_hidden_stat_miss expected ENOENT through ScreenFS")
+
+
 def symlink_parent_mkdir_rmdir(root: Path, args: argparse.Namespace, _side: str) -> None:
     fixture_root = root / ".screenfs-bench" / "symlink-parent"
     real_parent = fixture_root / "real"
@@ -430,6 +470,7 @@ WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
 }
 SCREENFS_ONLY_WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
     "hidden_stat_miss": hidden_stat_miss,
+    "matcher_hidden_stat_miss": matcher_hidden_stat_miss,
     "symlink_parent_mkdir_rmdir": symlink_parent_mkdir_rmdir,
 }
 
@@ -660,9 +701,12 @@ def main() -> int:
         "small_files",
         "dir_entries",
         "hidden_misses",
+        "matcher_misses",
         "symlink_parent_mutations",
     ]:
         require_positive(name, getattr(args, name))
+    if args.matcher_extra_rules < 0:
+        raise SystemExit("matcher_extra_rules must be non-negative")
 
 
     if hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -703,8 +747,15 @@ def main() -> int:
         "writable",
         "--readonly",
         "/.screenfs-bench/readonly",
-        *args.extra_screenfs_arg,
     ]
+    for index in range(args.matcher_extra_rules):
+        command.extend([
+            "--hidden",
+            f"/.screenfs-bench/matcher-heavy/hidden-{index:04d}",
+            "--readonly",
+            f"/.screenfs-bench/matcher-heavy/visible-{index:04d}/readonly-{index:04d}.txt",
+        ])
+    command.extend(args.extra_screenfs_arg)
 
     proc: subprocess.Popen[str] | None = None
     unmount_result: dict[str, Any] = {"ok": False, "attempts": []}
@@ -714,9 +765,12 @@ def main() -> int:
 
         native_results = [measure_workload(name, func, source, args, "native") for name, func in WORKLOADS.items()]
         mounted_results = [measure_workload(name, func, mount, args, "mounted") for name, func in WORKLOADS.items()]
+        screenfs_only_workloads = dict(SCREENFS_ONLY_WORKLOADS)
+        if args.matcher_extra_rules == 0:
+            screenfs_only_workloads.pop("matcher_hidden_stat_miss", None)
         screenfs_only = [
             measure_workload(name, func, mount, args, "mounted")
-            for name, func in SCREENFS_ONLY_WORKLOADS.items()
+            for name, func in screenfs_only_workloads.items()
         ]
 
         mounted_filesystem = path_fs_info(mount)
@@ -796,6 +850,8 @@ def main() -> int:
                 "small_files": args.small_files,
                 "dir_entries": args.dir_entries,
                 "hidden_misses": args.hidden_misses,
+                "matcher_extra_rules": args.matcher_extra_rules,
+                "matcher_misses": args.matcher_misses,
                 "symlink_parent_mutations": args.symlink_parent_mutations,
             },
             "paths": {"workdir": str(workdir), "source": str(source), "mount": str(mount)},

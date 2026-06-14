@@ -1,5 +1,8 @@
+use std::borrow::Borrow;
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
+#[cfg(feature = "perf-counters")]
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct RuleNormalizationContext {
@@ -10,6 +13,16 @@ pub struct RuleNormalizationContext {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct VirtualPath(PathBuf);
+
+#[cfg(feature = "perf-counters")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ResolveHostPathMetrics {
+    pub(crate) component_walk: Duration,
+    pub(crate) canonicalize_total: Duration,
+    pub(crate) canonicalize_count: u64,
+    pub(crate) source_root_confinement_total: Duration,
+    pub(crate) source_root_confinement_count: u64,
+}
 
 impl VirtualPath {
     pub fn root() -> Self {
@@ -76,6 +89,49 @@ impl VirtualPath {
         source_root: &Path,
         follow_final_symlink: bool,
     ) -> std::io::Result<PathBuf> {
+        #[cfg(feature = "perf-counters")]
+        {
+            self.resolve_host_path_from_canonical_source_root_with_metrics(
+                source_root,
+                follow_final_symlink,
+            )
+            .map(|(path, _metrics)| path)
+        }
+        #[cfg(not(feature = "perf-counters"))]
+        {
+            let mut current = source_root.to_path_buf();
+            let mut parts = self
+                .0
+                .components()
+                .filter_map(|component| match component {
+                    Component::Normal(part) => Some(part),
+                    _ => None,
+                })
+                .peekable();
+
+            while let Some(part) = parts.next() {
+                if !follow_final_symlink && parts.peek().is_none() {
+                    return Ok(current.join(part));
+                }
+                current.push(part);
+                current = current.canonicalize()?;
+                if !current.starts_with(source_root) {
+                    return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+                }
+            }
+
+            Ok(current)
+        }
+    }
+
+    #[cfg(feature = "perf-counters")]
+    pub(crate) fn resolve_host_path_from_canonical_source_root_with_metrics(
+        &self,
+        source_root: &Path,
+        follow_final_symlink: bool,
+    ) -> std::io::Result<(PathBuf, ResolveHostPathMetrics)> {
+        let mut metrics = ResolveHostPathMetrics::default();
+        let walk_start = Instant::now();
         let mut current = source_root.to_path_buf();
         let mut parts = self
             .0
@@ -86,18 +142,31 @@ impl VirtualPath {
             })
             .peekable();
 
-        while let Some(part) = parts.next() {
-            if !follow_final_symlink && parts.peek().is_none() {
-                return Ok(current.join(part));
-            }
-            current.push(part);
-            current = current.canonicalize()?;
-            if !current.starts_with(source_root) {
-                return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
-            }
-        }
+        let result = (|| {
+            while let Some(part) = parts.next() {
+                if !follow_final_symlink && parts.peek().is_none() {
+                    return Ok(current.join(part));
+                }
+                current.push(part);
 
-        Ok(current)
+                let canonicalize_start = Instant::now();
+                current = current.canonicalize()?;
+                metrics.canonicalize_total += canonicalize_start.elapsed();
+                metrics.canonicalize_count += 1;
+
+                let confinement_start = Instant::now();
+                let confined = current.starts_with(source_root);
+                metrics.source_root_confinement_total += confinement_start.elapsed();
+                metrics.source_root_confinement_count += 1;
+                if !confined {
+                    return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+                }
+            }
+
+            Ok(current)
+        })();
+        metrics.component_walk = walk_start.elapsed();
+        result.map(|path| (path, metrics))
     }
 }
 
@@ -109,6 +178,12 @@ impl std::fmt::Display for VirtualPath {
 
 impl AsRef<Path> for VirtualPath {
     fn as_ref(&self) -> &Path {
+        self.as_path()
+    }
+}
+
+impl Borrow<Path> for VirtualPath {
+    fn borrow(&self) -> &Path {
         self.as_path()
     }
 }

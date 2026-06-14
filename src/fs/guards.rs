@@ -9,6 +9,8 @@ use super::ScreenFs;
 use crate::config::{MutabilityDecision, VisibilityDecision};
 use crate::errors::{errno_from_io, open_has_write_intent};
 use crate::path::VirtualPath;
+#[cfg(feature = "perf-counters")]
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 struct MutationCoordinateEvaluation<'a> {
@@ -49,15 +51,32 @@ impl<'a> RequestPathResolver<'a> {
     ) -> Result<VirtualPath, i32> {
         let source_root = self.source_root()?;
         #[cfg(feature = "perf-counters")]
-        let start = std::time::Instant::now();
+        let start = Instant::now();
+        #[cfg(feature = "perf-counters")]
+        let (source, path_metrics) = path
+            .resolve_host_path_from_canonical_source_root_with_metrics(
+                source_root,
+                follow_final_symlink,
+            )
+            .map_err(errno_from_io)?;
+        #[cfg(not(feature = "perf-counters"))]
         let source = path
             .resolve_host_path_from_canonical_source_root(source_root, follow_final_symlink)
             .map_err(errno_from_io)?;
+        #[cfg(feature = "perf-counters")]
+        let (result, virtual_conversion) =
+            virtual_path_from_source_path_with_metrics(source_root, &source);
+        #[cfg(not(feature = "perf-counters"))]
         let result = virtual_path_from_source_path(source_root, &source);
         #[cfg(feature = "perf-counters")]
-        self.fs
-            .perf
-            .record_resolved_virtual_path_from_path(start.elapsed());
+        {
+            self.fs
+                .perf
+                .record_resolved_virtual_path_from_path(start.elapsed());
+            self.fs
+                .perf
+                .record_resolved_virtual_path_from_path_details(path_metrics, virtual_conversion);
+        }
         result
     }
 
@@ -114,6 +133,16 @@ fn virtual_path_from_source_path(source_root: &Path, source: &Path) -> Result<Vi
     }
 }
 
+#[cfg(feature = "perf-counters")]
+fn virtual_path_from_source_path_with_metrics(
+    source_root: &Path,
+    source: &Path,
+) -> (Result<VirtualPath, i32>, std::time::Duration) {
+    let start = Instant::now();
+    let result = virtual_path_from_source_path(source_root, source);
+    (result, start.elapsed())
+}
+
 impl ScreenFs {
     pub(super) fn visible_for_entry(&self, path: &VirtualPath) -> bool {
         match self.stat_child_no_follow(path, 0) {
@@ -137,14 +166,30 @@ impl ScreenFs {
     ) -> Result<VirtualPath, i32> {
         let source_root = self.source_root_path()?;
         #[cfg(feature = "perf-counters")]
-        let start = std::time::Instant::now();
+        let start = Instant::now();
+        #[cfg(feature = "perf-counters")]
+        let (source, path_metrics) = path
+            .resolve_host_path_from_canonical_source_root_with_metrics(
+                &source_root,
+                follow_final_symlink,
+            )
+            .map_err(errno_from_io)?;
+        #[cfg(not(feature = "perf-counters"))]
         let source = path
             .resolve_host_path_from_canonical_source_root(&source_root, follow_final_symlink)
             .map_err(errno_from_io)?;
+        #[cfg(feature = "perf-counters")]
+        let (result, virtual_conversion) =
+            virtual_path_from_source_path_with_metrics(&source_root, &source);
+        #[cfg(not(feature = "perf-counters"))]
         let result = virtual_path_from_source_path(&source_root, &source);
         #[cfg(feature = "perf-counters")]
-        self.perf
-            .record_resolved_virtual_path_from_path(start.elapsed());
+        {
+            self.perf
+                .record_resolved_virtual_path_from_path(start.elapsed());
+            self.perf
+                .record_resolved_virtual_path_from_path_details(path_metrics, virtual_conversion);
+        }
         result
     }
 
