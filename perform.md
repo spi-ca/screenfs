@@ -52,22 +52,21 @@ is_fully_visible
 - rule 수와 path depth를 조합한 micro benchmark 추가
 - live smoke에 operation별 counter dump 옵션 추가
 
-### 2. data path 정리: offset 기반 read/write
+### 2. 현재 상태: offset 기반 read/write는 이미 구현됨
 
-현재 `seek + read/write` 형태는 file cursor 공유와 concurrent request에 불리하다.
+`read`/`write`는 이미 `src/fs.rs`의 `read()`/`write()`에서 `FileExt::read_at` / `FileExt::write_at`를 사용한다. `seek + read/write` 전환 자체는 더 이상 TODO가 아니고, 현재 남은 일은 이 경로의 비용을 benchmark/perf counter로 계측하는 것이다.
 
-우선 변경 후보:
+현재 근거:
 
-```text
-seek + read/write
--> FileExt::read_at / FileExt::write_at
-```
+- 구현: `src/fs.rs` (`read()`, `write()`)
+- 회귀 테스트: `src/fs/tests/data_mutations.rs` (`read_write_offsets_do_not_depend_on_shared_file_position`)
+- 상태 잠금 근거: `docs/artifacts/current-state-lock-concurrency-evidence.md` (`Lock rules`, `Low-risk executor-offload boundary`)
 
-기대 효과:
+다음 질문:
 
-- file cursor 공유 문제 제거
-- concurrent read/write 안정성 개선
-- 이후 `spawn_blocking` 또는 io_uring data path 실험이 쉬워짐
+- 작은/큰 IO에서 syscall 비용이 어디서 커지는지
+- concurrent reader/writer에서 handle snapshot 비용이 실제 병목인지
+- host-side offload 또는 io_uring 검토가 필요한 수준의 data-path 병목이 있는지
 
 ### 3. read/write 버퍼 크기별 benchmark
 
@@ -86,50 +85,47 @@ seek + read/write
 - 큰 IO가 지배적이면 backing FS latency와 `spawn_blocking` 가치 검토
 - runtime blocking이 확인될 때만 data path offload를 실험
 
-### 4. flush/fsync/release flush blocking 분리
+### 4. 현재 상태: flush/fsync/release(flush) sync syscall 분리는 이미 구현됨
 
-대상:
+`flush`, `fsync`, `release(flush=true)`는 이미 `src/fs.rs`의 `flush()`/`release()`/`fsync()`에서 file-handle snapshot/removal 뒤 state lock 밖으로 sync syscall을 offload한다. 따라서 이 항목의 다음 단계는 구현 자체가 아니라 close/fsync-heavy workload에서의 queueing/tail-latency 계측이다.
 
-```text
-flush
-fsync
-release(flush=true)
-```
+현재 근거:
 
-이들은 backing FS 상태에 따라 오래 block될 수 있다.
+- 구현: `src/fs.rs` (`flush()`, `release()`, `fsync()`, `offload_file_sync()`)
+- 회귀 테스트: `src/fs/tests/data_mutations.rs` (`flush_and_fsync_complete_under_compio_runtime`, `release_flush_true_completes_under_compio_runtime_and_removes_handle`, `offload_file_sync_*`)
+- 설계/락 규칙: `docs/artifacts/current-state-lock-concurrency-evidence.md` (`Lock rules`, `Low-risk executor-offload boundary`)
 
-권장 패턴:
+관찰 포인트:
 
-```text
-1. state lock에서 필요한 handle/file clone만 확보
-2. state lock 해제
-3. sync_all/fsync/fdatasync 수행
-4. 필요 시 state lock 재획득 후 상태 갱신
-```
-
-주의:
-
-- lock을 잡은 채 `spawn_blocking` 금지
-- threadpool saturation/backpressure 필요
-- errno 변환을 공통 helper로 통일
+- close/fsync-heavy workload에서 blocking pool saturation/backpressure
+- sync surface별 latency tail
+- errno/join failure mapping이 관측 가능한 regression을 만들지 않는지
 
 ## 중간 우선순위 개선 후보
 
-### 5. resolved_virtual_path / host_path 비용 절감
+### 5. 현재 상태: 첫 request-local path/source-root reuse는 구현됨
 
-symlink-heavy workload에서 `resolved_virtual_path()`와 `host_path` 계산이 반복될 수 있다.
+`src/fs/guards.rs`에는 첫 번째 request-local reuse 정리가 이미 들어갔다. `RequestPathResolver`가 단일 FUSE request 범위에서 `source_root_path()` 결과를 재사용하고, mutation coordinate 검사와 opened-target revalidation에서 반복되던 resolved virtual path/source path 변환 helper를 공통화한다.
 
-허용 가능한 방향:
+의미론 가드레일:
 
-- single-request 내부에서 이미 계산한 resolved path 재사용
-- 같은 request 안에서 visibility/mutability 판단에 필요한 path 변환 중복 제거
-- path allocation/normalization 횟수 계측
+- reuse 범위는 같은 request 내부로만 제한한다
+- 기존 `resolve_host_path`/`virtual_path_from_source_path` 기반 계산과 errno 매핑을 유지한다
+- cross-request symlink decision cache나 host negative cache로 확대하지 않는다
+- hidden `ENOENT`, symlink target fully-visible gate, mutability `EROFS` 판단을 cache hit만으로 생략하지 않는다
 
-금지/주의:
+남은 질문:
 
-- cross-request symlink decision cache는 현재 계약상 위험하므로 금지
-- symlink target visibility check를 cache hit만으로 생략하지 않는다
-- rename/create/unlink 이후 invalidation 문제를 단순 cache로 우회하지 않는다
+- `scripts/bench-screenfs.py`의 `symlink_parent_mkdir_rmdir`처럼 이 surface 주변의 symlink-parent mutation guard/path-resolution path를 겨냥한 mounted workload/probe에서 path/source-root 재계산 횟수가 실제로 얼마나 줄었는지
+- allocation/normalization 감소가 wall-clock latency에 의미 있는지
+- 추가 reuse 지점을 넓힐 가치가 있는지
+
+증거 요구:
+
+- 현재 변경은 semantics-preserving refactor/reuse로만 문서화한다
+- `scripts/bench-screenfs.py`의 `symlink_parent_mkdir_rmdir`는 현재 request-local reuse surface 주변의 symlink-parent mutation guard/path-resolution path를 겨냥한 ScreenFS-only mounted workload/probe로 볼 수 있지만, counter/trace 없이 live FUSE request가 특정 내부 helper를 탔다고 증명하지는 못한다
+- speedup 주장은 perf counter, trace, microbenchmark, 또는 변경 surface를 겨냥한 before/after benchmark artifact가 나온 뒤에만 한다
+- broad mounted-vs-native harness 결과만으로 이 미세 최적화 효과를 단정하지 않는다
 
 ### 6. directory entry attr 생성 비용 분리
 
@@ -225,30 +221,27 @@ mutation 후 `invalidate_after_mutation()`이 필요한 범위보다 넓게 지�
 - perf counter로 invalidation count와 evicted entry 수 기록
 - correctness test로 stale visibility/mutability 상태가 남지 않는지 검증
 
-### 11. state lock 세분화
+### 11. state lock 세분화는 계측 전까지 defer
 
-현재 전역 `Mutex<State>`가 병목일 수 있다.
+현재 병목 후보는 전역 `Mutex<State>`가 아니라 single consistency-domain `RwLock<State>`다 (`src/fs.rs`의 `state` 필드, `docs/artifacts/current-state-lock-concurrency-evidence.md`). read-only snapshot concurrency와 cross-table atomic invalidation을 위해 현 구조를 유지하고, split은 contention evidence가 있을 때만 검토한다.
 
-가능한 분리 축:
+현재 근거:
 
-```text
-inode map lock
-file handle lock
-directory handle lock
-policy/cache lock
-```
+- 구현: `src/fs.rs` (`state: RwLock<State>`)
+- 설계 근거: `docs/artifacts/current-state-lock-concurrency-evidence.md` (`Selected low-risk direction`, `Lock rules`)
+- 회귀 테스트: `src/fs/tests/state_cache.rs` (`readdirplus_dot_entries_do_not_pin_lookup_refs`, `forget_evicts_non_root_mapping_after_lookup_refs_drop_and_handles_close`, `readdirplus_pins_returned_child_lookup_refs`, `readdirplus_honors_size_budget_and_continues_from_last_cookie`)
+
+검토 전 선행 조건:
+
+1. state lock wait/hold time 계측
+2. `readdir`/`readdirplus`와 mutation invalidation의 write-lock 유지 시간 계측
+3. 이미 가능한 host IO/sync syscall lock-outside 이동이 추가로 남아 있는지 재확인
 
 주의:
 
-- lock ordering 규칙 필요
-- mutation invalidation 복잡도 증가
-- deadlock과 stale state 리스크 증가
-
-권장 순서:
-
-1. lock hold time 계측
-2. data/directory blocking IO를 lock 밖으로 이동
-3. 그래도 contention이 확인될 때만 세분화 검토
+- lock ordering 추가 없이 per-table lock으로 바로 나누지 않는다
+- mutation invalidation atomicity를 깨지 않는다
+- hidden `ENOENT` precedence, bridge-visible 의미론, page-local `readdirplus` lookup-ref pinning을 바꾸지 않는다
 
 ## 장기/선택 후보
 
@@ -306,16 +299,14 @@ userspace path resolution cache로 confinement 대체
 ## 추천 적용 순서
 
 ```text
-1. perf counter/benchmark 기반 만들기
-2. policy/matcher hot path와 state lock hold time 계측
-3. read/write buffer size별 benchmark 추가
-4. resolved_virtual_path/host_path single-request reuse 지점 확인
-5. readdir vs readdirplus 비용 분리 측정
-6. open_confined/openat2 호출 빈도와 latency 측정
-7. invalidate_after_mutation 범위와 evicted entry 수 확인
-8. 병목 확인 후 data path offload 또는 directory snapshot 분리 검토
-9. 필요할 때만 negative/hidden path TTL cache와 state lock 세분화 실험
-10. data path 병목이 명확할 때만 host io_uring 실험
+1. 문서/상태 정합성부터 맞춘다
+2. opt-in perf counter와 benchmark surface를 확장하되, request-local reuse는 `scripts/bench-screenfs.py`의 `symlink_parent_mkdir_rmdir` 같은 mounted probe workload도 포함해 본다
+3. policy/matcher hot path와 state lock hold time을 계측한다
+4. read/write buffer size와 concurrency benchmark를 추가한다
+5. 이미 들어간 request-local path/source-root reuse를 `symlink_parent_mkdir_rmdir` 같은 mounted probe workload의 before/after 비교로 계측하고 추가 reuse 지점을 측정한다
+6. readdir vs readdirplus attr 비용과 open_confined/openat2 호출 빈도/latency를 측정한다
+7. invalidate_after_mutation 범위와 evicted entry 수를 측정한다
+8. 위 evidence가 쌓인 뒤에만 negative/hidden path cache, state lock split, host-side io_uring를 검토한다
 ```
 
 ## 피해야 할 최적화
