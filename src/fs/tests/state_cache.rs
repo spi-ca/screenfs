@@ -231,6 +231,101 @@ fn readdirplus_pins_returned_child_lookup_refs() {
 }
 
 #[test]
+fn readdirplus_pins_only_returned_page_child_lookup_refs() {
+    let dir = test_dir("readdirplus-page-pins-only");
+    std::fs::create_dir(dir.join("listing")).unwrap();
+    for name in ["alpha", "beta", "gamma"] {
+        std::fs::write(dir.join("listing").join(name), b"data").unwrap();
+    }
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    let listing = lookup_root_inode(&fs, "listing");
+    let fh = open_directory_handle(&fs, listing);
+    let entries = block_on(fs.readdirplus(
+        dummy_req(),
+        listing,
+        fh,
+        0,
+        (fractal_fuse::abi::fuse_direntplus_size(1) * 2
+            + fractal_fuse::abi::fuse_direntplus_size("alpha".len())) as u32,
+    ))
+    .unwrap();
+    let names = entries
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec![".", "..", "alpha"]);
+
+    let alpha = entries
+        .iter()
+        .find(|entry| entry.name == b"alpha")
+        .expect("alpha entry returned")
+        .ino;
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        assert_eq!(state.inodes.get(&alpha).unwrap().lookup_refs, 1);
+        assert!(
+            !state
+                .path_inodes
+                .contains_key(&VirtualPath::new("/listing/beta"))
+        );
+        assert!(
+            !state
+                .path_inodes
+                .contains_key(&VirtualPath::new("/listing/gamma"))
+        );
+    }
+
+    fs.forget(dummy_req(), alpha, 1);
+    block_on(fs.releasedir(dummy_req(), listing, fh, 0)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readdirplus_honors_size_budget_and_continues_from_last_cookie() {
+    let dir = test_dir("readdirplus-size-continuation");
+    std::fs::create_dir(dir.join("listing")).unwrap();
+    for name in ["alpha", "beta", "gamma"] {
+        std::fs::write(dir.join("listing").join(name), b"data").unwrap();
+    }
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    let listing = lookup_root_inode(&fs, "listing");
+    let fh = open_directory_handle(&fs, listing);
+    let first = block_on(fs.readdirplus(
+        dummy_req(),
+        listing,
+        fh,
+        0,
+        (fractal_fuse::abi::fuse_direntplus_size(1) * 2
+            + fractal_fuse::abi::fuse_direntplus_size("alpha".len())) as u32,
+    ))
+    .unwrap();
+    let first_names = first
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(first_names, vec![".", "..", "alpha"]);
+
+    let second =
+        block_on(fs.readdirplus(dummy_req(), listing, fh, first.last().unwrap().offset, 4096))
+            .unwrap();
+    let second_names = second
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(second_names, vec!["beta", "gamma"]);
+
+    for entry in first.into_iter().chain(second) {
+        if entry.name != b"." && entry.name != b".." {
+            fs.forget(dummy_req(), entry.ino, 1);
+        }
+    }
+    block_on(fs.releasedir(dummy_req(), listing, fh, 0)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn read_only_state_snapshots_can_run_concurrently() {
     let dir = test_dir("state-read-concurrent");
     std::fs::write(dir.join("file"), b"data").unwrap();

@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::future::Future;
@@ -10,6 +11,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll, Waker};
 
+use fractal_fuse::abi::{fuse_dirent_size, fuse_direntplus_size};
 use fractal_fuse::{
     DirectoryEntry, DirectoryEntryPlus, ENOENT, Filesystem, FsResult, ReplyAttr, ReplyCreate,
     ReplyEntry, ReplyOpen, ReplyReadlink, ReplyStatfs, ReplyXattr, Request, SetAttr,
@@ -25,7 +27,7 @@ use self::backing::{
     apply_setattr, cstring_os, faccessat2_empty, open_dir_handle, read_xattr_reply,
     sanitize_open_flags, source_root_statfs,
 };
-use self::state::State;
+use self::state::{DirectoryResume, DirectorySnapshotEntry, State};
 
 #[derive(Debug)]
 pub struct ScreenFs {
@@ -133,6 +135,146 @@ impl ScreenFs {
         } else {
             Err(errno_from_io(std::io::Error::last_os_error()))
         }
+    }
+}
+
+impl ScreenFs {
+    fn directory_entry_wire_size(name_len: usize, with_plus: bool) -> usize {
+        if with_plus {
+            fuse_direntplus_size(name_len)
+        } else {
+            fuse_dirent_size(name_len)
+        }
+    }
+
+    fn push_directory_page_entry(
+        page: &mut Vec<DirectorySnapshotEntry>,
+        remaining: &mut usize,
+        entry: DirectorySnapshotEntry,
+        with_plus: bool,
+    ) -> bool {
+        let entry_size = Self::directory_entry_wire_size(entry.name.len(), with_plus);
+        if entry_size > *remaining {
+            return false;
+        }
+        *remaining -= entry_size;
+        page.push(entry);
+        true
+    }
+
+    fn directory_page(
+        &self,
+        inode: u64,
+        fh: u64,
+        offset: u64,
+        size: u32,
+        with_plus: bool,
+    ) -> FsResult<Vec<DirectorySnapshotEntry>> {
+        let (path, resume) = self.directory_resume(inode, fh, offset)?;
+        let mut remaining = size as usize;
+        let mut page = Vec::new();
+
+        if matches!(resume, DirectoryResume::Start) {
+            let dot = DirectorySnapshotEntry {
+                ino: inode,
+                offset: 1,
+                kind: fractal_fuse::FileType::Directory,
+                name: b".".to_vec(),
+                attr: self.attr_for_path(&path, inode)?,
+                child: None,
+            };
+            if !Self::push_directory_page_entry(&mut page, &mut remaining, dot, with_plus) {
+                return Ok(page);
+            }
+        }
+
+        if matches!(resume, DirectoryResume::Start | DirectoryResume::AfterDot) {
+            let parent = Self::parent_path(&path);
+            let parent_ino = self.inode_for_visible_path(parent.clone());
+            let dotdot = DirectorySnapshotEntry {
+                ino: parent_ino,
+                offset: 2,
+                kind: fractal_fuse::FileType::Directory,
+                name: b"..".to_vec(),
+                attr: self.attr_for_path(&parent, parent_ino)?,
+                child: None,
+            };
+            if !Self::push_directory_page_entry(&mut page, &mut remaining, dotdot, with_plus) {
+                return Ok(page);
+            }
+        }
+
+        let resume_name = match resume {
+            DirectoryResume::Start | DirectoryResume::AfterDot | DirectoryResume::AfterDotDot => {
+                None
+            }
+            DirectoryResume::AfterChild(name) => Some(name),
+            DirectoryResume::End => return Ok(page),
+        };
+        if remaining > 0 {
+            self.collect_child_directory_page(
+                &path,
+                resume_name.as_deref(),
+                remaining,
+                with_plus,
+                &mut page,
+            )?;
+        }
+
+        self.commit_directory_page(inode, fh, page, with_plus)
+    }
+
+    fn collect_child_directory_page(
+        &self,
+        path: &crate::path::VirtualPath,
+        resume_name: Option<&[u8]>,
+        remaining: usize,
+        with_plus: bool,
+        page: &mut Vec<DirectorySnapshotEntry>,
+    ) -> FsResult<()> {
+        let min_entry_size = Self::directory_entry_wire_size(1, with_plus).max(1);
+        let candidate_limit = (remaining / min_entry_size).saturating_add(1).max(1);
+        let dir_file = self.open_confined(path, libc::O_RDONLY | libc::O_DIRECTORY, None)?;
+        self.guard_opened_directory_target(path, &dir_file, false)?;
+        let mut candidates = BTreeMap::new();
+        backing::visit_dir_entries(dir_file, path, 3, |entry| {
+            let name_bytes = entry.name.as_bytes();
+            if resume_name.is_some_and(|resume| name_bytes <= resume) {
+                return Ok(());
+            }
+            if !self.cfg.entry_is_readable(&entry.child, entry.is_dir) {
+                return Ok(());
+            }
+            if entry.is_symlink
+                && self
+                    .guard_resolved_target_visibility_if_needed(&entry.child)
+                    .is_err()
+            {
+                return Ok(());
+            }
+            candidates.insert(name_bytes.to_vec(), entry);
+            if candidates.len() > candidate_limit {
+                candidates.pop_last();
+            }
+            Ok(())
+        })?;
+
+        let mut remaining = remaining;
+        for (_, entry) in candidates {
+            let child = entry.child.clone();
+            let snapshot_entry = DirectorySnapshotEntry {
+                ino: 0,
+                offset: 0,
+                kind: entry.kind,
+                name: entry.name.as_bytes().to_vec(),
+                attr: entry.attr,
+                child: Some(child),
+            };
+            if !Self::push_directory_page_entry(page, &mut remaining, snapshot_entry, with_plus) {
+                break;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -247,9 +389,9 @@ impl Filesystem for ScreenFs {
     async fn opendir(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {
         let path = self.path_for_inode(inode)?;
         self.guard_open_flags(&path, flags)?;
-        self.open_confined(&path, libc::O_PATH | libc::O_DIRECTORY, None)?;
-        let snapshot = self.directory_snapshot(&path, inode)?;
-        let fh = self.insert_open_directory(inode, path, snapshot);
+        let dir_file = self.open_confined(&path, libc::O_PATH | libc::O_DIRECTORY, None)?;
+        self.guard_opened_directory_target(&path, &dir_file, false)?;
+        let fh = self.insert_open_directory(inode, path);
         Ok(ReplyOpen {
             fh,
             flags: 0,
@@ -263,12 +405,11 @@ impl Filesystem for ScreenFs {
         inode: u64,
         fh: u64,
         offset: u64,
-        _size: u32,
+        size: u32,
     ) -> FsResult<Vec<DirectoryEntry>> {
         Ok(self
-            .opendir_snapshot(inode, fh)?
+            .directory_page(inode, fh, offset, size, false)?
             .into_iter()
-            .filter(|entry| entry.offset > offset)
             .map(|entry| DirectoryEntry {
                 ino: entry.ino,
                 offset: entry.offset,
@@ -284,9 +425,9 @@ impl Filesystem for ScreenFs {
         inode: u64,
         fh: u64,
         offset: u64,
-        _size: u32,
+        size: u32,
     ) -> FsResult<Vec<DirectoryEntryPlus>> {
-        let entries = self.readdirplus_snapshot(inode, fh, offset)?;
+        let entries = self.directory_page(inode, fh, offset, size, true)?;
         Ok(entries
             .into_iter()
             .map(|entry| DirectoryEntryPlus {

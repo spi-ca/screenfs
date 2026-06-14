@@ -13,6 +13,7 @@ real / -> screenfs mount root -> sandbox/chroot consumer
 - **Whole-root view**: 프로젝트 디렉터리만이 아니라 전체 `/` view를 제공한다.
 - **Non-root FUSE3**: `fusermount3`와 `fractal-fuse = 0.4.0`의 `FUSE_OVER_IO_URING` 협상 경로를 기준으로 한다. 협상 실패 시 fallback 없이 startup error로 실패한다.
 - **File-handle sync cleanup boundary**: `flush`/`fsync`/`release(flush)`의 runtime blocking-offload(`compio_runtime::spawn_blocking` 또는 승인된 동등 surface)는 이미 열린 file handle의 blocking sync syscall 실행 위치를 state lock 밖 blocking pool로 옮기는 low-risk concurrency cleanup이다. host-side `io_uring` 전환이나 benchmark-gated data-path redesign이 아니며, `read`/`write`는 `FileExt::read_at`/`write_at`를 유지한다.
+- **Large-directory listing boundary**: `readdir`/`readdirplus`는 hidden filtering과 bridge-visible 의미론을 유지하면서 FUSE `size` budget에 맞는 bounded page만 반환해야 한다. 구현은 전체 directory snapshot cache를 계약으로 만들지 않고, `readdirplus` lookup refs는 실제 반환 page의 child에만 증가시킨다.
 - **Visibility axis**: 숨겨진 경로는 directory listing에서 제외되고, 직접 접근은 `ENOENT`다.
 - **Mutability axis**: 보이는 경로에 대해 writable/readonly 정책을 적용한다. readonly mutation은 `EROFS`다.
 - **Precedence**: hidden `ENOENT`가 mutability `EROFS`보다 항상 우선한다.

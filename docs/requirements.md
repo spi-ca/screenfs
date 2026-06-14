@@ -139,8 +139,12 @@ bridge-visible ancestor 규칙:
 - visibility block은 resolved target visibility 생략을 증명할 때만 완결된다. 숨김/bridge-visible 가능성이 남아 있으면 point-of-use resolved-target visibility 재검사를 계속 요구하고, recursive scan·background index·listing 결과 cache를 계약으로 요구하지 않는다.
 - symlink child는 resolved virtual target이 fully visible일 때만 listing에 포함한다.
 - `readdirplus`는 반환되는 visible/bridge-visible entry에 대해서만 metadata를 준다.
+- `readdir`/`readdirplus` response는 FUSE 요청의 `size` budget을 존중하는 bounded page여야 하며, 큰 directory라도 offset 이후 전체 entry를 clone/collect해 반환하는 동작은 current contract가 아니다.
+- `offset`은 FUSE resume cookie로 취급한다. 같은 directory handle에서 다음 호출은 마지막으로 반환된 cookie 이후부터 이어져야 하며, plain `readdir`와 `readdirplus`가 섞여도 동일 ordering/cookie domain을 공유해야 한다.
+- page 경계는 visibility 의미론을 바꾸지 않는다. hidden entry는 어느 page에도 나타나지 않고, bridge-visible directory는 page별로도 visible child 또는 visible descendant로 이어지는 bridge-visible child만 노출한다.
+- `readdirplus` lookup reference 증가는 kernel에 실제로 반환할 page의 child entry에만 적용되어야 하며, offset 이후 전체 snapshot 또는 dispatch 단계에서 잘릴 entry를 미리 pin하면 안 된다.
 - listing에 보이는 symlink entry도 resolved virtual target이 fully visible일 때만 `readlink`/target dereference가 가능하다.
-- 구현은 필요하면 per-handle iteration state를 둘 수 있지만, stable directory snapshot cache는 current contract가 아니다.
+- 구현은 필요하면 per-handle iteration/resume state를 둘 수 있지만, stable directory child attr/inode snapshot cache나 full-directory listing cache는 current contract가 아니다.
 - hidden directory 전체가 listing에서 빠질 때도 이름만 남기는 masking을 하지 않는다.
 
 ## 5. Mutability 계약

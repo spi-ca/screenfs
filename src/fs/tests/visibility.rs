@@ -730,8 +730,8 @@ fn visible_read_and_nested_listing_preserve_access_and_parent_entries() {
 }
 
 #[test]
-fn opendir_returns_real_handle_and_readdir_variants_share_stable_snapshot() {
-    let dir = test_dir("dir-handle-snapshot");
+fn opendir_returns_real_handle_and_readdir_variants_share_cookie_domain() {
+    let dir = test_dir("dir-handle-cookie-domain");
     std::fs::create_dir(dir.join("listing")).unwrap();
     std::fs::write(dir.join("listing/alpha"), b"a").unwrap();
     std::fs::write(dir.join("listing/gamma"), b"g").unwrap();
@@ -766,10 +766,205 @@ fn opendir_returns_real_handle_and_readdir_variants_share_stable_snapshot() {
         .iter()
         .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(remaining_names, vec!["gamma".to_string()]);
-    assert_eq!(remaining[0].offset, 4);
+    assert_eq!(
+        remaining_names,
+        vec!["beta".to_string(), "gamma".to_string()]
+    );
+    assert!(remaining[0].offset > alpha.offset);
 
     block_on(fs.releasedir(dummy_req(), listing, handle.fh, 0)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readdir_honors_size_budget_and_last_cookie_continuation() {
+    let dir = test_dir("readdir-size-budget");
+    std::fs::create_dir(dir.join("listing")).unwrap();
+    for name in ["alpha", "beta", "gamma"] {
+        std::fs::write(dir.join("listing").join(name), b"data").unwrap();
+    }
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let listing = fs
+        .reply_entry_for_path(VirtualPath::new("/listing"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.opendir(dummy_req(), listing, libc::O_RDONLY as u32)).unwrap();
+
+    let first = block_on(fs.readdir(
+        dummy_req(),
+        listing,
+        handle.fh,
+        0,
+        (fractal_fuse::abi::fuse_dirent_size(1) * 2
+            + fractal_fuse::abi::fuse_dirent_size("alpha".len())) as u32,
+    ))
+    .unwrap();
+    let first_names = first
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(first_names, vec![".", "..", "alpha"]);
+
+    let last_cookie = first.last().unwrap().offset;
+    let second = block_on(fs.readdir(dummy_req(), listing, handle.fh, last_cookie, 4096)).unwrap();
+    let second_names = second
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(second_names, vec!["beta", "gamma"]);
+
+    block_on(fs.releasedir(dummy_req(), listing, handle.fh, 0)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readdir_keeps_prior_cookies_usable_after_later_pages() {
+    let dir = test_dir("readdir-prior-cookie-replay");
+    std::fs::create_dir(dir.join("listing")).unwrap();
+    for name in ["alpha", "beta", "gamma"] {
+        std::fs::write(dir.join("listing").join(name), b"data").unwrap();
+    }
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let listing = fs
+        .reply_entry_for_path(VirtualPath::new("/listing"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.opendir(dummy_req(), listing, libc::O_RDONLY as u32)).unwrap();
+
+    let first = block_on(fs.readdir(
+        dummy_req(),
+        listing,
+        handle.fh,
+        0,
+        (fractal_fuse::abi::fuse_dirent_size(1) * 2
+            + fractal_fuse::abi::fuse_dirent_size("alpha".len())) as u32,
+    ))
+    .unwrap();
+    let alpha_cookie = first.last().unwrap().offset;
+    let second = block_on(fs.readdir(dummy_req(), listing, handle.fh, alpha_cookie, 4096)).unwrap();
+    assert_eq!(
+        second
+            .iter()
+            .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+            .collect::<Vec<_>>(),
+        vec!["beta", "gamma"]
+    );
+
+    let replay = block_on(fs.readdir(dummy_req(), listing, handle.fh, alpha_cookie, 4096)).unwrap();
+    assert_eq!(
+        replay
+            .iter()
+            .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+            .collect::<Vec<_>>(),
+        vec!["beta", "gamma"]
+    );
+    assert_eq!(
+        replay.iter().map(|entry| entry.offset).collect::<Vec<_>>(),
+        second.iter().map(|entry| entry.offset).collect::<Vec<_>>()
+    );
+
+    block_on(fs.releasedir(dummy_req(), listing, handle.fh, 0)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readdir_page_boundaries_keep_hidden_entries_omitted() {
+    let dir = test_dir("readdir-hidden-page-boundary");
+    std::fs::create_dir(dir.join("listing")).unwrap();
+    for name in ["alpha", "beta", "gamma"] {
+        std::fs::write(dir.join("listing").join(name), b"data").unwrap();
+    }
+    let fs = fs_for(&dir, vec!["/listing/alpha".to_string()], Vec::new());
+    let listing = fs
+        .reply_entry_for_path(VirtualPath::new("/listing"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.opendir(dummy_req(), listing, libc::O_RDONLY as u32)).unwrap();
+
+    let first = block_on(fs.readdir(
+        dummy_req(),
+        listing,
+        handle.fh,
+        0,
+        (fractal_fuse::abi::fuse_dirent_size(1) * 2
+            + fractal_fuse::abi::fuse_dirent_size("beta".len())) as u32,
+    ))
+    .unwrap();
+    let first_names = first
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(first_names, vec![".", "..", "beta"]);
+
+    let second = block_on(fs.readdir(
+        dummy_req(),
+        listing,
+        handle.fh,
+        first.last().unwrap().offset,
+        4096,
+    ))
+    .unwrap();
+    let second_names = second
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(second_names, vec!["gamma"]);
+
+    block_on(fs.releasedir(dummy_req(), listing, handle.fh, 0)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readdir_page_boundaries_keep_bridge_visible_filtering() {
+    let dir = test_dir("readdir-bridge-page-boundary");
+    std::fs::create_dir_all(dir.join("home/me/project")).unwrap();
+    std::fs::create_dir_all(dir.join("home/other")).unwrap();
+    std::fs::create_dir_all(dir.join("home/zzz")).unwrap();
+    let fs = fs_for_axes(
+        &dir,
+        Some(crate::cli::VisibilityDefault::Hidden),
+        Vec::new(),
+        vec!["/home/me/project".to_string()],
+        None,
+        Vec::new(),
+        Vec::new(),
+    );
+    let home = fs
+        .reply_entry_for_path(VirtualPath::new("/home"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.opendir(dummy_req(), home, libc::O_RDONLY as u32)).unwrap();
+
+    let first = block_on(fs.readdir(
+        dummy_req(),
+        home,
+        handle.fh,
+        0,
+        (fractal_fuse::abi::fuse_dirent_size(1) * 2
+            + fractal_fuse::abi::fuse_dirent_size("me".len())) as u32,
+    ))
+    .unwrap();
+    let names = first
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec![".", "..", "me"]);
+
+    let second = block_on(fs.readdir(
+        dummy_req(),
+        home,
+        handle.fh,
+        first.last().unwrap().offset,
+        4096,
+    ))
+    .unwrap();
+    assert!(second.is_empty());
+
+    block_on(fs.releasedir(dummy_req(), home, handle.fh, 0)).unwrap();
     std::fs::remove_dir_all(dir).unwrap();
 }
 

@@ -292,8 +292,12 @@ bridge-visible은 visible descendant를 향한 ancestor directory에서만 생�
 - direct-child visible rule에서도 immediate child evaluation 결과에 없는 sibling은 노출하지 않는다
 - `readdir`/`readdirplus` filtering은 현재 directory/parent 기준 결과를 바꾸지 않는 범위에서만 관련 matcher bucket을 보고 unrelated bucket을 건너뛸 수 있다.
 - `readdirplus`는 반환하는 visible/bridge-visible child에 대해서만 metadata를 준다
+- `readdir`/`readdirplus` handler는 FUSE `size` budget에 맞춰 bounded page만 반환해야 하며, offset 이후 전체를 clone/collect해 dispatch layer가 자르게 두면 안 된다
+- `offset`은 stable resume cookie다. 같은 directory handle 안에서 plain `readdir`와 `readdirplus`는 같은 ordering/cookie domain을 공유하고, 마지막 반환 cookie 이후부터 다음 page를 이어간다
+- page limiting은 hidden filtering, bridge-visible next-hop filtering, symlink target visibility gate를 완화하지 않는다
+- `readdirplus` lookup refs는 실제 반환 page에 포함되는 child inode에만 증가시킨다. page 밖 entry나 dispatch size clipping으로 kernel에 전달되지 않을 entry를 미리 pin하지 않는다
 - listing에 보이는 symlink entry도 resolved virtual target이 fully visible할 때만 `readlink`/dereference가 가능하다
-- stable directory listing cache나 snapshot은 current contract가 아니다. 구현은 필요하면 per-handle iteration state만 둘 수 있다.
+- stable directory listing cache나 full-directory child attr/inode snapshot cache는 current contract가 아니다. 구현은 page-bounded entry/attr state와 returned-cookie resume state만 둘 수 있다
 - hidden sibling count나 hidden subtree metadata를 새지 않아야 한다
 
 ## 8. Inode, path, and handle model
@@ -304,12 +308,14 @@ FUSE는 inode-centric이고 정책은 path-centric이므로 둘 다 유지해야
 - visible or bridge-visible exported objects receive synthetic FUSE inode ids
 - hidden paths are never exported into the inode table
 - directory handles는 필요하면 visibility evaluation 이후 optional per-handle iteration state를 유지할 수 있다
+- directory iteration state는 FUSE `size` budget에 맞는 next page를 만들기 위한 page-bounded entry/attr state여야 하며, offset 이후 전체 directory entry를 pin/clone한 full snapshot cache가 되면 안 된다. Returned-cookie resume state는 child names만 보관할 수 있다
 - writable mutation invalidates affected parent directories, matcher indexes, and path/inode caches
 
 bridge-visible iteration rule:
 
 - per-handle state가 있다면 hidden entry를 포함하지 않는다
 - per-handle state가 있다면 bridge-visible directory에서는 next-hop bridge/visible child만 다룬다
+- page 경계는 bridge-visible/hidden sibling 비노출 결과를 바꾸지 않는다
 
 ## 9. FUSE operation matrix
 
@@ -447,7 +453,7 @@ Policy:
 - inode/path identity, lookup/open refcounts, file handle table, directory handle table, and mutation invalidation form one consistency domain. The current safe concurrency direction is a single `RwLock<State>` domain that allows read-only snapshots in parallel while keeping cross-table mutation and invalidation under one write lock.
 - Per-table locks for inode map, file handles, and directory handles are not current until a separate design proves atomic refcount/invalidation semantics and documents a canonical multi-lock order. Do not split those tables speculatively.
 - State lock rules: never hold a state lock across host filesystem I/O or blocking syscalls when a snapshot can be taken first; do not attempt read-to-write lock upgrade; update `inodes`/`path_inodes`/handle tables/refcounts atomically under the write lock; if future multiple locks are introduced, define and test a single lock acquisition order before implementation.
-- `readdirplus` lookup-ref pinning must be atomic with snapshot retrieval so returned child inode entries cannot be invalidated between snapshot read and lookup ref increment.
+- `readdirplus` lookup-ref pinning must be atomic with returned-page commit: page candidates may be collected outside the state lock, but handle revalidation, child inode/cookie commit, and lookup-ref increment for the returned page happen in one write-lock transaction. The pinning set is exactly the child entries returned in that page, not the whole offset-after directory.
 - matcher/indexing은 family와 normalized anchor를 기준으로 분리한다. 최소한 exact/subtree, direct-child glob, recursive non-visible glob, recursive literal non-visible subtree descriptor를 별도 집합으로 유지한다.
 - same-polarity identical descriptor는 compile 시 dedup/idempotent 처리한다. `/dir/**`는 `/dir`와 동일 descriptor로 정규화하고, `**/.git/hooks` 같은 recursive literal directory shorthand는 `**/.git/hooks/**` canonical descriptor로 정규화한다.
 - `visibility.visible` reachability는 discovery-free여야 한다. subtree visible rule은 정적 ancestor chain만 사용하고, direct-child visible rule은 normalized anchor ancestor와 immediate child evaluation만 사용한다.
@@ -469,6 +475,7 @@ Reference targets:
 - repeated traversal after five runs: RSS growth < 64 MiB from baseline
 - repeated traversal after five runs: open fd count returns close to baseline
 - `readdirplus` on large directory completes without unbounded memory growth
+- large-directory `readdir`/`readdirplus` honors small FUSE `size` budgets with multi-page continuation and does not allocate or pin offset-after whole-directory snapshots per call
 - visible direct-child rule(`/tmp/*` 또는 동등형)는 anchor subtree를 재귀 순회하지 않아야 하며, smoke/계측은 현재 directory/parent 기준 unrelated matcher bucket skip과 결과 불변을 함께 보여줘야 한다
 - recursive literal directory shorthand는 canonical `**/.../**` recursive literal subtree rule과 같은 matcher cost를 유지해야 하며, `~/**/bbb/**/ccc`, `**/.git/**/hooks`, `**/.git/*/hooks`, `**/foo?`, `**/[abc]` 같은 multi-recursive 또는 broader form은 discovery, ambiguous containment, broader glob compatibility를 피하기 위해 fail-fast 해야 한다
 - symlink-heavy workload에서도 target visibility check는 policy가 hide 가능성을 배제하지 못하면 resolved final target 기준으로 point-of-use에서 다시 수행돼야 하며, prior listing success·cross-request direct-path memoization·symlink decision cache에 기대면 안 된다

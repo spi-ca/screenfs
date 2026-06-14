@@ -374,11 +374,12 @@ pub(super) fn file_type_from_mode(mode: libc::mode_t) -> FileType {
     }
 }
 
-pub(super) fn read_dir_entries(
+pub(super) fn visit_dir_entries(
     dir: File,
     base: &VirtualPath,
     start_offset: u64,
-) -> Result<Vec<DirEntryInfo>, i32> {
+    mut visit: impl FnMut(DirEntryInfo) -> Result<(), i32>,
+) -> Result<(), i32> {
     let dir_fd = dir.into_raw_fd();
     let dirp = unsafe { libc::fdopendir(dir_fd) };
     if dirp.is_null() {
@@ -386,7 +387,7 @@ pub(super) fn read_dir_entries(
         unsafe { libc::close(dir_fd) };
         return Err(err);
     }
-    let mut entries = Vec::new();
+    let mut seen = 0_u64;
     loop {
         errno_reset();
         let dent = unsafe { libc::readdir(dirp) };
@@ -394,7 +395,7 @@ pub(super) fn read_dir_entries(
             let err = std::io::Error::last_os_error();
             unsafe { libc::closedir(dirp) };
             return if err.raw_os_error().unwrap_or(0) == 0 {
-                Ok(entries)
+                Ok(())
             } else {
                 Err(errno_from_io(err))
             };
@@ -410,7 +411,7 @@ pub(super) fn read_dir_entries(
             dir_fd,
             name,
             libc::AT_SYMLINK_NOFOLLOW,
-            start_offset + entries.len() as u64 + 1,
+            start_offset + seen + 1,
         ) {
             Ok(attr) => attr,
             Err(err) => {
@@ -418,15 +419,19 @@ pub(super) fn read_dir_entries(
                 return Err(err);
             }
         };
+        seen += 1;
         let kind = file_type_from_mode(attr.mode);
-        entries.push(DirEntryInfo {
+        if let Err(err) = visit(DirEntryInfo {
             name: name_os,
             child,
             is_dir: matches!(kind, FileType::Directory),
             is_symlink: matches!(kind, FileType::Symlink),
             kind,
             attr,
-        });
+        }) {
+            unsafe { libc::closedir(dirp) };
+            return Err(err);
+        }
     }
 }
 

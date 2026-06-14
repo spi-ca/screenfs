@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use fractal_fuse::{ENOENT, FileAttr, ReplyEntry};
 
 use super::ScreenFs;
-use super::backing::DirEntryInfo;
 use crate::config::{MutabilityDecision, VisibilityDecision};
 use crate::errors::{errno_from_io, open_has_write_intent};
 use crate::path::VirtualPath;
@@ -247,22 +246,6 @@ impl ScreenFs {
             .parent()
             .map(VirtualPath::new)
             .unwrap_or_else(VirtualPath::root)
-    }
-
-    pub(super) fn dir_entries(&self, dir: &VirtualPath) -> Result<Vec<DirEntryInfo>, i32> {
-        self.guard_read_path(dir)?;
-        let dir_file = self.open_confined(dir, libc::O_RDONLY | libc::O_DIRECTORY, None)?;
-        self.guard_opened_directory_target(dir, &dir_file, false)?;
-        let mut entries = super::backing::read_dir_entries(dir_file, dir, 3)?;
-        entries.retain(|entry| {
-            self.cfg.entry_is_readable(&entry.child, entry.is_dir)
-                && (!entry.is_symlink
-                    || self
-                        .guard_resolved_target_visibility_if_needed(&entry.child)
-                        .is_ok())
-        });
-        entries.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(entries)
     }
 
     pub(super) fn guard_open_flags(&self, path: &VirtualPath, flags: u32) -> Result<(), i32> {

@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::fs::File;
-use std::os::unix::ffi::OsStrExt;
 use std::sync::Arc;
 
 use fractal_fuse::abi::FUSE_ROOT_ID;
@@ -45,13 +44,25 @@ pub(super) struct DirectorySnapshotEntry {
     pub(super) kind: FileType,
     pub(super) name: Vec<u8>,
     pub(super) attr: FileAttr,
+    pub(super) child: Option<VirtualPath>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum DirectoryResume {
+    Start,
+    AfterDot,
+    AfterDotDot,
+    AfterChild(Vec<u8>),
+    End,
 }
 
 #[derive(Debug)]
 pub(super) struct DirectoryHandle {
     pub(super) inode: u64,
     pub(super) path: VirtualPath,
-    pub(super) entries: Vec<DirectorySnapshotEntry>,
+    next_cookie: u64,
+    child_cookies: BTreeMap<Vec<u8>, u64>,
+    page_cookies: BTreeMap<u64, Vec<u8>>,
 }
 
 impl State {
@@ -187,19 +198,16 @@ impl State {
         Some(handle)
     }
 
-    pub(super) fn insert_directory(
-        &mut self,
-        inode: u64,
-        path: VirtualPath,
-        entries: Vec<DirectorySnapshotEntry>,
-    ) -> u64 {
+    pub(super) fn insert_directory(&mut self, inode: u64, path: VirtualPath) -> u64 {
         let fh = self.next_handle();
         self.directories.insert(
             fh,
             DirectoryHandle {
                 inode,
                 path,
-                entries,
+                next_cookie: 3,
+                child_cookies: BTreeMap::new(),
+                page_cookies: BTreeMap::new(),
             },
         );
         if inode != FUSE_ROOT_ID
@@ -256,30 +264,79 @@ impl State {
         }
     }
 
-    pub(super) fn readdirplus_snapshot(
-        &mut self,
+    pub(super) fn directory_resume(
+        &self,
         inode: u64,
         fh: u64,
         offset: u64,
+    ) -> Result<(VirtualPath, DirectoryResume), i32> {
+        let handle = self.directories.get(&fh).ok_or(ENOENT)?;
+        if handle.inode != inode {
+            return Err(ENOENT);
+        }
+        let resume = match offset {
+            0 => DirectoryResume::Start,
+            1 => DirectoryResume::AfterDot,
+            2 => DirectoryResume::AfterDotDot,
+            offset => handle
+                .page_cookies
+                .get(&offset)
+                .cloned()
+                .map(DirectoryResume::AfterChild)
+                .unwrap_or(DirectoryResume::End),
+        };
+        Ok((handle.path.clone(), resume))
+    }
+
+    pub(super) fn commit_directory_page(
+        &mut self,
+        inode: u64,
+        fh: u64,
+        mut entries: Vec<DirectorySnapshotEntry>,
+        pin_lookup_refs: bool,
     ) -> Result<Vec<DirectorySnapshotEntry>, i32> {
-        let entries = {
+        {
             let handle = self.directories.get(&fh).ok_or(ENOENT)?;
             if handle.inode != inode {
                 return Err(ENOENT);
             }
-            handle
-                .entries
+        }
+
+        for entry in &mut entries {
+            if let Some(child) = &entry.child {
+                let ino = self.inode_for_path(child.clone());
+                entry.ino = ino;
+                entry.attr.ino = ino;
+            }
+        }
+
+        if pin_lookup_refs {
+            let inodes = entries
                 .iter()
-                .filter(|entry| entry.offset > offset)
-                .cloned()
-                .collect::<Vec<_>>()
-        };
-        self.add_lookup_refs(
-            entries
-                .iter()
-                .filter(|entry| entry.name != b"." && entry.name != b"..")
-                .map(|entry| entry.ino),
-        );
+                .filter(|entry| entry.child.is_some())
+                .map(|entry| entry.ino)
+                .collect::<Vec<_>>();
+            self.add_lookup_refs(inodes);
+        }
+
+        let handle = self.directories.get_mut(&fh).ok_or(ENOENT)?;
+        if handle.inode != inode {
+            return Err(ENOENT);
+        }
+        for entry in &mut entries {
+            if entry.child.is_some() {
+                let cookie = if let Some(cookie) = handle.child_cookies.get(&entry.name) {
+                    *cookie
+                } else {
+                    let cookie = handle.next_cookie;
+                    handle.next_cookie += 1;
+                    handle.child_cookies.insert(entry.name.clone(), cookie);
+                    cookie
+                };
+                entry.offset = cookie;
+                handle.page_cookies.insert(cookie, entry.name.clone());
+            }
+        }
         Ok(entries)
     }
 }
@@ -302,6 +359,13 @@ impl ScreenFs {
             .lookup_path(path)
     }
 
+    pub(super) fn inode_for_visible_path(&self, path: VirtualPath) -> u64 {
+        self.state
+            .write()
+            .expect("state rwlock poisoned")
+            .inode_for_path(path)
+    }
+
     pub(super) fn insert_open_file(&self, inode: u64, path: VirtualPath, file: File) -> u64 {
         self.state
             .write()
@@ -309,16 +373,11 @@ impl ScreenFs {
             .insert_file(inode, path, file)
     }
 
-    pub(super) fn insert_open_directory(
-        &self,
-        inode: u64,
-        path: VirtualPath,
-        entries: Vec<DirectorySnapshotEntry>,
-    ) -> u64 {
+    pub(super) fn insert_open_directory(&self, inode: u64, path: VirtualPath) -> u64 {
         self.state
             .write()
             .expect("state rwlock poisoned")
-            .insert_directory(inode, path, entries)
+            .insert_directory(inode, path)
     }
 
     pub(super) fn remove_open_directory(&self, fh: u64) {
@@ -362,75 +421,29 @@ impl ScreenFs {
         ))
     }
 
-    pub(super) fn directory_snapshot(
-        &self,
-        dir: &VirtualPath,
-        inode: u64,
-    ) -> Result<Vec<DirectorySnapshotEntry>, i32> {
-        let parent = Self::parent_path(dir);
-        let children = self.dir_entries(dir)?;
-        let (parent_ino, child_inos) = {
-            let mut state = self.state.write().expect("state rwlock poisoned");
-            let parent_ino = state.inode_for_path(parent.clone());
-            let child_inos = children
-                .iter()
-                .map(|entry| state.inode_for_path(entry.child.clone()))
-                .collect::<Vec<_>>();
-            (parent_ino, child_inos)
-        };
-        let mut snapshot = vec![
-            DirectorySnapshotEntry {
-                ino: inode,
-                offset: 1,
-                kind: FileType::Directory,
-                name: b".".to_vec(),
-                attr: self.attr_for_path(dir, inode)?,
-            },
-            DirectorySnapshotEntry {
-                ino: parent_ino,
-                offset: 2,
-                kind: FileType::Directory,
-                name: b"..".to_vec(),
-                attr: self.attr_for_path(&parent, parent_ino)?,
-            },
-        ];
-        for (entry, child_ino) in children.into_iter().zip(child_inos) {
-            let mut attr = entry.attr;
-            attr.ino = child_ino;
-            snapshot.push(DirectorySnapshotEntry {
-                ino: child_ino,
-                offset: snapshot.len() as u64 + 1,
-                kind: entry.kind,
-                name: entry.name.as_bytes().to_vec(),
-                attr,
-            });
-        }
-        Ok(snapshot)
-    }
-
-    pub(super) fn opendir_snapshot(
-        &self,
-        inode: u64,
-        fh: u64,
-    ) -> Result<Vec<DirectorySnapshotEntry>, i32> {
-        let state = self.state.read().expect("state rwlock poisoned");
-        let handle = state.directories.get(&fh).ok_or(ENOENT)?;
-        if handle.inode != inode {
-            return Err(ENOENT);
-        }
-        Ok(handle.entries.clone())
-    }
-
-    pub(super) fn readdirplus_snapshot(
+    pub(super) fn directory_resume(
         &self,
         inode: u64,
         fh: u64,
         offset: u64,
+    ) -> Result<(VirtualPath, DirectoryResume), i32> {
+        self.state
+            .read()
+            .expect("state rwlock poisoned")
+            .directory_resume(inode, fh, offset)
+    }
+
+    pub(super) fn commit_directory_page(
+        &self,
+        inode: u64,
+        fh: u64,
+        entries: Vec<DirectorySnapshotEntry>,
+        pin_lookup_refs: bool,
     ) -> Result<Vec<DirectorySnapshotEntry>, i32> {
         self.state
             .write()
             .expect("state rwlock poisoned")
-            .readdirplus_snapshot(inode, fh, offset)
+            .commit_directory_page(inode, fh, entries, pin_lookup_refs)
     }
 
     pub(super) fn finalize_created_file(

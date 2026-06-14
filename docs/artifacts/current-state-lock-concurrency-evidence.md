@@ -10,10 +10,10 @@ This artifact records the current design decision for ScreenFS state-lock granul
 - path-to-inode reverse map
 - lookup and open reference counts
 - open file handle table
-- open directory handle and snapshot table
+- open directory handle and lightweight page/cookie state table; full-directory child attr/inode snapshots are not kept at `opendir` time
 - parent/exact/tree invalidation after mutation
 
-These values are coupled: inode eviction depends on both lookup and open refs, and mutation invalidation must update directory snapshots, path mappings, and inode records consistently.
+These values are coupled: inode eviction depends on both lookup and open refs, and mutation invalidation must update directory page/cookie state, path mappings, and inode records consistently.
 
 ## Selected low-risk direction
 
@@ -21,7 +21,7 @@ Use a single `RwLock<State>` consistency domain rather than per-table locks.
 
 Rationale:
 
-- read-only snapshots such as `path_for_inode`, file-handle snapshots, and directory snapshot reads can run concurrently
+- read-only snapshots such as `path_for_inode`, file-handle snapshots, and directory resume snapshots can run concurrently when they do not update lookup refs
 - cross-table writes still remain atomic under one write lock
 - no multi-lock acquisition order is needed in the current design
 - per-table locking would require a separate refcount/invalidation design before it is safe
@@ -29,12 +29,12 @@ Rationale:
 ## Lock rules
 
 - Use a read lock for immutable snapshots only.
-- Use a write lock for inode allocation, lookup ref increments, open ref increments/decrements, handle insertion/removal, directory snapshot insertion/removal, and mutation invalidation.
+- Use a write lock for inode allocation, lookup ref increments, open ref increments/decrements, handle insertion/removal, directory page/cookie state insertion/removal/progress commits, and mutation invalidation.
 - Never perform host filesystem I/O or blocking syscalls while holding the state lock when a snapshot can be taken first.
 - Already-open file `read`/`write` data operations use offset-based `FileExt::read_at`/`write_at` so state-lock-free data I/O does not race on the shared open file description offset.
 - `flush`, `fsync`, and `release(flush)` must snapshot or remove the already-open file handle before calling `sync_all`/`fdatasync`/`fsync`; any runtime blocking-offload (`compio_runtime::spawn_blocking` in the current FUSE runtime, or an explicitly approved equivalent) must keep that blocking sync syscall outside the state lock, await completion before replying, and must not change policy/public API semantics.
 - Do not upgrade a read lock to a write lock; drop the read lock and reacquire explicitly through a helper if a write is required.
-- `readdirplus` must take the directory snapshot and increment lookup refs for returned child entries in one write-lock transaction to avoid returning inodes that can be invalidated before they are pinned.
+- `readdirplus` may collect page candidates outside the state lock, but committing the returned page's inode/cookie state and incrementing lookup refs for that page's returned child entries must happen in one write-lock transaction after revalidating the directory handle. It must not pin offset-after entries that are outside the page or entries that the FUSE `size` budget will prevent from reaching the kernel.
 
 ## Low-risk executor-offload boundary
 
@@ -54,4 +54,4 @@ Required checks for this change family:
 - `cargo check`
 - `cargo clippy --all-targets --all-features`
 - `cargo test --all-targets --all-features`
-- focused state tests for lookup/open ref eviction, directory handle lifecycle, readdir/readdirplus snapshot behavior, mutation invalidation, concurrent read-only snapshot behavior, lseek handle lifecycle, offset-based read/write behavior, and `flush`/`fsync`/`release(flush)` success/error propagation with no blocking sync syscall under the state lock
+- focused state tests for lookup/open ref eviction, directory handle lifecycle, bounded readdir/readdirplus page behavior, page-local readdirplus lookup-ref accounting, mutation invalidation, concurrent read-only snapshot behavior, lseek handle lifecycle, offset-based read/write behavior, and `flush`/`fsync`/`release(flush)` success/error propagation with no blocking sync syscall under the state lock
