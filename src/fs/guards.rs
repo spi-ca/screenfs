@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::os::fd::AsRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use fractal_fuse::{ENOENT, FileAttr, ReplyEntry};
 
@@ -19,13 +19,84 @@ struct MutationCoordinateEvaluation<'a> {
     resolved: Option<VirtualPath>,
 }
 
+struct RequestPathResolver<'a> {
+    fs: &'a ScreenFs,
+    source_root: Option<PathBuf>,
+}
+
+impl<'a> RequestPathResolver<'a> {
+    fn new(fs: &'a ScreenFs) -> Self {
+        Self {
+            fs,
+            source_root: None,
+        }
+    }
+
+    fn source_root(&mut self) -> Result<&Path, i32> {
+        if self.source_root.is_none() {
+            self.source_root = Some(self.fs.source_root_path()?);
+        }
+        Ok(self
+            .source_root
+            .as_deref()
+            .expect("request-local source root cached"))
+    }
+
+    fn resolved_virtual_path(
+        &mut self,
+        path: &VirtualPath,
+        follow_final_symlink: bool,
+    ) -> Result<VirtualPath, i32> {
+        let source_root = self.source_root()?;
+        let source = path
+            .resolve_host_path(source_root, follow_final_symlink)
+            .map_err(errno_from_io)?;
+        virtual_path_from_source_path(source_root, &source)
+    }
+
+    fn resolve_mutation_coordinate_target(
+        &mut self,
+        path: &VirtualPath,
+        follow_final_symlink: bool,
+    ) -> Result<VirtualPath, i32> {
+        match self.resolved_virtual_path(path, follow_final_symlink) {
+            Ok(resolved) => Ok(resolved),
+            Err(ENOENT) if !follow_final_symlink => Ok(path.clone()),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn resolved_virtual_path_for_open_file(&mut self, file: &File) -> Result<VirtualPath, i32> {
+        let fd_path = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
+        let source = fs::read_link(fd_path).map_err(errno_from_io)?;
+        let source_root = self.source_root()?;
+        virtual_path_from_source_path(source_root, &source)
+    }
+}
+
 impl<'a> MutationCoordinateEvaluation<'a> {
-    fn resolved_path<'b>(&'b mut self, fs: &ScreenFs) -> Result<&'b VirtualPath, i32> {
+    fn resolved_path<'b>(
+        &'b mut self,
+        resolver: &mut RequestPathResolver<'_>,
+    ) -> Result<&'b VirtualPath, i32> {
         if self.resolved.is_none() {
-            self.resolved =
-                Some(fs.resolve_mutation_coordinate_target(self.path, self.follow_final_symlink)?);
+            self.resolved = Some(
+                resolver
+                    .resolve_mutation_coordinate_target(self.path, self.follow_final_symlink)?,
+            );
         }
         Ok(self.resolved.as_ref().expect("resolved path cached"))
+    }
+}
+
+fn virtual_path_from_source_path(source_root: &Path, source: &Path) -> Result<VirtualPath, i32> {
+    let relative = source.strip_prefix(source_root).map_err(|_| ENOENT)?;
+    if relative.as_os_str().is_empty() {
+        Ok(VirtualPath::root())
+    } else {
+        let mut resolved = PathBuf::from("/");
+        resolved.push(relative);
+        Ok(VirtualPath::new(resolved))
     }
 }
 
@@ -54,31 +125,12 @@ impl ScreenFs {
     ) -> Result<VirtualPath, i32> {
         let source = self.host_path(path, follow_final_symlink)?;
         let source_root = self.source_root_path()?;
-        let relative = source.strip_prefix(&source_root).map_err(|_| ENOENT)?;
-        if relative.as_os_str().is_empty() {
-            Ok(VirtualPath::root())
-        } else {
-            let mut resolved = PathBuf::from("/");
-            resolved.push(relative);
-            Ok(VirtualPath::new(resolved))
-        }
+        virtual_path_from_source_path(&source_root, &source)
     }
 
     pub(super) fn guard_read_path(&self, path: &VirtualPath) -> Result<(), i32> {
         self.guard_hidden_path(path)?;
         self.guard_resolved_target_visibility_if_needed(path)
-    }
-
-    fn resolve_mutation_coordinate_target(
-        &self,
-        path: &VirtualPath,
-        follow_final_symlink: bool,
-    ) -> Result<VirtualPath, i32> {
-        match self.resolved_virtual_path(path, follow_final_symlink) {
-            Ok(resolved) => Ok(resolved),
-            Err(ENOENT) if !follow_final_symlink => Ok(path.clone()),
-            Err(err) => Err(err),
-        }
     }
 
     fn guard_resolved_target_fully_visible(
@@ -95,6 +147,7 @@ impl ScreenFs {
 
     fn evaluate_mutation_coordinate_visibility<'a>(
         &self,
+        resolver: &mut RequestPathResolver<'_>,
         path: &'a VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<MutationCoordinateEvaluation<'a>, i32> {
@@ -109,7 +162,8 @@ impl ScreenFs {
             resolved: None,
         };
         if !self.cfg.can_skip_symlink_target_visibility_check() {
-            let resolved = self.resolve_mutation_coordinate_target(path, follow_final_symlink)?;
+            let resolved =
+                resolver.resolve_mutation_coordinate_target(path, follow_final_symlink)?;
             self.guard_resolved_target_fully_visible(path, &resolved)?;
             coordinate.resolved = Some(resolved);
         }
@@ -118,6 +172,7 @@ impl ScreenFs {
 
     fn guard_mutation_coordinate_writable(
         &self,
+        resolver: &mut RequestPathResolver<'_>,
         coordinate: &mut MutationCoordinateEvaluation<'_>,
     ) -> Result<(), i32> {
         if matches!(
@@ -137,7 +192,7 @@ impl ScreenFs {
         }
 
         let path = coordinate.path.clone();
-        let resolved = coordinate.resolved_path(self)?;
+        let resolved = coordinate.resolved_path(resolver)?;
         if *resolved == path {
             return Ok(());
         }
@@ -153,14 +208,18 @@ impl ScreenFs {
         visible: &[(&VirtualPath, bool)],
         writable: &[(&VirtualPath, bool)],
     ) -> Result<(), i32> {
+        let mut resolver = RequestPathResolver::new(self);
         let mut coordinates = Vec::with_capacity(visible.len() + writable.len());
         for (path, follow_final_symlink) in visible.iter().copied().chain(writable.iter().copied())
         {
-            coordinates
-                .push(self.evaluate_mutation_coordinate_visibility(path, follow_final_symlink)?);
+            coordinates.push(self.evaluate_mutation_coordinate_visibility(
+                &mut resolver,
+                path,
+                follow_final_symlink,
+            )?);
         }
         for coordinate in coordinates.iter_mut().skip(visible.len()) {
-            self.guard_mutation_coordinate_writable(coordinate)?;
+            self.guard_mutation_coordinate_writable(&mut resolver, coordinate)?;
         }
         Ok(())
     }
@@ -285,17 +344,7 @@ impl ScreenFs {
         &self,
         file: &File,
     ) -> Result<VirtualPath, i32> {
-        let fd_path = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
-        let source = fs::read_link(fd_path).map_err(errno_from_io)?;
-        let source_root = self.source_root_path()?;
-        let relative = source.strip_prefix(&source_root).map_err(|_| ENOENT)?;
-        if relative.as_os_str().is_empty() {
-            Ok(VirtualPath::root())
-        } else {
-            let mut resolved = PathBuf::from("/");
-            resolved.push(relative);
-            Ok(VirtualPath::new(resolved))
-        }
+        RequestPathResolver::new(self).resolved_virtual_path_for_open_file(file)
     }
 
     pub(super) fn guard_opened_file_target(
@@ -330,8 +379,9 @@ impl ScreenFs {
         file: &File,
         mutation: bool,
     ) -> Result<(), i32> {
-        let resolved = self.resolved_virtual_path_for_open_file(file)?;
-        let expected = self.resolved_virtual_path(path, true)?;
+        let mut resolver = RequestPathResolver::new(self);
+        let resolved = resolver.resolved_virtual_path_for_open_file(file)?;
+        let expected = resolver.resolved_virtual_path(path, true)?;
         if resolved != expected {
             return Err(ENOENT);
         }
