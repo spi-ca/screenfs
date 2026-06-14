@@ -19,7 +19,7 @@ For optimization priorities and deferred performance candidates, see [`performan
 
 ScreenFS also has optional internal attribution counters for benchmark/debug attribution. They are compiled and enabled only when the binary is built with `--features perf-counters`; default builds do not include the instrumentation code or config surface. A perf-enabled binary should be used only for benchmark/smoke runs that explicitly need attribution evidence, not for normal production use.
 
-When enabled by the Cargo feature, ScreenFS prints a stderr summary at shutdown with FUSE operation latency, policy decision latency, matcher candidate count, state lock read/write wait/hold latency, `open_confined_openat2` latency, `source_root_path` latency, aggregate `resolved_virtual_path` latency, split `resolved_virtual_path_from_path` / `resolved_virtual_path_from_open_fd` latency, `read_size_bucket.*` / `write_size_bucket.*` latency, `readdir_attr_generation_scan` and `readdirplus_attr_generation_scan` latency plus scanned entry counts, and invalidation/eviction counts. `resolved_virtual_path` is retained as the aggregate of the path-walk and opened-fd helper buckets, while `source_root_path` is reported separately because both flows can reuse it. Use `source_root_path`, `resolved_virtual_path_from_path`, and `resolved_virtual_path_from_open_fd` for helper-level attribution, and keep `resolved_virtual_path` as the broad aggregate line. Treat these counters as attribution evidence for a benchmark or smoke run, not as standalone performance claims. With `--perf-counters --build`, the benchmark harness builds with `--features perf-counters`, parses the shutdown summary into `screenfs.perf_summary` in the JSON output, and includes the raw summary in the Markdown report. If `--perf-counters` is used with an existing `--screenfs-bin`, that binary must already be built with the `perf-counters` feature.
+When enabled by the Cargo feature, ScreenFS prints a stderr summary at shutdown with FUSE operation latency, policy decision latency, aggregate `matcher_candidates`, `matcher_family_candidates.{subtree,direct_child_glob,recursive}`, `matcher_candidate_order.{path,descendant}` latency plus aggregate and order-labeled duplicate/seen-slot/ancestor-step counts, state lock read/write wait/hold latency, `open_confined_openat2` latency, `source_root_path` latency, aggregate `resolved_virtual_path` latency, split `resolved_virtual_path_from_path` / `resolved_virtual_path_from_open_fd` latency, `resolved_virtual_path_from_path_component_walk` / `_canonicalize` / `_source_root_confinement` / `_virtual_conversion`, `read_size_bucket.*` / `write_size_bucket.*` latency, `readdir_directory_scan` / `readdirplus_directory_scan`, attr-build-only `readdir_attr_generation_scan` / `readdirplus_attr_generation_scan` plus scanned entry counts, `readdir_symlink_visibility` / `readdirplus_symlink_visibility`, `readdir_candidate_selection` / `readdirplus_candidate_selection`, `readdir_page_commit` / `readdirplus_page_commit`, and invalidation/eviction counts. `resolved_virtual_path` is retained as the aggregate of the path-walk and opened-fd helper buckets, while `source_root_path` is reported separately because both flows can reuse it. Use the split helper counters and sub-counters as first-pass attribution only: `resolved_virtual_path_from_path_component_walk` overlaps with the more specific canonicalize/confinement timings instead of forming an additive partition, matcher family/order counters show aggregate candidate shape rather than which specific matcher or rule was hottest, and the directory buckets still do not replace before/after benchmark evidence. Treat these counters as attribution evidence for a benchmark or smoke run, not as standalone performance claims. With `--perf-counters --build`, the benchmark harness builds with `--features perf-counters`, parses the shutdown summary into `screenfs.perf_summary` in the JSON output, and includes the raw summary in the Markdown report. If `--perf-counters` is used with an existing `--screenfs-bin`, that binary must already be built with the `perf-counters` feature.
 
 ## Workloads
 
@@ -41,6 +41,7 @@ It also runs these ScreenFS-only contract workloads:
 | workload | Purpose |
 | --- | --- |
 | `hidden_stat_miss` | hidden path `ENOENT` path and matcher overhead |
+| `matcher_hidden_stat_miss` | optional rule-rich hidden path `ENOENT` probe enabled by `--matcher-extra-rules`; omitted from default runs when that knob is `0`; intended for matcher family / `candidate_order` attribution, not default policy claims |
 | `symlink_parent_mkdir_rmdir` | repeated mkdir/rmdir under a visible symlink parent alias as an intended mounted probe for symlink-parent mutation guard/path-resolution paths |
 
 The default policy is intentionally simple but non-empty:
@@ -52,7 +53,7 @@ The default policy is intentionally simple but non-empty:
 --readonly /.screenfs-bench/readonly
 ```
 
-Use `--extra-screenfs-arg` for additional one-off policy experiments, but record the full harness command line from the JSON output when comparing results.
+Use `--extra-screenfs-arg` for additional one-off policy experiments, but record the full harness command line from the JSON output when comparing results. For matcher-heavy attribution, `--matcher-extra-rules <N>` appends `N` synthetic hidden `/.screenfs-bench/matcher-heavy/hidden-XXXX` subtree rules and exact readonly `/.screenfs-bench/matcher-heavy/visible-XXXX/readonly-XXXX.txt` rules, prepares matching fixture entries, and activates `matcher_hidden_stat_miss`; that built-in matcher workload intentionally probes hidden subtree `ENOENT` misses, while the readonly rules document and populate the policy mix for custom `--extra-screenfs-arg`/external experiments. Use it for stress/attribution experiments, not default-policy claim evidence.
 
 ## Running
 
@@ -88,6 +89,8 @@ Useful sizing options:
 --small-files 2000
 --dir-entries 5000
 --hidden-misses 2000
+--matcher-extra-rules 0
+--matcher-misses 2000
 --symlink-parent-mutations 2000
 --iterations 10
 --warmups 3
@@ -107,6 +110,8 @@ For a claim-grade before/after comparison, use at least:
 ```
 
 Then inspect the JSON raw samples for the affected workload, not just the Markdown table. A claim should report p50/median plus p90/p95/p99 tail latency, raw-sample spread or variance, and whether samples overlap enough to make the result inconclusive. If repeated runs disagree, record the result as inconclusive instead of selecting the favorable run.
+
+For the active follow-up surfaces in [`performance-roadmap.md`](performance-roadmap.md), “claim-grade” means a real before/after pair on the same machine, kernel, backing filesystem, policy, workload sizing, and cache assumptions. Use deeper attribution only to explain the delta after the benchmark pair exists: for `resolved_virtual_path_from_path`, matcher-family/`candidate_order`, or `readdir`/`readdirplus` attr/symlink/page-selection work, do not substitute smoke-only counters for the before/after harness evidence.
 
 ## Reading results
 
@@ -130,7 +135,9 @@ When a performance change is proposed or merged, record at least:
 - `screenfs` binary path plus binary SHA256/provenance, especially when comparing dirty or otherwise uncommitted binaries
 - kernel, `fusermount3`, rustc/cargo, backing filesystem, CPU/storage notes when relevant
 - whether the binary was built with `--features perf-counters` and the stderr counter summary when used for attribution
-- for resolved-path hot-path claims, whether attribution came from the retained aggregate `resolved_virtual_path` line alone or from the split `source_root_path`, `resolved_virtual_path_from_path`, and `resolved_virtual_path_from_open_fd` counters, plus the relevant helper-focused smoke output
+- for resolved-path hot-path claims, whether attribution came only from the retained aggregate `resolved_virtual_path` line, from the split `source_root_path` / `resolved_virtual_path_from_path` / `resolved_virtual_path_from_open_fd` helper counters, or from the current `resolved_virtual_path_from_path_*` sub-counters, plus the relevant helper-focused smoke output
+- for matcher hot-path claims, whether attribution came only from aggregate `matcher_candidates` or from the current matcher-family / `matcher_candidate_order` counters or traces; aggregate candidate count alone does not prove allocation or duplicate-removal cost, and current family/order counters are still whole-run aggregate signals
+- for `readdir`/`readdirplus` claims, whether attribution came only from broad `readdir*_attr_generation_scan` lines or from the current attr-build / symlink-visibility / candidate-selection / page-commit counters; even the split directory counters do not replace before/after workload evidence
 - workload sizes, warmups, iterations, and cache-control assumptions
 - before/after p50/median ratios, p90/p95/p99 tail latency, and raw-sample variance for the affected workload
 - separate post-change correctness validation command and result, typically `cargo test --all-targets --all-features`; record that in final evidence alongside the benchmark because the harness does not run correctness validation for you
@@ -140,6 +147,19 @@ When the changed surface is `resolved_virtual_path` or adjacent guard/path-resol
 - correctness regression coverage from [`../src/path_tests.rs`](../src/path_tests.rs) (`rejects_following_symlinks_outside_source_root_but_allows_link_itself`)
 - symlink escape/`ENOENT` coverage from [`../src/fs/tests/symlinks_access_create.rs`](../src/fs/tests/symlinks_access_create.rs) (`symlink_to_outside_source_root_stays_visible_but_following_ops_return_enoent`, `symlink_directory_escape_rejects_opendir_access_and_create_before_side_effects`)
 - perf-counter smoke/helper attribution from [`../src/fs/tests/perf.rs`](../src/fs/tests/perf.rs) (`perf_counters_split_resolved_virtual_path_sources` for the split counters, plus `perf_counters_record_data_size_buckets` for size-bucket coverage)
+- when using the current `resolved_virtual_path_from_path_*` sub-counters, note exactly which sub-steps were cited and avoid claiming more precision than those counters actually provide
+
+When the changed surface is matcher/index work, also record:
+
+- which matcher families were present in the tested policy mix, and whether `--matcher-extra-rules` was used to create a rule-rich mounted workload
+- whether the current `matcher_family_candidates.*` / `matcher_candidate_order.*` counters were sufficient, or whether extra traces/microbenchmarks were needed to isolate `candidate_order` / `descendant_candidate_order` allocation or duplicate-removal work instead of only aggregate matcher volume
+- a before/after benchmark pair for the workload that actually exercises the matcher-heavy path; do not rely on an unrelated workload win
+
+When the changed surface is `readdir`/`readdirplus`, also record:
+
+- whether the evidence isolates directory scan, attr build, symlink target visibility checks, page candidate selection, and returned-page commit separately with the current split counters, or only reports a broader subset
+- that bounded page behavior, stable resume cookies/shared cookie domain, and returned-page-only `readdirplus` lookup-ref pinning remained unchanged
+- the specific directory-heavy workload and size budget used for the before/after comparison
 
 For host-side async/io_uring experiments, also follow the selective data-path evidence rules in [`docs/operations.md`](operations.md) and [`docs/artifacts/current-file-data-path-async-feasibility.md`](artifacts/current-file-data-path-async-feasibility.md).
 
@@ -150,10 +170,12 @@ The current harness is useful for mounted-vs-native comparisons on the listed wo
 It does not directly measure:
 
 - matcher bucket/index cost or policy evaluator hot paths
-- `open_confined` / `openat2` call frequency or latency
-- mutation invalidation breadth / cache-eviction cost
+- which specific matcher instance or rule dominated; current matcher family/order counters are aggregate shape signals across matcher invocations
+- per-workload or per-request `open_confined_openat2` attribution beyond the whole-run perf summary
+- path-by-path mutation invalidation breadth beyond the aggregate invalidation/eviction counters
 - internal helper/offload attribution for the small-buffer or sync-surface path without separate counters/traces
-- which sub-step inside `resolved_virtual_path_from_path` itself (for example component walk vs canonicalize cost) dominated without additional counters/traces
+- exactly how much time inside `resolved_virtual_path_from_path` sat in overlapping helper sub-steps beyond the current component-walk/canonicalize/confinement/virtual-conversion counters
+- exactly which helper inside each current `readdir`/`readdirplus` bucket dominated without additional counters/traces
 
 The `small_read` and `small_write` comparable workloads probe the small-buffer data path end to end. The `write_fsync_close` comparable workload probes the sync surface end to end through repeated open/write/file-fsync/close cycles plus cleanup, but it does not fsync parent directories. These workloads can show mounted-vs-native deltas on those surfaces, but they do not by themselves prove that time moved in a specific internal helper, queueing layer, or offload path, including internal offload helpers; use counters, traces, or focused artifacts when you need attribution.
 
