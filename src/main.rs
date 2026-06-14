@@ -1,11 +1,16 @@
 use fractal_fuse::{MountOptions, Session};
-use screenfs::{LaunchArgs, RuntimeConfig, ScreenFs};
+use screenfs::{LaunchArgs, RuntimeConfig, ScreenFs, ensure_non_root_user};
 
 fn main() -> std::io::Result<()> {
     let argv = std::env::args_os().collect::<Vec<_>>();
     if LaunchArgs::wants_help(argv.iter().cloned()) {
         println!("{}", LaunchArgs::help());
         std::process::exit(0);
+    }
+
+    if let Err(error) = ensure_non_root_user() {
+        eprintln!("{error}");
+        std::process::exit(2);
     }
 
     let args = match LaunchArgs::parse_from(argv) {

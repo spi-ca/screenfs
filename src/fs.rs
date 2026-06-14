@@ -106,6 +106,7 @@ impl Future for ThreadOffload {
 
 impl ScreenFs {
     pub fn new(cfg: RuntimeConfig) -> Self {
+        crate::ensure_non_root_user().expect("screenfs must be run as a non-root user");
         let source_root = open_dir_handle(&cfg.source_root).expect("source root must be openable");
         #[cfg(feature = "perf-counters")]
         let perf = cfg
