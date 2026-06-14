@@ -2,6 +2,11 @@
 
 이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 빠른 진입점은 아래 순서다.
 
+## Project metadata
+
+- Repository: <https://github.com/spi-ca/screenfs>
+- License: BSD 3-Clause License. See [`../LICENSE`](../LICENSE).
+
 ## Core documents
 
 - [Requirements](requirements.md): 목적, 전제, non-goals, 사용자-facing 요구사항

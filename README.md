@@ -8,6 +8,11 @@
 real / -> screenfs mount root -> sandbox/chroot consumer
 ```
 
+## Project metadata
+
+- Repository: <https://github.com/spi-ca/screenfs>
+- License: BSD 3-Clause License. See [`LICENSE`](LICENSE).
+
 ## 핵심 계약
 
 - **Whole-root view**: 프로젝트 디렉터리가 아니라 전체 `/` view를 제공한다.
