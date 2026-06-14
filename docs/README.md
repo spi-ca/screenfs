@@ -9,6 +9,7 @@
 - [Architecture](architecture.md) — 코드 경계, 데이터 흐름, 다이어그램 요약
 - [Operations](operations.md) — recorded build/test/live-smoke evidence와 검증 체크리스트
 - [Benchmarks](benchmarks.md) — formal performance benchmark workflow and result recording rules
+- [Performance roadmap](performance-roadmap.md) — 성능 guardrail, 현재 상태, measure-first backlog, deferred 후보
 
 ## Current policy model at a glance
 
@@ -55,3 +56,5 @@ Current baseline:
 - [Current whole-root/chroot smoke](artifacts/current-whole-root-chroot-smoke-transcript.md)
 - [Current default-writable smoke](artifacts/current-default-writable-smoke-transcript.md)
 - [Current visible direct-child/subtree compatibility smoke](artifacts/current-compatibility-pattern-smoke-transcript.md) — `/dir/*`, `./dir/*`, `~/dir/*`, `/dir/**`, `./dir/**`, `~/dir/**`, `*`, `**/*` fail-fast current baseline
+- [Current perf-counter baseline summary](artifacts/current-perf-counter-baseline-summary.md) — perf-enabled smoke attribution and no-speedup cleanup note
+- [Current perf-counter benchmark result JSON](artifacts/current-perf-counter-benchmark-result.json), [Markdown](artifacts/current-perf-counter-benchmark-result.md), [SVG](artifacts/current-perf-counter-benchmark-result.svg) — checked-in perf-enabled benchmark smoke result and box plot

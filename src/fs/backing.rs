@@ -4,6 +4,8 @@ use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+#[cfg(feature = "perf-counters")]
+use std::time::Instant;
 
 use fractal_fuse::{FileAttr, FileType, ReplyStatfs, ReplyXattr, SetAttr, SetAttrTime, Timestamp};
 
@@ -23,22 +25,26 @@ struct OpenHow {
 }
 
 impl ScreenFs {
-    pub(super) fn host_path(
-        &self,
-        path: &VirtualPath,
-        follow_final_symlink: bool,
-    ) -> Result<std::path::PathBuf, i32> {
-        path.resolve_host_path(&self.source_root_path()?, follow_final_symlink)
-            .map_err(errno_from_io)
-    }
-
     pub(super) fn open_confined(
         &self,
         path: &VirtualPath,
         flags: i32,
         mode: Option<u32>,
     ) -> Result<File, i32> {
-        open_beneath_source_root(&self.source_root, path, flags, mode)
+        #[cfg(not(feature = "perf-counters"))]
+        {
+            open_beneath_source_root(&self.source_root, path, flags, mode)
+        }
+        #[cfg(feature = "perf-counters")]
+        {
+            let Some(perf) = self.perf.as_ref() else {
+                return open_beneath_source_root(&self.source_root, path, flags, mode);
+            };
+            let start = Instant::now();
+            let result = open_beneath_source_root(&self.source_root, path, flags, mode);
+            perf.record_open_confined(start.elapsed());
+            result
+        }
     }
 
     pub(super) fn source_root_path(&self) -> Result<std::path::PathBuf, i32> {
@@ -71,6 +77,27 @@ pub(super) fn sanitize_open_flags(flags: u32, creating: bool) -> i32 {
         sanitized |= libc::O_CREAT;
     }
     sanitized
+}
+
+pub(super) fn open_child_at(
+    parent_dir: &File,
+    name: &CStr,
+    flags: i32,
+    mode: Option<u32>,
+) -> Result<File, i32> {
+    let fd = unsafe {
+        libc::openat(
+            parent_dir.as_raw_fd(),
+            name.as_ptr(),
+            flags | libc::O_CLOEXEC,
+            mode.unwrap_or(0) as libc::mode_t,
+        )
+    };
+    if fd < 0 {
+        Err(errno_from_io(std::io::Error::last_os_error()))
+    } else {
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
 }
 
 pub(super) fn open_beneath_source_root(

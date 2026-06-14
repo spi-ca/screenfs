@@ -73,6 +73,8 @@ pub struct RuntimeConfig {
     writable_rule_count: usize,
     pub attr_ttl: Duration,
     pub entry_ttl: Duration,
+    #[cfg(feature = "perf-counters")]
+    perf_counters_enabled: bool,
 }
 
 impl RuntimeConfig {
@@ -103,6 +105,13 @@ impl RuntimeConfig {
         if let Some(prefix) = mount_root_internal_prefix(&cli.source_root, &cli.mount_root) {
             internal_hidden.push(prefix);
         }
+
+        #[cfg(feature = "perf-counters")]
+        let perf_counters_enabled = file_config
+            .perf
+            .as_ref()
+            .and_then(|perf| perf.enabled)
+            .unwrap_or(false);
 
         let visibility = resolve_visibility(&cli, visibility_default, file_config.visibility);
         let mutability = resolve_mutability(&cli, mutability_default, file_config.mutability);
@@ -171,6 +180,8 @@ impl RuntimeConfig {
             writable_rule_count: mutability.writable.len(),
             attr_ttl: Duration::ZERO,
             entry_ttl: Duration::ZERO,
+            #[cfg(feature = "perf-counters")]
+            perf_counters_enabled,
         })
     }
 
@@ -208,15 +219,9 @@ impl RuntimeConfig {
     pub fn entry_is_readable(&self, path: &VirtualPath, is_directory: bool) -> bool {
         match self.visibility_decision(path) {
             VisibilityDecision::Visible => true,
-            VisibilityDecision::BridgeVisible => {
-                is_directory && self.has_visible_bridge_ancestor(path)
-            }
+            VisibilityDecision::BridgeVisible => is_directory,
             VisibilityDecision::Hidden => false,
         }
-    }
-
-    pub fn has_visible_bridge_ancestor(&self, path: &VirtualPath) -> bool {
-        self.visible_matcher.may_match_descendant_of(path)
     }
 
     pub fn can_skip_symlink_target_visibility_check(&self) -> bool {
@@ -312,6 +317,11 @@ impl RuntimeConfig {
 
     pub fn writable_rule_count(&self) -> usize {
         self.writable_rule_count
+    }
+
+    #[cfg(feature = "perf-counters")]
+    pub fn perf_counters_enabled(&self) -> bool {
+        self.perf_counters_enabled
     }
 
     fn is_visible_by_rules(&self, path: &VirtualPath) -> bool {
@@ -507,6 +517,9 @@ struct FileConfig {
     visibility: Option<VisibilityConfig>,
     #[serde(default)]
     mutability: Option<MutabilityConfig>,
+    #[cfg(feature = "perf-counters")]
+    #[serde(default)]
+    perf: Option<PerfConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -527,6 +540,14 @@ struct MutabilityConfig {
     readonly: Vec<String>,
     #[serde(default)]
     writable: Vec<String>,
+}
+
+#[cfg(feature = "perf-counters")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PerfConfig {
+    #[serde(default)]
+    enabled: Option<bool>,
 }
 
 fn load_file_config(path: &Path) -> Result<FileConfig, String> {

@@ -15,6 +15,17 @@ The repo-local harness is [`scripts/bench-screenfs.py`](../scripts/bench-screenf
 
 The harness intentionally uses only Python standard-library operations plus the built `screenfs` binary. It does not add benchmark-only Rust dependencies to the product crate. For lower-level storage work, use external tools such as `fio` only with a separately recorded job file and environment notes.
 
+For optimization priorities and deferred performance candidates, see [`performance-roadmap.md`](performance-roadmap.md). This document remains the measurement workflow and evidence contract.
+
+ScreenFS also has optional internal attribution counters for benchmark/debug attribution. They are compiled only when the binary is built with `--features perf-counters`; default builds do not include the instrumentation code or config surface. In perf-enabled builds, counters are still disabled by default and should stay off for normal production use unless a run explicitly needs attribution evidence:
+
+```yaml
+perf:
+  enabled: true
+```
+
+When enabled, ScreenFS prints a stderr summary at shutdown with FUSE operation latency, policy decision latency, matcher candidate count, state lock read/write wait/hold latency, `open_confined_openat2` latency, `resolved_virtual_path` latency, `read_size_bucket.*` / `write_size_bucket.*` latency, `readdir_attr_generation_scan` and `readdirplus_attr_generation_scan` latency plus scanned entry counts, and invalidation/eviction counts. Treat these counters as attribution evidence for a benchmark or smoke run, not as standalone performance claims. With `--perf-counters --build`, the benchmark harness builds with `--features perf-counters`, enables `perf.enabled`, parses the shutdown summary into `screenfs.perf_summary` in the JSON output, and includes the raw summary in the Markdown report. If `--perf-counters` is used with an existing `--screenfs-bin`, that binary must already be built with the `perf-counters` feature.
+
 ## Workloads
 
 The default benchmark creates a temporary source tree and runs these workloads through both the native source path and the ScreenFS mount path:
@@ -89,6 +100,19 @@ Useful sizing options:
 
 Use larger values for stable release evidence.
 
+## Formal performance-claim bar
+
+Small smoke runs, such as `--iterations 1 --warmups 1`, only prove that the harness, mount, workload plumbing, and result serialization work. Do not use them as evidence for a performance claim.
+
+For a claim-grade before/after comparison, use at least:
+
+```text
+--iterations 10
+--warmups 3
+```
+
+Then inspect the JSON raw samples for the affected workload, not just the Markdown table. A claim should report p50/median plus p90/p95/p99 tail latency, raw-sample spread or variance, and whether samples overlap enough to make the result inconclusive. If repeated runs disagree, record the result as inconclusive instead of selecting the favorable run.
+
 ## Reading results
 
 The JSON output is the source of truth. The Markdown output is a human-readable summary, and the optional SVG output is a box plot of raw sample timings. The harness records the full benchmark command line, git worktree clean/dirty state, and the `screenfs` binary SHA256 so human review does not lose dirty/uncommitted binary provenance. Summaries include p50/median, p90, p95, and p99. Comparable workloads include a `mounted_over_native_median` ratio:
@@ -110,6 +134,7 @@ When a performance change is proposed or merged, record at least:
 - JSON result path or attached result
 - `screenfs` binary path plus binary SHA256/provenance, especially when comparing dirty or otherwise uncommitted binaries
 - kernel, `fusermount3`, rustc/cargo, backing filesystem, CPU/storage notes when relevant
+- whether `perf.enabled` counters were enabled and the stderr counter summary when used for attribution
 - workload sizes, warmups, iterations, and cache-control assumptions
 - before/after p50/median ratios, p90/p95/p99 tail latency, and raw-sample variance for the affected workload
 - separate post-change correctness validation command and result, typically `cargo test --all-targets --all-features`; record that in final evidence alongside the benchmark because the harness does not run correctness validation for you

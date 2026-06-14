@@ -11,6 +11,7 @@ artifact 분류 quick map:
 - current FUSE transport contract source evidence: `docs/artifacts/current-fuse-transport-contract-evidence.md` (`fractal-fuse = 0.4.0` `FUSE_OVER_IO_URING` negotiation fail-fast source evidence plus ScreenFS no-fallback mount path evidence)
 - current file-data-path async/io_uring feasibility evidence: `docs/artifacts/current-file-data-path-async-feasibility.md` (already-open file handle data-path async/io_uring candidate scope plus separate `flush`/`fsync`/`release(flush)` sync cleanup boundary)
 - current state-lock concurrency evidence: `docs/artifacts/current-state-lock-concurrency-evidence.md` (single consistency-domain `RwLock<State>` rationale, lock rules, `flush`/`fsync`/`release(flush)` state-lock-outside-sync-syscall evidence, and validation expectations)
+- current perf-counter baseline summary: `docs/artifacts/current-perf-counter-baseline-summary.md` (perf-enabled smoke attribution, selected low-risk cleanup rationale, and no-speedup claim guardrail); checked-in smoke result files: `docs/artifacts/current-perf-counter-benchmark-result.json`, `docs/artifacts/current-perf-counter-benchmark-result.md`, `docs/artifacts/current-perf-counter-benchmark-result.svg`
 
 ## 환경 전제
 

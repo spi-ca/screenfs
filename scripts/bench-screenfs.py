@@ -80,12 +80,25 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Append one raw argument to the screenfs command; repeat as needed.",
     )
+    parser.add_argument(
+        "--perf-counters",
+        action="store_true",
+        help="Enable ScreenFS perf counters with a temporary config and record the stderr summary in JSON/Markdown artifacts.",
+    )
     return parser.parse_args()
 
 
 def require_positive(name: str, value: int) -> None:
     if value <= 0:
         raise SystemExit(f"{name} must be positive")
+
+
+def reject_perf_config_conflict(args: argparse.Namespace) -> None:
+    if not args.perf_counters:
+        return
+    for extra in args.extra_screenfs_arg:
+        if extra == "--config" or extra.startswith("--config="):
+            raise SystemExit("--perf-counters cannot be combined with --extra-screenfs-arg --config; the harness must control the temporary perf config")
 
 
 def run_checked(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -127,6 +140,33 @@ def summarize_git_status(status: str | None, limit: int = 5) -> str | None:
 
 def shell_join(argv: list[str]) -> str:
     return shlex.join(argv)
+
+
+def parse_perf_summary(stderr: str) -> dict[str, Any] | None:
+    marker = "screenfs perf counters:"
+    start = stderr.rfind(marker)
+    if start < 0:
+        return None
+    block = stderr[start:].strip()
+    metrics: dict[str, Any] = {}
+    for raw_line in block.splitlines()[1:]:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if ":" not in line:
+            continue
+        name, rest = line.split(":", 1)
+        values: dict[str, int] = {}
+        for token in rest.strip().split():
+            if "=" not in token:
+                continue
+            key, value = token.split("=", 1)
+            try:
+                values[key] = int(value)
+            except ValueError:
+                pass
+        metrics[name] = values
+    return {"raw": block, "metrics": metrics}
 
 
 def harness_argv() -> list[str]:
@@ -582,6 +622,23 @@ def markdown_report(result: dict[str, Any]) -> str:
     for item in result["screenfs_only"]:
         summary = item["summary"]
         lines.append(f"| {item['name']} | {summary['median_sec']:.6f} | {summary['p90_sec']:.6f} | {summary['p95_sec']:.6f} | {summary['p99_sec']:.6f} |")
+    perf_summary = screenfs.get("perf_summary")
+    lines.extend(["", "## Perf counters", ""])
+    if perf_summary:
+        lines.extend(
+            [
+                "Perf counters were enabled and captured from ScreenFS stderr after unmount/termination.",
+                "",
+                "```text",
+                perf_summary.get("raw", ""),
+                "```",
+            ]
+        )
+    else:
+        lines.append(
+            "Perf counters were not enabled or no `screenfs perf counters:` summary was captured."
+        )
+
     lines.extend(
         [
             "",
@@ -614,12 +671,17 @@ def main() -> int:
     ]:
         require_positive(name, getattr(args, name))
 
+    reject_perf_config_conflict(args)
+
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         raise SystemExit("do not run this benchmark as root or with sudo; ScreenFS evidence must be non-root FUSE evidence")
 
     if args.build:
+        build_command = ["cargo", "build", "--release"]
+        if args.perf_counters:
+            build_command.extend(["--features", "perf-counters"])
         print("building release binary...", file=sys.stderr)
-        run_checked(["cargo", "build", "--release"])
+        run_checked(build_command)
 
     screenfs_bin = Path(args.screenfs_bin)
     if not screenfs_bin.exists():
@@ -637,10 +699,17 @@ def main() -> int:
 
     stderr_path = workdir / "screenfs.stderr.log"
     stderr_file = stderr_path.open("w", encoding="utf-8")
+    screenfs_prefix_args: list[str] = []
+    perf_config_path: Path | None = None
+    if args.perf_counters:
+        perf_config_path = workdir / "screenfs-perf.yaml"
+        perf_config_path.write_text("perf:\n  enabled: true\n", encoding="utf-8")
+        screenfs_prefix_args.extend(["--config", str(perf_config_path)])
     command = [
         str(screenfs_bin),
         str(source),
         str(mount),
+        *screenfs_prefix_args,
         "--visibility-default",
         "visible",
         "--hidden",
@@ -665,6 +734,7 @@ def main() -> int:
             for name, func in SCREENFS_ONLY_WORKLOADS.items()
         ]
 
+        mounted_filesystem = path_fs_info(mount)
         mounted_by_name = {item["name"]: item for item in mounted_results}
         comparisons = {}
         for native in native_results:
@@ -685,11 +755,27 @@ def main() -> int:
                 "mounted_p99_sec": mounted_item["summary"]["p99_sec"],
             }
 
-        stderr_file.flush()
+        unmount_result = unmount(mount)
+        if proc.poll() is None:
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.send_signal(signal.SIGTERM)
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=3)
+        stderr_file.close()
+        proc = None
+
         try:
             screenfs_stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             screenfs_stderr = ""
+        perf_summary = parse_perf_summary(screenfs_stderr)
+        if args.perf_counters and perf_summary is None:
+            raise RuntimeError("--perf-counters was enabled but no 'screenfs perf counters:' summary was captured from ScreenFS stderr")
 
         git_status_porcelain = command_output(["git", "status", "--porcelain"])
         harness_command = harness_argv()
@@ -708,7 +794,7 @@ def main() -> int:
                 "git_status_porcelain": git_status_porcelain,
                 "git_worktree_clean": git_status_porcelain == "",
                 "source_filesystem": path_fs_info(source),
-                "mount_filesystem": path_fs_info(mount),
+                "mount_filesystem": mounted_filesystem,
                 "rustc": command_output(["rustc", "--version"]),
                 "cargo": command_output(["cargo", "--version"]),
                 "fusermount3": command_output(["fusermount3", "--version"]),
@@ -734,6 +820,9 @@ def main() -> int:
                 "command": command,
                 "stderr_log": str(stderr_path),
                 "stderr_preview": screenfs_stderr[-4000:],
+                "perf_counters_enabled": args.perf_counters,
+                "perf_config": str(perf_config_path) if perf_config_path else None,
+                "perf_summary": perf_summary,
             },
             "native": native_results,
             "mounted": mounted_results,
@@ -757,13 +846,17 @@ def main() -> int:
         if proc is not None:
             unmount_result = unmount(mount)
             if proc.poll() is None:
-                proc.send_signal(signal.SIGTERM)
                 try:
                     proc.wait(timeout=3)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait(timeout=3)
-        stderr_file.close()
+                    proc.send_signal(signal.SIGTERM)
+                    try:
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(timeout=3)
+        if not stderr_file.closed:
+            stderr_file.close()
         if not unmount_result.get("ok"):
             print(f"warning: unmount did not report success: {unmount_result}", file=sys.stderr)
         if args.keep_workdir or not unmount_result.get("ok"):

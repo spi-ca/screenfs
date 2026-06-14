@@ -1188,6 +1188,62 @@ fn symlink_target_fast_path_is_enabled_only_when_visibility_policy_cannot_hide_t
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(feature = "perf-counters")]
+#[test]
+fn config_file_enables_perf_counters() {
+    let source = test_dir();
+    let mount = source.join("mnt");
+    std::fs::create_dir_all(&mount).unwrap();
+    let config_path = source.join("screenfs.yaml");
+    std::fs::write(&config_path, "perf:\n  enabled: true\n").unwrap();
+
+    let cfg = launch_from_args(LaunchArgs {
+        cli: CliArgs {
+            source_root: source.clone(),
+            mount_root: mount,
+            visibility_hidden_rules: vec![],
+            visibility_visible_rules: vec![],
+            mutability_readonly_rules: vec![],
+            mutability_writable_rules: vec![],
+        },
+        config_path: Some(config_path),
+        visibility_default: None,
+        mutability_default: None,
+    })
+    .unwrap();
+
+    assert!(cfg.perf_counters_enabled());
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[cfg(feature = "perf-counters")]
+#[test]
+fn config_file_rejects_unknown_perf_fields() {
+    let source = test_dir();
+    let mount = source.join("mnt");
+    std::fs::create_dir_all(&mount).unwrap();
+    let config_path = source.join("screenfs.yaml");
+    std::fs::write(&config_path, "perf:\n  enabled: true\n  surprise: true\n").unwrap();
+
+    let err = launch_from_args(LaunchArgs {
+        cli: CliArgs {
+            source_root: source.clone(),
+            mount_root: mount,
+            visibility_hidden_rules: vec![],
+            visibility_visible_rules: vec![],
+            mutability_readonly_rules: vec![],
+            mutability_writable_rules: vec![],
+        },
+        config_path: Some(config_path),
+        visibility_default: None,
+        mutability_default: None,
+    })
+    .unwrap_err();
+
+    assert!(err.contains("surprise"), "{err}");
+    std::fs::remove_dir_all(source).unwrap();
+}
+
 fn test_dir() -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

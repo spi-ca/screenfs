@@ -26,6 +26,7 @@ real / -> screenfs mount root -> sandbox/chroot consumer
 - 아키텍처 요약: [`docs/architecture.md`](docs/architecture.md)
 - 운영/검증 evidence: [`docs/operations.md`](docs/operations.md)
 - 성능 벤치마크: [`docs/benchmarks.md`](docs/benchmarks.md)
+- 성능 로드맵: [`docs/performance-roadmap.md`](docs/performance-roadmap.md) (성능 가드레일, 현재 baseline, measure-first backlog)
 
 ## 구조 한눈에 보기
 
@@ -91,6 +92,12 @@ mutability:
     - <pattern>
   writable:
     - <pattern>
+
+# Optional benchmark/debug performance attribution counters.
+# Available only in builds compiled with `--features perf-counters`.
+# Disabled by default and intended to stay off for normal production use.
+perf:
+  enabled: true | false
 ```
 
 ## 정책 의미론 요약
@@ -118,6 +125,22 @@ mutability:
 - `denyWrite` → `mutability.readonly`
 
 ScreenFS에는 제거된 legacy flag가 아니라 현재 two-axis YAML/CLI surface만 전달해야 한다.
+
+## Perf counters
+
+`--features perf-counters`로 빌드한 binary에서 `perf.enabled: true`를 config에 넣으면 ScreenFS가 종료될 때 stderr에 opt-in counter summary를 출력한다. 기본 build에는 instrumentation code/config surface가 포함되지 않는다. 이 counter는 benchmark 결과의 내부 attribution 보조용이며, formal performance claim은 여전히 [`docs/benchmarks.md`](docs/benchmarks.md)의 raw sample/반복 기준을 따라야 한다.
+
+현재 counter surface:
+
+- FUSE operation별 `fuse_op.<operation>` count/latency
+- policy decision count/latency and matcher candidate count
+- state lock read/write wait/hold count/latency
+- `open_confined_openat2` count/latency
+- `resolved_virtual_path` count/latency
+- `read_size_bucket.<bucket>` / `write_size_bucket.<bucket>` count/latency
+- `readdir_attr_generation_scan` count/latency plus `readdir_attr_generation_entries` scanned entry count
+- `readdirplus_attr_generation_scan` count/latency plus `readdirplus_attr_generation_entries` scanned entry count
+- mutation invalidation count, invalidated entries, evicted entries
 
 ## Examples
 
@@ -173,6 +196,7 @@ mutability:
 - 아키텍처 요약: [`docs/architecture.md`](docs/architecture.md)
 - 운영/검증: [`docs/operations.md`](docs/operations.md)
 - 성능 벤치마크: [`docs/benchmarks.md`](docs/benchmarks.md)
+- 성능 로드맵: [`docs/performance-roadmap.md`](docs/performance-roadmap.md) (성능 가드레일, 현재 baseline, measure-first backlog)
 - Pi workflow 문서: [`docs/pi-agents.md`](docs/pi-agents.md)
 - 다이어그램 렌더링 계약: [`docs/diagrams/README.md`](docs/diagrams/README.md)
 
@@ -188,3 +212,5 @@ Current baseline artifacts:
 - [`docs/artifacts/current-compatibility-pattern-smoke-transcript.md`](docs/artifacts/current-compatibility-pattern-smoke-transcript.md): visible direct-child/subtree compatibility baseline
 - [`docs/artifacts/current-file-data-path-async-feasibility.md`](docs/artifacts/current-file-data-path-async-feasibility.md): already-open file-handle data-path async/io_uring scope와 `flush`/`fsync`/`release(flush)` sync cleanup boundary
 - [`docs/artifacts/current-state-lock-concurrency-evidence.md`](docs/artifacts/current-state-lock-concurrency-evidence.md): state lock 바깥 sync syscall 실행 규칙과 low-risk executor-offload 범위
+- [`docs/artifacts/current-perf-counter-baseline-summary.md`](docs/artifacts/current-perf-counter-baseline-summary.md): perf-enabled smoke attribution과 no-speedup cleanup note
+- [`docs/artifacts/current-perf-counter-benchmark-result.json`](docs/artifacts/current-perf-counter-benchmark-result.json), [`docs/artifacts/current-perf-counter-benchmark-result.md`](docs/artifacts/current-perf-counter-benchmark-result.md), [`docs/artifacts/current-perf-counter-benchmark-result.svg`](docs/artifacts/current-perf-counter-benchmark-result.svg): checked-in perf-enabled benchmark smoke result and box plot

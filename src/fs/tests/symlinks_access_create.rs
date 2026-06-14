@@ -542,6 +542,33 @@ fn create_existing_symlink_to_hidden_target_returns_enoent_before_side_effects()
 }
 
 #[test]
+fn create_existing_visible_symlink_is_rejected_without_target_side_effect() {
+    let dir = test_dir("create-visible-symlink-no-follow");
+    std::fs::write(dir.join("target"), b"target").unwrap();
+    std::os::unix::fs::symlink("target", dir.join("link")).unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    let err = block_on(fs.create(
+        dummy_req(),
+        FUSE_ROOT_ID,
+        OsStr::new("link"),
+        0o644,
+        (libc::O_CREAT | libc::O_TRUNC | libc::O_RDWR) as u32,
+    ))
+    .unwrap_err();
+
+    assert_eq!(err, ENOENT);
+    assert_eq!(std::fs::read(dir.join("target")).unwrap(), b"target");
+    assert!(
+        std::fs::symlink_metadata(dir.join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn unlink_hidden_target_symlink_returns_enoent_and_preserves_entry() {
     let dir = test_dir("unlink-hidden-target-symlink");
     std::fs::write(dir.join("hidden"), b"secret").unwrap();

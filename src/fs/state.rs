@@ -9,6 +9,8 @@ use fractal_fuse::{ENOENT, FileAttr, FileType};
 use crate::path::VirtualPath;
 
 use super::ScreenFs;
+#[cfg(feature = "perf-counters")]
+use super::perf::InvalidationStats;
 
 #[derive(Debug)]
 pub(super) struct State {
@@ -139,9 +141,9 @@ impl State {
         fh
     }
 
-    fn try_evict_inode(&mut self, inode: u64) {
+    fn try_evict_inode(&mut self, inode: u64) -> bool {
         if inode == FUSE_ROOT_ID {
-            return;
+            return false;
         }
         let should_remove = self
             .inodes
@@ -149,14 +151,18 @@ impl State {
             .map(|record| record.lookup_refs == 0 && record.open_refs == 0)
             .unwrap_or(false);
         if !should_remove {
-            return;
+            return false;
         }
-        if let Some(record) = self.inodes.remove(&inode)
-            && let Some(path) = record.path
-            && self.path_inodes.get(&path) == Some(&inode)
-        {
-            self.path_inodes.remove(&path);
+        let mut evicted = false;
+        if let Some(record) = self.inodes.remove(&inode) {
+            evicted = true;
+            if let Some(path) = record.path
+                && self.path_inodes.get(&path) == Some(&inode)
+            {
+                self.path_inodes.remove(&path);
+            }
         }
+        evicted
     }
 
     pub(super) fn forget_inode(&mut self, inode: u64, nlookup: u64) {
@@ -229,6 +235,7 @@ impl State {
         Some(handle)
     }
 
+    #[cfg(not(feature = "perf-counters"))]
     pub(super) fn invalidate_directory_snapshots(&mut self, parents: &[VirtualPath]) {
         let handles = self
             .directories
@@ -240,6 +247,26 @@ impl State {
         }
     }
 
+    #[cfg(feature = "perf-counters")]
+    pub(super) fn invalidate_directory_snapshots(
+        &mut self,
+        parents: &[VirtualPath],
+    ) -> InvalidationStats {
+        let handles = self
+            .directories
+            .iter()
+            .filter_map(|(fh, handle)| parents.contains(&handle.path).then_some(*fh))
+            .collect::<Vec<_>>();
+        let mut stats = InvalidationStats::default();
+        for fh in handles {
+            if self.remove_directory(fh).is_some() {
+                stats.invalidated_entries += 1;
+            }
+        }
+        stats
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
     pub(super) fn invalidate_exact_path(&mut self, path: &VirtualPath) {
         let Some(inode) = self.path_inodes.remove(path) else {
             return;
@@ -252,6 +279,27 @@ impl State {
         self.try_evict_inode(inode);
     }
 
+    #[cfg(feature = "perf-counters")]
+    pub(super) fn invalidate_exact_path(&mut self, path: &VirtualPath) -> InvalidationStats {
+        let Some(inode) = self.path_inodes.remove(path) else {
+            return InvalidationStats::default();
+        };
+        let mut stats = InvalidationStats {
+            invalidated_entries: 1,
+            evicted_entries: 0,
+        };
+        if let Some(record) = self.inodes.get_mut(&inode)
+            && record.path.as_ref() == Some(path)
+        {
+            record.path = None;
+        }
+        if self.try_evict_inode(inode) {
+            stats.evicted_entries += 1;
+        }
+        stats
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
     pub(super) fn invalidate_path_tree(&mut self, root: &VirtualPath) {
         let paths = self
             .path_inodes
@@ -262,6 +310,21 @@ impl State {
         for path in paths {
             self.invalidate_exact_path(&path);
         }
+    }
+
+    #[cfg(feature = "perf-counters")]
+    pub(super) fn invalidate_path_tree(&mut self, root: &VirtualPath) -> InvalidationStats {
+        let paths = self
+            .path_inodes
+            .keys()
+            .filter(|path| path.starts_with(root))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut stats = InvalidationStats::default();
+        for path in paths {
+            stats += self.invalidate_exact_path(&path);
+        }
+        stats
     }
 
     pub(super) fn directory_resume(
@@ -343,8 +406,7 @@ impl State {
 
 impl ScreenFs {
     pub(super) fn path_for_inode(&self, inode: u64) -> Result<VirtualPath, i32> {
-        let state = self.state.read().expect("state rwlock poisoned");
-        state.path_for_inode(inode).ok_or(ENOENT)
+        self.with_state_read(|state| state.path_for_inode(inode).ok_or(ENOENT))
     }
 
     pub(super) fn child_path(&self, parent: u64, name: &OsStr) -> Result<VirtualPath, i32> {
@@ -353,53 +415,42 @@ impl ScreenFs {
     }
 
     pub(super) fn track_path(&self, path: VirtualPath) -> u64 {
-        self.state
-            .write()
-            .expect("state rwlock poisoned")
-            .lookup_path(path)
+        self.with_state_write(|state| state.lookup_path(path))
     }
 
     pub(super) fn inode_for_visible_path(&self, path: VirtualPath) -> u64 {
-        self.state
-            .write()
-            .expect("state rwlock poisoned")
-            .inode_for_path(path)
+        self.with_state_write(|state| state.inode_for_path(path))
     }
 
     pub(super) fn insert_open_file(&self, inode: u64, path: VirtualPath, file: File) -> u64 {
-        self.state
-            .write()
-            .expect("state rwlock poisoned")
-            .insert_file(inode, path, file)
+        self.with_state_write(|state| state.insert_file(inode, path, file))
     }
 
     pub(super) fn insert_open_directory(&self, inode: u64, path: VirtualPath) -> u64 {
-        self.state
-            .write()
-            .expect("state rwlock poisoned")
-            .insert_directory(inode, path)
+        self.with_state_write(|state| state.insert_directory(inode, path))
     }
 
     pub(super) fn remove_open_directory(&self, fh: u64) {
-        self.state
-            .write()
-            .expect("state rwlock poisoned")
-            .remove_directory(fh);
+        self.with_state_write(|state| {
+            state.remove_directory(fh);
+        });
     }
 
     pub(super) fn file_handle_snapshot(&self, inode: u64, fh: u64) -> Result<FileSnapshot, i32> {
-        let state = self.state.read().expect("state rwlock poisoned");
-        let handle = state.files.get(&fh).ok_or(ENOENT)?;
-        if handle.inode != inode {
-            return Err(ENOENT);
-        }
-        Ok((handle.path.clone(), Arc::clone(&handle.file)))
+        self.with_state_read(|state| {
+            let handle = state.files.get(&fh).ok_or(ENOENT)?;
+            if handle.inode != inode {
+                return Err(ENOENT);
+            }
+            Ok((handle.path.clone(), Arc::clone(&handle.file)))
+        })
     }
 
     pub(super) fn file_snapshot_for_handle(&self, fh: u64) -> Result<Arc<File>, i32> {
-        let state = self.state.read().expect("state rwlock poisoned");
-        let handle = state.files.get(&fh).ok_or(ENOENT)?;
-        Ok(Arc::clone(&handle.file))
+        self.with_state_read(|state| {
+            let handle = state.files.get(&fh).ok_or(ENOENT)?;
+            Ok(Arc::clone(&handle.file))
+        })
     }
 
     pub(super) fn copy_file_range_snapshot(
@@ -409,16 +460,17 @@ impl ScreenFs {
         inode_out: u64,
         fh_out: u64,
     ) -> Result<CopyFileRangeSnapshot, i32> {
-        let state = self.state.read().expect("state rwlock poisoned");
-        let input = state.files.get(&fh_in).ok_or(ENOENT)?;
-        let output = state.files.get(&fh_out).ok_or(ENOENT)?;
-        if input.inode != inode_in || output.inode != inode_out {
-            return Err(ENOENT);
-        }
-        Ok((
-            (input.path.clone(), Arc::clone(&input.file)),
-            (output.path.clone(), Arc::clone(&output.file)),
-        ))
+        self.with_state_read(|state| {
+            let input = state.files.get(&fh_in).ok_or(ENOENT)?;
+            let output = state.files.get(&fh_out).ok_or(ENOENT)?;
+            if input.inode != inode_in || output.inode != inode_out {
+                return Err(ENOENT);
+            }
+            Ok((
+                (input.path.clone(), Arc::clone(&input.file)),
+                (output.path.clone(), Arc::clone(&output.file)),
+            ))
+        })
     }
 
     pub(super) fn directory_resume(
@@ -427,10 +479,7 @@ impl ScreenFs {
         fh: u64,
         offset: u64,
     ) -> Result<(VirtualPath, DirectoryResume), i32> {
-        self.state
-            .read()
-            .expect("state rwlock poisoned")
-            .directory_resume(inode, fh, offset)
+        self.with_state_read(|state| state.directory_resume(inode, fh, offset))
     }
 
     pub(super) fn commit_directory_page(
@@ -440,10 +489,9 @@ impl ScreenFs {
         entries: Vec<DirectorySnapshotEntry>,
         pin_lookup_refs: bool,
     ) -> Result<Vec<DirectorySnapshotEntry>, i32> {
-        self.state
-            .write()
-            .expect("state rwlock poisoned")
-            .commit_directory_page(inode, fh, entries, pin_lookup_refs)
+        self.with_state_write(|state| {
+            state.commit_directory_page(inode, fh, entries, pin_lookup_refs)
+        })
     }
 
     pub(super) fn finalize_created_file(
@@ -452,12 +500,25 @@ impl ScreenFs {
         path: VirtualPath,
         file: File,
     ) -> (u64, u64) {
-        let mut state = self.state.write().expect("state rwlock poisoned");
-        state.invalidate_directory_snapshots(std::slice::from_ref(parent_path));
-        state.invalidate_exact_path(&path);
-        let inode = state.lookup_path(path.clone());
-        let fh = state.insert_file(inode, path, file);
-        (inode, fh)
+        self.with_state_write(|state| {
+            #[cfg(feature = "perf-counters")]
+            let mut stats = state.invalidate_directory_snapshots(std::slice::from_ref(parent_path));
+            #[cfg(not(feature = "perf-counters"))]
+            state.invalidate_directory_snapshots(std::slice::from_ref(parent_path));
+            #[cfg(feature = "perf-counters")]
+            {
+                stats += state.invalidate_exact_path(&path);
+            }
+            #[cfg(not(feature = "perf-counters"))]
+            state.invalidate_exact_path(&path);
+            let inode = state.lookup_path(path.clone());
+            let fh = state.insert_file(inode, path, file);
+            #[cfg(feature = "perf-counters")]
+            if let Some(perf) = self.perf.as_ref() {
+                perf.record_invalidation(stats);
+            }
+            (inode, fh)
+        })
     }
 
     pub(super) fn invalidate_after_mutation(
@@ -466,20 +527,35 @@ impl ScreenFs {
         exact_paths: &[VirtualPath],
         tree_paths: &[VirtualPath],
     ) {
-        let mut state = self.state.write().expect("state rwlock poisoned");
-        state.invalidate_directory_snapshots(parents);
-        for path in exact_paths {
-            state.invalidate_exact_path(path);
-        }
-        for path in tree_paths {
-            state.invalidate_path_tree(path);
-        }
+        self.with_state_write(|state| {
+            #[cfg(feature = "perf-counters")]
+            let mut stats = state.invalidate_directory_snapshots(parents);
+            #[cfg(not(feature = "perf-counters"))]
+            state.invalidate_directory_snapshots(parents);
+            for path in exact_paths {
+                #[cfg(feature = "perf-counters")]
+                {
+                    stats += state.invalidate_exact_path(path);
+                }
+                #[cfg(not(feature = "perf-counters"))]
+                state.invalidate_exact_path(path);
+            }
+            for path in tree_paths {
+                #[cfg(feature = "perf-counters")]
+                {
+                    stats += state.invalidate_path_tree(path);
+                }
+                #[cfg(not(feature = "perf-counters"))]
+                state.invalidate_path_tree(path);
+            }
+            #[cfg(feature = "perf-counters")]
+            if let Some(perf) = self.perf.as_ref() {
+                perf.record_invalidation(stats);
+            }
+        });
     }
 
     pub(super) fn forget_tracked_inode(&self, inode: u64, nlookup: u64) {
-        self.state
-            .write()
-            .expect("state rwlock poisoned")
-            .forget_inode(inode, nlookup);
+        self.with_state_write(|state| state.forget_inode(inode, nlookup));
     }
 }

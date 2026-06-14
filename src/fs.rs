@@ -10,6 +10,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll, Waker};
+#[cfg(feature = "perf-counters")]
+use std::time::Instant;
 
 use fractal_fuse::abi::{fuse_dirent_size, fuse_direntplus_size};
 use fractal_fuse::{
@@ -21,19 +23,41 @@ use crate::config::RuntimeConfig;
 use crate::errors::{errno_from_io, open_has_write_intent};
 mod backing;
 mod guards;
+#[cfg(feature = "perf-counters")]
+mod perf;
 mod state;
 
 use self::backing::{
-    apply_setattr, cstring_os, faccessat2_empty, open_dir_handle, read_xattr_reply,
+    apply_setattr, cstring_os, faccessat2_empty, open_child_at, open_dir_handle, read_xattr_reply,
     sanitize_open_flags, source_root_statfs,
 };
+#[cfg(feature = "perf-counters")]
+use self::perf::PerfCounters;
+#[cfg(all(test, feature = "perf-counters"))]
+use self::perf::PerfSnapshot;
 use self::state::{DirectoryResume, DirectorySnapshotEntry, State};
+
+#[cfg(feature = "perf-counters")]
+macro_rules! fuse_op_timer {
+    ($fs:expr, $name:literal) => {
+        $fs.perf.as_ref().map(|perf| perf.fuse_op_timer($name))
+    };
+}
+
+#[cfg(not(feature = "perf-counters"))]
+macro_rules! fuse_op_timer {
+    ($fs:expr, $name:literal) => {
+        ()
+    };
+}
 
 #[derive(Debug)]
 pub struct ScreenFs {
     cfg: RuntimeConfig,
     source_root: File,
     state: RwLock<State>,
+    #[cfg(feature = "perf-counters")]
+    perf: Option<Arc<PerfCounters>>,
 }
 
 type BlockingSyncResult = Result<FsResult<()>, Box<dyn Any + Send>>;
@@ -83,15 +107,209 @@ impl Future for ThreadOffload {
 impl ScreenFs {
     pub fn new(cfg: RuntimeConfig) -> Self {
         let source_root = open_dir_handle(&cfg.source_root).expect("source root must be openable");
+        #[cfg(feature = "perf-counters")]
+        let perf = cfg
+            .perf_counters_enabled()
+            .then(|| Arc::new(PerfCounters::default()));
         Self {
             cfg,
             source_root,
             state: RwLock::new(State::new()),
+            #[cfg(feature = "perf-counters")]
+            perf,
         }
     }
 
     pub fn config(&self) -> &RuntimeConfig {
         &self.cfg
+    }
+
+    #[cfg(all(test, feature = "perf-counters"))]
+    pub(super) fn perf_snapshot(&self) -> Option<PerfSnapshot> {
+        self.perf.as_ref().map(|perf| perf.snapshot())
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    fn with_state_read<T>(&self, f: impl FnOnce(&State) -> T) -> T {
+        let state = self.state.read().expect("state rwlock poisoned");
+        f(&state)
+    }
+
+    #[cfg(feature = "perf-counters")]
+    fn with_state_read<T>(&self, f: impl FnOnce(&State) -> T) -> T {
+        let Some(perf) = self.perf.as_ref() else {
+            let state = self.state.read().expect("state rwlock poisoned");
+            return f(&state);
+        };
+        let wait_start = Instant::now();
+        let state = self.state.read().expect("state rwlock poisoned");
+        let wait = wait_start.elapsed();
+        let hold_start = Instant::now();
+        let result = f(&state);
+        drop(state);
+        perf.record_state_read_lock(wait, hold_start.elapsed());
+        result
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    fn with_state_write<T>(&self, f: impl FnOnce(&mut State) -> T) -> T {
+        let mut state = self.state.write().expect("state rwlock poisoned");
+        f(&mut state)
+    }
+
+    #[cfg(feature = "perf-counters")]
+    fn with_state_write<T>(&self, f: impl FnOnce(&mut State) -> T) -> T {
+        let Some(perf) = self.perf.as_ref() else {
+            let mut state = self.state.write().expect("state rwlock poisoned");
+            return f(&mut state);
+        };
+        let wait_start = Instant::now();
+        let mut state = self.state.write().expect("state rwlock poisoned");
+        let wait = wait_start.elapsed();
+        let hold_start = Instant::now();
+        let result = f(&mut state);
+        drop(state);
+        perf.record_state_write_lock(wait, hold_start.elapsed());
+        result
+    }
+
+    #[cfg(feature = "perf-counters")]
+    fn record_matcher_candidates_for_visibility(&self, path: &crate::path::VirtualPath) {
+        if let Some(perf) = self.perf.as_ref() {
+            let count = self
+                .cfg
+                .internal_hidden_matcher
+                .candidate_descriptor_count(path)
+                + self.cfg.hidden_matcher.candidate_descriptor_count(path)
+                + self.cfg.visible_matcher.candidate_descriptor_count(path)
+                + self
+                    .cfg
+                    .visible_matcher
+                    .descendant_candidate_descriptor_count(path);
+            perf.record_matcher_candidates(count);
+        }
+    }
+
+    #[cfg(feature = "perf-counters")]
+    fn record_matcher_candidates_for_mutability(&self, path: &crate::path::VirtualPath) {
+        if let Some(perf) = self.perf.as_ref() {
+            let count = self.cfg.readonly_matcher.candidate_descriptor_count(path)
+                + self.cfg.writable_matcher.candidate_descriptor_count(path);
+            perf.record_matcher_candidates(count);
+        }
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    pub(super) fn visibility_decision(
+        &self,
+        path: &crate::path::VirtualPath,
+    ) -> crate::config::VisibilityDecision {
+        self.cfg.visibility_decision(path)
+    }
+
+    #[cfg(feature = "perf-counters")]
+    pub(super) fn visibility_decision(
+        &self,
+        path: &crate::path::VirtualPath,
+    ) -> crate::config::VisibilityDecision {
+        let Some(perf) = self.perf.as_ref() else {
+            return self.cfg.visibility_decision(path);
+        };
+        self.record_matcher_candidates_for_visibility(path);
+        let start = Instant::now();
+        let decision = self.cfg.visibility_decision(path);
+        perf.record_policy_decision(start.elapsed());
+        decision
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    pub(super) fn mutability_decision(
+        &self,
+        path: &crate::path::VirtualPath,
+    ) -> crate::config::MutabilityDecision {
+        self.cfg.mutability_decision(path)
+    }
+
+    #[cfg(feature = "perf-counters")]
+    pub(super) fn mutability_decision(
+        &self,
+        path: &crate::path::VirtualPath,
+    ) -> crate::config::MutabilityDecision {
+        let Some(perf) = self.perf.as_ref() else {
+            return self.cfg.mutability_decision(path);
+        };
+        self.record_matcher_candidates_for_mutability(path);
+        let start = Instant::now();
+        let decision = self.cfg.mutability_decision(path);
+        perf.record_policy_decision(start.elapsed());
+        decision
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    pub(super) fn is_fully_visible(&self, path: &crate::path::VirtualPath) -> bool {
+        self.cfg.is_fully_visible(path)
+    }
+
+    #[cfg(feature = "perf-counters")]
+    pub(super) fn is_fully_visible(&self, path: &crate::path::VirtualPath) -> bool {
+        let Some(perf) = self.perf.as_ref() else {
+            return self.cfg.is_fully_visible(path);
+        };
+        self.record_matcher_candidates_for_visibility(path);
+        let start = Instant::now();
+        let result = self.cfg.is_fully_visible(path);
+        perf.record_policy_decision(start.elapsed());
+        result
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    pub(super) fn entry_is_readable(
+        &self,
+        path: &crate::path::VirtualPath,
+        is_directory: bool,
+    ) -> bool {
+        self.cfg.entry_is_readable(path, is_directory)
+    }
+
+    #[cfg(feature = "perf-counters")]
+    pub(super) fn entry_is_readable(
+        &self,
+        path: &crate::path::VirtualPath,
+        is_directory: bool,
+    ) -> bool {
+        let Some(perf) = self.perf.as_ref() else {
+            return self.cfg.entry_is_readable(path, is_directory);
+        };
+        self.record_matcher_candidates_for_visibility(path);
+        let start = Instant::now();
+        let result = self.cfg.entry_is_readable(path, is_directory);
+        perf.record_policy_decision(start.elapsed());
+        result
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    pub(super) fn is_hidden_symlink_target(
+        &self,
+        path: &crate::path::VirtualPath,
+        target: &OsStr,
+    ) -> bool {
+        self.cfg.is_hidden_symlink_target(path, target)
+    }
+
+    #[cfg(feature = "perf-counters")]
+    pub(super) fn is_hidden_symlink_target(
+        &self,
+        path: &crate::path::VirtualPath,
+        target: &OsStr,
+    ) -> bool {
+        let Some(perf) = self.perf.as_ref() else {
+            return self.cfg.is_hidden_symlink_target(path, target);
+        };
+        self.record_matcher_candidates_for_visibility(path);
+        let start = Instant::now();
+        let result = self.cfg.is_hidden_symlink_target(path, target);
+        perf.record_policy_decision(start.elapsed());
+        result
     }
 
     fn apply_deferred_truncate(&self, file: &File, flags: u32) -> FsResult<()> {
@@ -134,6 +352,15 @@ impl ScreenFs {
             Ok(())
         } else {
             Err(errno_from_io(std::io::Error::last_os_error()))
+        }
+    }
+}
+
+#[cfg(feature = "perf-counters")]
+impl Drop for ScreenFs {
+    fn drop(&mut self) {
+        if let Some(perf) = self.perf.as_ref() {
+            eprint!("{}", perf.summary());
         }
     }
 }
@@ -237,12 +464,20 @@ impl ScreenFs {
         let dir_file = self.open_confined(path, libc::O_RDONLY | libc::O_DIRECTORY, None)?;
         self.guard_opened_directory_target(path, &dir_file, false)?;
         let mut candidates = BTreeMap::new();
+        #[cfg(feature = "perf-counters")]
+        let attr_generation_start = self.perf.as_ref().map(|_| Instant::now());
+        #[cfg(feature = "perf-counters")]
+        let mut attr_generation_entries = 0_u64;
         backing::visit_dir_entries(dir_file, path, 3, |entry| {
+            #[cfg(feature = "perf-counters")]
+            {
+                attr_generation_entries += 1;
+            }
             let name_bytes = entry.name.as_bytes();
             if resume_name.is_some_and(|resume| name_bytes <= resume) {
                 return Ok(());
             }
-            if !self.cfg.entry_is_readable(&entry.child, entry.is_dir) {
+            if !self.entry_is_readable(&entry.child, entry.is_dir) {
                 return Ok(());
             }
             if entry.is_symlink
@@ -258,6 +493,15 @@ impl ScreenFs {
             }
             Ok(())
         })?;
+        #[cfg(feature = "perf-counters")]
+        if let (Some(perf), Some(start)) = (self.perf.as_ref(), attr_generation_start) {
+            let elapsed = start.elapsed();
+            if with_plus {
+                perf.record_readdirplus_attr_generation(attr_generation_entries, elapsed);
+            } else {
+                perf.record_readdir_attr_generation(attr_generation_entries, elapsed);
+            }
+        }
 
         let mut remaining = remaining;
         for (_, entry) in candidates {
@@ -280,11 +524,13 @@ impl ScreenFs {
 
 impl Filesystem for ScreenFs {
     async fn lookup(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<ReplyEntry> {
+        let _timer = fuse_op_timer!(self, "lookup");
         let path = self.child_path(parent, name)?;
         self.reply_entry_for_path(path)
     }
 
     fn forget(&self, _req: Request, inode: u64, nlookup: u64) {
+        let _timer = fuse_op_timer!(self, "forget");
         self.forget_tracked_inode(inode, nlookup);
     }
 
@@ -295,6 +541,7 @@ impl Filesystem for ScreenFs {
         _fh: Option<u64>,
         _flags: u32,
     ) -> FsResult<ReplyAttr> {
+        let _timer = fuse_op_timer!(self, "getattr");
         let path = self.path_for_inode(inode)?;
         Ok(ReplyAttr {
             ttl: self.cfg.attr_ttl,
@@ -303,6 +550,7 @@ impl Filesystem for ScreenFs {
     }
 
     async fn readlink(&self, _req: Request, inode: u64) -> FsResult<ReplyReadlink> {
+        let _timer = fuse_op_timer!(self, "readlink");
         let path = self.path_for_inode(inode)?;
         self.guard_read_path(&path)?;
         let target = self.readlink_child(&path)?;
@@ -313,6 +561,7 @@ impl Filesystem for ScreenFs {
     }
 
     async fn open(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {
+        let _timer = fuse_op_timer!(self, "open");
         let path = self.path_for_inode(inode)?;
         self.guard_open_flags(&path, flags)?;
         let open_flags = sanitize_open_flags(flags, false) & !libc::O_TRUNC;
@@ -335,9 +584,17 @@ impl Filesystem for ScreenFs {
         offset: u64,
         buf: &mut [u8],
     ) -> FsResult<usize> {
+        let _timer = fuse_op_timer!(self, "read");
         let (path, file) = self.file_handle_snapshot(inode, fh)?;
         self.guard_read_path(&path)?;
-        file.read_at(buf, offset).map_err(errno_from_io)
+        #[cfg(feature = "perf-counters")]
+        let start = self.perf.as_ref().map(|_| Instant::now());
+        let result = file.read_at(buf, offset).map_err(errno_from_io);
+        #[cfg(feature = "perf-counters")]
+        if let (Some(perf), Some(start), Ok(size)) = (self.perf.as_ref(), start, result) {
+            perf.record_read(size, start.elapsed());
+        }
+        result
     }
 
     async fn write(
@@ -350,12 +607,21 @@ impl Filesystem for ScreenFs {
         _write_flags: u32,
         _flags: u32,
     ) -> FsResult<usize> {
+        let _timer = fuse_op_timer!(self, "write");
         let (path, file) = self.file_handle_snapshot(inode, fh)?;
         self.guard_mutation_path(&path, true)?;
-        file.write_at(data, offset).map_err(errno_from_io)
+        #[cfg(feature = "perf-counters")]
+        let start = self.perf.as_ref().map(|_| Instant::now());
+        let result = file.write_at(data, offset).map_err(errno_from_io);
+        #[cfg(feature = "perf-counters")]
+        if let (Some(perf), Some(start), Ok(size)) = (self.perf.as_ref(), start, result) {
+            perf.record_write(size, start.elapsed());
+        }
+        result
     }
 
     async fn flush(&self, _req: Request, inode: u64, fh: u64, _lock_owner: u64) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "flush");
         let (_path, file) = self.file_handle_snapshot(inode, fh)?;
         Self::offload_file_sync(file, |file| file.sync_all().map_err(errno_from_io)).await
     }
@@ -370,10 +636,8 @@ impl Filesystem for ScreenFs {
         flush: bool,
         _flock_release: bool,
     ) -> FsResult<()> {
-        let handle = {
-            let mut state = self.state.write().expect("state rwlock poisoned");
-            state.remove_file(fh)
-        };
+        let _timer = fuse_op_timer!(self, "release");
+        let handle = self.with_state_write(|state| state.remove_file(fh));
         if flush && let Some(handle) = handle {
             Self::offload_file_sync(handle.file, |file| file.sync_all().map_err(errno_from_io))
                 .await?;
@@ -382,11 +646,13 @@ impl Filesystem for ScreenFs {
     }
 
     async fn fsync(&self, _req: Request, inode: u64, fh: u64, datasync: bool) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "fsync");
         let (_path, file) = self.file_handle_snapshot(inode, fh)?;
         Self::offload_file_sync(file, move |file| Self::fsync_fd(file.as_ref(), datasync)).await
     }
 
     async fn opendir(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {
+        let _timer = fuse_op_timer!(self, "opendir");
         let path = self.path_for_inode(inode)?;
         self.guard_open_flags(&path, flags)?;
         let dir_file = self.open_confined(&path, libc::O_PATH | libc::O_DIRECTORY, None)?;
@@ -407,6 +673,7 @@ impl Filesystem for ScreenFs {
         offset: u64,
         size: u32,
     ) -> FsResult<Vec<DirectoryEntry>> {
+        let _timer = fuse_op_timer!(self, "readdir");
         Ok(self
             .directory_page(inode, fh, offset, size, false)?
             .into_iter()
@@ -427,6 +694,7 @@ impl Filesystem for ScreenFs {
         offset: u64,
         size: u32,
     ) -> FsResult<Vec<DirectoryEntryPlus>> {
+        let _timer = fuse_op_timer!(self, "readdirplus");
         let entries = self.directory_page(inode, fh, offset, size, true)?;
         Ok(entries
             .into_iter()
@@ -443,11 +711,13 @@ impl Filesystem for ScreenFs {
     }
 
     async fn releasedir(&self, _req: Request, _inode: u64, fh: u64, _flags: u32) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "releasedir");
         self.remove_open_directory(fh);
         Ok(())
     }
 
     async fn access(&self, _req: Request, inode: u64, mask: u32) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "access");
         let path = self.path_for_inode(inode)?;
         self.guard_access_mask(&path, mask)?;
         let file = self.open_confined(&path, libc::O_PATH, None)?;
@@ -456,6 +726,7 @@ impl Filesystem for ScreenFs {
     }
 
     async fn statfs(&self, _req: Request, _inode: u64) -> FsResult<ReplyStatfs> {
+        let _timer = fuse_op_timer!(self, "statfs");
         source_root_statfs(&self.source_root)
     }
 
@@ -466,6 +737,7 @@ impl Filesystem for ScreenFs {
         _fh: Option<u64>,
         set_attr: SetAttr,
     ) -> FsResult<ReplyAttr> {
+        let _timer = fuse_op_timer!(self, "setattr");
         let path = self.path_for_inode(inode)?;
         self.guard_mutation_path(&path, true)?;
         let flags = if set_attr.size.is_some() {
@@ -489,8 +761,9 @@ impl Filesystem for ScreenFs {
         name: &OsStr,
         link: &OsStr,
     ) -> FsResult<ReplyEntry> {
+        let _timer = fuse_op_timer!(self, "symlink");
         let path = self.child_path(parent, name)?;
-        if self.cfg.is_hidden_symlink_target(&path, link) {
+        if self.is_hidden_symlink_target(&path, link) {
             return Err(ENOENT);
         }
         let parent_path = self.guard_child_mutation_path(&path)?;
@@ -521,6 +794,7 @@ impl Filesystem for ScreenFs {
         mode: u32,
         rdev: u32,
     ) -> FsResult<ReplyEntry> {
+        let _timer = fuse_op_timer!(self, "mknod");
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
         let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
         self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
@@ -540,6 +814,7 @@ impl Filesystem for ScreenFs {
     }
 
     async fn unlink(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "unlink");
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
         let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
         self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
@@ -552,6 +827,7 @@ impl Filesystem for ScreenFs {
     }
 
     async fn rmdir(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "rmdir");
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
         let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
         self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
@@ -572,6 +848,7 @@ impl Filesystem for ScreenFs {
         mode: u32,
         _umask: u32,
     ) -> FsResult<ReplyEntry> {
+        let _timer = fuse_op_timer!(self, "mkdir");
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
         let (_parent, parent_dir, name) = self.open_parent_dir(&path)?;
         self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
@@ -623,6 +900,7 @@ impl Filesystem for ScreenFs {
         new_name: &OsStr,
         _flags: u32,
     ) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "rename");
         let from = self.child_path(parent, name)?;
         let to = self.child_path(new_parent, new_name)?;
         self.guard_existing_entry_target_visibility(&from)?;
@@ -663,6 +941,7 @@ impl Filesystem for ScreenFs {
         new_parent: u64,
         new_name: &OsStr,
     ) -> FsResult<ReplyEntry> {
+        let _timer = fuse_op_timer!(self, "link");
         let source = self.path_for_inode(inode)?;
         let target = self.child_path(new_parent, new_name)?;
         self.guard_existing_entry_target_visibility(&source)?;
@@ -702,14 +981,32 @@ impl Filesystem for ScreenFs {
         mode: u32,
         flags: u32,
     ) -> FsResult<ReplyCreate> {
+        let _timer = fuse_op_timer!(self, "create");
         let (path, parent_path) = self.guarded_child_mutation(parent, name)?;
-        if self.stat_child_no_follow(&path, 0).is_ok() {
+        let existed = self.stat_child_no_follow(&path, 0).is_ok();
+        if existed {
             self.guard_mutation_path(&path, true)?;
         }
-        let open_flags = sanitize_open_flags(flags, true) & !libc::O_TRUNC;
-        let file = self.open_confined(&path, open_flags, Some(mode & 0o7777))?;
-        self.guard_opened_file_target(&path, &file, true)?;
-        self.apply_deferred_truncate(&file, flags)?;
+        let (_parent, parent_dir, child_name) = self.open_parent_dir(&path)?;
+        self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
+        let open_flags = (sanitize_open_flags(flags, true) & !libc::O_TRUNC) | libc::O_NOFOLLOW;
+        let file = match open_child_at(&parent_dir, &child_name, open_flags, Some(mode & 0o7777)) {
+            Ok(file) => file,
+            Err(libc::ELOOP) => return Err(ENOENT),
+            Err(err) => return Err(err),
+        };
+        if let Err(err) = self.guard_opened_file_target(&path, &file, true) {
+            if !existed {
+                let _ = unsafe { libc::unlinkat(parent_dir.as_raw_fd(), child_name.as_ptr(), 0) };
+            }
+            return Err(err);
+        }
+        if let Err(err) = self.apply_deferred_truncate(&file, flags) {
+            if !existed {
+                let _ = unsafe { libc::unlinkat(parent_dir.as_raw_fd(), child_name.as_ptr(), 0) };
+            }
+            return Err(err);
+        }
         let (inode, fh) = self.finalize_created_file(&parent_path, path.clone(), file);
         let attr = self.attr_for_path(&path, inode)?;
         Ok(ReplyCreate {
@@ -732,6 +1029,7 @@ impl Filesystem for ScreenFs {
         length: u64,
         mode: u32,
     ) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "fallocate");
         let (path, file) = self.file_handle_snapshot(inode, fh)?;
         self.guard_mutation_path(&path, true)?;
         let result = unsafe {
@@ -757,6 +1055,7 @@ impl Filesystem for ScreenFs {
         offset: u64,
         whence: u32,
     ) -> FsResult<u64> {
+        let _timer = fuse_op_timer!(self, "lseek");
         let file = self.file_snapshot_for_handle(fh)?;
         let result = unsafe { libc::lseek(file.as_raw_fd(), offset as libc::off_t, whence as i32) };
         if result >= 0 {
@@ -778,6 +1077,7 @@ impl Filesystem for ScreenFs {
         length: u64,
         flags: u64,
     ) -> FsResult<usize> {
+        let _timer = fuse_op_timer!(self, "copy_file_range");
         let ((input_path, input_file), (output_path, output_file)) =
             self.copy_file_range_snapshot(inode_in, fh_in, inode_out, fh_out)?;
         self.guard_read_path(&input_path)?;
@@ -809,6 +1109,7 @@ impl Filesystem for ScreenFs {
         name: &OsStr,
         size: u32,
     ) -> FsResult<ReplyXattr> {
+        let _timer = fuse_op_timer!(self, "getxattr");
         let file = self.xattr_file(inode, false)?;
         let c_name = cstring_os(name)?;
         read_xattr_reply(
@@ -842,6 +1143,7 @@ impl Filesystem for ScreenFs {
     }
 
     async fn listxattr(&self, _req: Request, inode: u64, size: u32) -> FsResult<ReplyXattr> {
+        let _timer = fuse_op_timer!(self, "listxattr");
         let file = self.xattr_file(inode, false)?;
         read_xattr_reply(
             size,
@@ -874,6 +1176,7 @@ impl Filesystem for ScreenFs {
         value: &[u8],
         flags: u32,
     ) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "setxattr");
         let file = self.xattr_file(inode, true)?;
         let c_name = cstring_os(name)?;
         let result = unsafe {
@@ -893,6 +1196,7 @@ impl Filesystem for ScreenFs {
     }
 
     async fn removexattr(&self, _req: Request, inode: u64, name: &OsStr) -> FsResult<()> {
+        let _timer = fuse_op_timer!(self, "removexattr");
         let file = self.xattr_file(inode, true)?;
         let c_name = cstring_os(name)?;
         let result = unsafe { libc::fremovexattr(file.as_raw_fd(), c_name.as_ptr()) };

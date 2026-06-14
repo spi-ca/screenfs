@@ -17,7 +17,7 @@ This artifact tracks the ScreenFS hardening work for the security-review finding
 - `src/fs/guards.rs` revalidates opened fd targets:
   - `guard_opened_file_target()` still requires fully visible final file targets.
   - `guard_opened_directory_target()` allows bridge-visible directories for traversal/listing while still applying mutation restrictions when requested.
-- `src/fs.rs` defers `O_TRUNC` for `open`/`create` until after opened-target visibility/mutability validation, so a raced final symlink cannot truncate a hidden/readonly target before the post-open guard runs.
+- `src/fs.rs` defers `O_TRUNC` for `open`/`create` until after opened-target visibility/mutability validation, so a raced final symlink cannot truncate a hidden/readonly target before the post-open guard runs. `create` also forces `O_NOFOLLOW` on the final component and maps a raced final symlink (`ELOOP`) to `ENOENT`, avoiding hidden/readonly target creation through a swapped leaf symlink.
 - `src/fs.rs` replaces representative path mutations with dirfd syscalls:
   - `symlinkat()` for symlink creation and `unlinkat()` rollback.
   - `mknodat()` for node creation.
@@ -43,7 +43,7 @@ Observed result at this point:
 - `cargo check`: passed.
 - `cargo test --all-targets --all-features`: 124 library tests and 1 binary test passed before the failed-lookup regression was added; later serial full-suite validation observed 128 library tests and 1 binary test passing.
 - Local live FUSE rename/replace probe with zero TTL observed immediate `exists=True` and successful same-process read after `os.rename()`.
-- Focused source regressions include failed lookup state cleanup, visible symlink parent mutation through resolved parent, restrictive-mode `mkdir` success after creation, and write-intent `open(O_TRUNC)` through a hidden symlink returning `ENOENT` without truncating the target.
+- Focused source regressions include failed lookup state cleanup, visible symlink parent mutation through resolved parent, restrictive-mode `mkdir` success after creation, write-intent `open(O_TRUNC)` through a hidden symlink returning `ENOENT` without truncating the target, and `create(O_CREAT|O_TRUNC)` rejecting a leaf symlink without modifying its target.
 
 ## Remaining work before goal completion
 

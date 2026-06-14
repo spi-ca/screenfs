@@ -47,11 +47,18 @@ impl<'a> RequestPathResolver<'a> {
         path: &VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<VirtualPath, i32> {
+        #[cfg(feature = "perf-counters")]
+        let start = self.fs.perf.as_ref().map(|_| std::time::Instant::now());
         let source_root = self.source_root()?;
         let source = path
             .resolve_host_path(source_root, follow_final_symlink)
             .map_err(errno_from_io)?;
-        virtual_path_from_source_path(source_root, &source)
+        let result = virtual_path_from_source_path(source_root, &source);
+        #[cfg(feature = "perf-counters")]
+        if let (Some(perf), Some(start)) = (self.fs.perf.as_ref(), start) {
+            perf.record_resolved_virtual_path(start.elapsed());
+        }
+        result
     }
 
     fn resolve_mutation_coordinate_target(
@@ -67,10 +74,17 @@ impl<'a> RequestPathResolver<'a> {
     }
 
     fn resolved_virtual_path_for_open_file(&mut self, file: &File) -> Result<VirtualPath, i32> {
+        #[cfg(feature = "perf-counters")]
+        let start = self.fs.perf.as_ref().map(|_| std::time::Instant::now());
         let fd_path = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
         let source = fs::read_link(fd_path).map_err(errno_from_io)?;
         let source_root = self.source_root()?;
-        virtual_path_from_source_path(source_root, &source)
+        let result = virtual_path_from_source_path(source_root, &source);
+        #[cfg(feature = "perf-counters")]
+        if let (Some(perf), Some(start)) = (self.fs.perf.as_ref(), start) {
+            perf.record_resolved_virtual_path(start.elapsed());
+        }
+        result
     }
 }
 
@@ -103,10 +117,8 @@ fn virtual_path_from_source_path(source_root: &Path, source: &Path) -> Result<Vi
 impl ScreenFs {
     pub(super) fn visible_for_entry(&self, path: &VirtualPath) -> bool {
         match self.stat_child_no_follow(path, 0) {
-            Ok(attr) => self
-                .cfg
-                .entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR),
-            Err(_) => self.cfg.is_fully_visible(path),
+            Ok(attr) => self.entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR),
+            Err(_) => self.is_fully_visible(path),
         }
     }
 
@@ -123,9 +135,18 @@ impl ScreenFs {
         path: &VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<VirtualPath, i32> {
-        let source = self.host_path(path, follow_final_symlink)?;
+        #[cfg(feature = "perf-counters")]
+        let start = self.perf.as_ref().map(|_| std::time::Instant::now());
         let source_root = self.source_root_path()?;
-        virtual_path_from_source_path(&source_root, &source)
+        let source = path
+            .resolve_host_path(&source_root, follow_final_symlink)
+            .map_err(errno_from_io)?;
+        let result = virtual_path_from_source_path(&source_root, &source);
+        #[cfg(feature = "perf-counters")]
+        if let (Some(perf), Some(start)) = (self.perf.as_ref(), start) {
+            perf.record_resolved_virtual_path(start.elapsed());
+        }
+        result
     }
 
     pub(super) fn guard_read_path(&self, path: &VirtualPath) -> Result<(), i32> {
@@ -138,7 +159,7 @@ impl ScreenFs {
         path: &VirtualPath,
         resolved: &VirtualPath,
     ) -> Result<(), i32> {
-        if resolved != path && !self.cfg.is_fully_visible(resolved) {
+        if resolved != path && !self.is_fully_visible(resolved) {
             Err(ENOENT)
         } else {
             Ok(())
@@ -152,8 +173,8 @@ impl ScreenFs {
         follow_final_symlink: bool,
     ) -> Result<MutationCoordinateEvaluation<'a>, i32> {
         self.guard_hidden_path(path)?;
-        let path_visibility = self.cfg.visibility_decision(path);
-        let path_mutability = self.cfg.mutability_decision(path);
+        let path_visibility = self.visibility_decision(path);
+        let path_mutability = self.mutability_decision(path);
         let mut coordinate = MutationCoordinateEvaluation {
             path,
             follow_final_symlink,
@@ -196,7 +217,7 @@ impl ScreenFs {
         if *resolved == path {
             return Ok(());
         }
-        if self.cfg.mutability_decision(resolved).is_readonly() {
+        if self.mutability_decision(resolved).is_readonly() {
             Err(libc::EROFS)
         } else {
             Ok(())
@@ -293,7 +314,7 @@ impl ScreenFs {
         path: &VirtualPath,
         raw_target: &OsStr,
     ) -> Result<(), i32> {
-        if self.cfg.is_hidden_symlink_target(path, raw_target) {
+        if self.is_hidden_symlink_target(path, raw_target) {
             Err(ENOENT)
         } else {
             Ok(())
@@ -354,7 +375,7 @@ impl ScreenFs {
         mutation: bool,
     ) -> Result<(), i32> {
         let resolved = self.resolved_virtual_path_for_open_file(file)?;
-        if !self.cfg.is_fully_visible(&resolved) {
+        if !self.is_fully_visible(&resolved) {
             return Err(ENOENT);
         }
         self.guard_opened_writable_target(path, &resolved, mutation)
@@ -367,7 +388,7 @@ impl ScreenFs {
         mutation: bool,
     ) -> Result<(), i32> {
         let resolved = self.resolved_virtual_path_for_open_file(file)?;
-        if !self.cfg.entry_is_readable(&resolved, true) {
+        if !self.entry_is_readable(&resolved, true) {
             return Err(ENOENT);
         }
         self.guard_opened_writable_target(path, &resolved, mutation)
@@ -385,7 +406,7 @@ impl ScreenFs {
         if resolved != expected {
             return Err(ENOENT);
         }
-        if !self.cfg.entry_is_readable(&resolved, true) {
+        if !self.entry_is_readable(&resolved, true) {
             return Err(ENOENT);
         }
         self.guard_opened_writable_target(path, &resolved, mutation)
@@ -400,16 +421,16 @@ impl ScreenFs {
         if !mutation {
             return Ok(());
         }
-        if resolved != path && !self.cfg.is_fully_visible(resolved) {
+        if resolved != path && !self.is_fully_visible(resolved) {
             return Err(ENOENT);
         }
 
-        let path_visibility = self.cfg.visibility_decision(path);
+        let path_visibility = self.visibility_decision(path);
         if matches!(path_visibility, VisibilityDecision::BridgeVisible) {
             return Err(libc::EROFS);
         }
 
-        let path_mutability = self.cfg.mutability_decision(path);
+        let path_mutability = self.mutability_decision(path);
         if path_mutability.is_readonly() {
             return Err(libc::EROFS);
         }
@@ -420,7 +441,7 @@ impl ScreenFs {
         {
             return Ok(());
         }
-        if self.cfg.mutability_decision(resolved).is_readonly() {
+        if self.mutability_decision(resolved).is_readonly() {
             return Err(libc::EROFS);
         }
         Ok(())

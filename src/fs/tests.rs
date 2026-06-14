@@ -19,6 +19,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod data_mutations;
 #[path = "tests/mutability.rs"]
 mod mutability;
+#[path = "tests/perf.rs"]
+#[cfg(feature = "perf-counters")]
+mod perf;
 #[path = "tests/state_cache.rs"]
 mod state_cache;
 #[path = "tests/symlinks_access_create.rs"]
@@ -101,6 +104,30 @@ fn fs_for_axes(
         config_path: None,
         visibility_default,
         mutability_default,
+    })
+    .unwrap();
+    ScreenFs::new(cfg)
+}
+
+#[cfg(feature = "perf-counters")]
+fn fs_for_perf(source: &Path) -> ScreenFs {
+    let mount = source.join("mount");
+    std::fs::create_dir_all(&mount).unwrap();
+    let config_path = source.join("screenfs.yaml");
+    std::fs::write(&config_path, "perf:\n  enabled: true\n").unwrap();
+    let _env = ProcessEnvGuard::new(source, None);
+    let cfg = RuntimeConfig::from_launch(LaunchArgs {
+        cli: CliArgs {
+            source_root: source.to_path_buf(),
+            mount_root: mount,
+            visibility_hidden_rules: Vec::new(),
+            visibility_visible_rules: Vec::new(),
+            mutability_readonly_rules: Vec::new(),
+            mutability_writable_rules: Vec::new(),
+        },
+        config_path: Some(config_path),
+        visibility_default: None,
+        mutability_default: None,
     })
     .unwrap();
     ScreenFs::new(cfg)
