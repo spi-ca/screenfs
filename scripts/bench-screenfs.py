@@ -10,11 +10,13 @@ fixture creation.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import os
 import platform
 import shutil
+import shlex
 import signal
 import statistics
 import subprocess
@@ -45,9 +47,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmups", type=int, default=3, help="Warmup iterations per workload.")
     parser.add_argument("--read-mib", type=int, default=64, help="Sequential read fixture size in MiB.")
     parser.add_argument("--write-mib", type=int, default=64, help="Sequential write size per iteration in MiB.")
+    parser.add_argument("--small-io-bytes", type=int, default=4096, help="Bytes per operation for small-buffer read/write workloads.")
+    parser.add_argument("--small-io-ops", type=int, default=1024, help="Small-buffer read/write operations per iteration.")
+    parser.add_argument("--sync-bytes", type=int, default=4096, help="Bytes written per fsync workload operation.")
+    parser.add_argument("--sync-ops", type=int, default=128, help="Open/write/fsync/close operations per iteration.")
     parser.add_argument("--small-files", type=int, default=2000, help="Small files for stat/open/read workload.")
     parser.add_argument("--dir-entries", type=int, default=5000, help="Directory entries for listing workload.")
     parser.add_argument("--hidden-misses", type=int, default=2000, help="Repeated hidden-path ENOENT checks for the ScreenFS-only workload.")
+    parser.add_argument(
+        "--symlink-parent-mutations",
+        type=int,
+        default=2000,
+        help="Repeated mkdir/rmdir pairs under a visible symlink parent for the ScreenFS-only workload.",
+    )
     parser.add_argument("--output-json", type=Path, help="Write full benchmark result JSON to this path.")
     parser.add_argument("--output-md", type=Path, help="Write Markdown summary to this path.")
     parser.add_argument("--output-svg", type=Path, help="Write an SVG box plot of raw sample timings to this path.")
@@ -85,6 +97,43 @@ def command_output(command: list[str]) -> str | None:
         return run_checked(command).stdout.strip()
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as file:
+            while True:
+                chunk = file.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+    except OSError as exc:
+        raise SystemExit(f"failed to read screenfs binary for sha256: {path}: {exc}") from exc
+    return digest.hexdigest()
+
+
+def summarize_git_status(status: str | None, limit: int = 5) -> str | None:
+    if status is None:
+        return None
+    entries = [line for line in status.splitlines() if line]
+    if not entries:
+        return None
+    summary = "; ".join(entries[:limit])
+    if len(entries) > limit:
+        summary += f"; ... (+{len(entries) - limit} more)"
+    return summary
+
+
+def shell_join(argv: list[str]) -> str:
+    return shlex.join(argv)
+
+
+def harness_argv() -> list[str]:
+    orig_argv = getattr(sys, "orig_argv", None)
+    if orig_argv:
+        return [str(arg) for arg in orig_argv]
+    return [sys.executable, *sys.argv]
 
 
 def write_all_fd(fd: int, data: bytes) -> None:
@@ -135,6 +184,11 @@ def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
     target = symlink_dir / "target.txt"
     target.write_text("visible symlink target\n", encoding="utf-8")
     os.symlink("target.txt", symlink_dir / "link.txt")
+
+    symlink_parent_dir = root / "symlink-parent"
+    symlink_parent_dir.mkdir()
+    (symlink_parent_dir / "real").mkdir()
+    os.symlink("real", symlink_parent_dir / "alias")
 
     (root / "hidden").mkdir()
     for index in range(args.hidden_misses):
@@ -194,9 +248,13 @@ def seq_read(root: Path, _args: argparse.Namespace, side: str) -> None:
         raise RuntimeError(f"{side} seq_read read no data")
 
 
-def seq_write(root: Path, args: argparse.Namespace, side: str) -> None:
+def write_output_path(root: Path, side: str, name: str) -> Path:
     write_dir_name = "write-native" if side == "native" else "write-mounted"
-    path = root / ".screenfs-bench" / write_dir_name / "seq-write.bin"
+    return root / ".screenfs-bench" / write_dir_name / name
+
+
+def seq_write(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "seq-write.bin")
     chunk = b"w" * MiB
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
     try:
@@ -205,6 +263,53 @@ def seq_write(root: Path, args: argparse.Namespace, side: str) -> None:
     finally:
         os.close(fd)
     path.unlink(missing_ok=True)
+
+
+def small_read(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = root / ".screenfs-bench" / "read" / "seq.bin"
+    if path.stat().st_size == 0:
+        raise RuntimeError(f"{side} small_read fixture is empty")
+    total = 0
+    with path.open("rb", buffering=0) as file:
+        for _ in range(args.small_io_ops):
+            remaining = args.small_io_bytes
+            while remaining:
+                data = file.read(remaining)
+                if data:
+                    total += len(data)
+                    remaining -= len(data)
+                    continue
+                file.seek(0)
+    if total == 0:
+        raise RuntimeError(f"{side} small_read read no data")
+
+
+def small_write(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "small-write.bin")
+    chunk = b"s" * args.small_io_bytes
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+    try:
+        for _ in range(args.small_io_ops):
+            write_all_fd(fd, chunk)
+    finally:
+        os.close(fd)
+    path.unlink(missing_ok=True)
+
+
+def write_fsync_close(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "write-fsync-close.bin")
+    chunk = b"f" * args.sync_bytes
+    try:
+        for _ in range(args.sync_ops):
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+            try:
+                write_all_fd(fd, chunk)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            path.unlink(missing_ok=True)
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def small_stat_open_read(root: Path, _args: argparse.Namespace, _side: str) -> None:
@@ -249,15 +354,50 @@ def hidden_stat_miss(root: Path, args: argparse.Namespace, side: str) -> None:
             raise RuntimeError("hidden_stat_miss expected ENOENT through ScreenFS")
 
 
+def symlink_parent_mkdir_rmdir(root: Path, args: argparse.Namespace, _side: str) -> None:
+    fixture_root = root / ".screenfs-bench" / "symlink-parent"
+    real_parent = fixture_root / "real"
+    alias_parent = fixture_root / "alias"
+    if not alias_parent.is_dir():
+        raise RuntimeError("symlink_parent_mkdir_rmdir missing alias parent")
+
+    created: list[Path] = []
+    try:
+        for index in range(args.symlink_parent_mutations):
+            name = f"bench-child-{index:06d}"
+            alias_child = alias_parent / name
+            real_child = real_parent / name
+            if alias_child.exists() or real_child.exists():
+                raise RuntimeError(f"symlink_parent_mkdir_rmdir saw unexpected preexisting path: {alias_child}")
+            os.mkdir(alias_child, 0o755)
+            created.append(real_child)
+            if not real_child.is_dir():
+                raise RuntimeError(f"symlink_parent_mkdir_rmdir expected directory at {real_child}")
+            os.rmdir(alias_child)
+            created.pop()
+            if real_child.exists():
+                raise RuntimeError(f"symlink_parent_mkdir_rmdir expected {real_child} to be removed")
+    finally:
+        for leftover in reversed(created):
+            try:
+                os.rmdir(leftover)
+            except FileNotFoundError:
+                pass
+
+
 WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
     "seq_read": seq_read,
     "seq_write": seq_write,
+    "small_read": small_read,
+    "small_write": small_write,
+    "write_fsync_close": write_fsync_close,
     "small_stat_open_read": small_stat_open_read,
     "readdir_lstat": readdir_lstat,
     "symlink_open_read": symlink_open_read,
 }
 SCREENFS_ONLY_WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
     "hidden_stat_miss": hidden_stat_miss,
+    "symlink_parent_mkdir_rmdir": symlink_parent_mkdir_rmdir,
 }
 
 
@@ -402,12 +542,19 @@ def render_box_plot_svg(result: dict[str, Any]) -> str:
 
 
 def markdown_report(result: dict[str, Any]) -> str:
+    environment = result["environment"]
+    screenfs = result["screenfs"]
+    git_dirty_status = summarize_git_status(environment.get("git_status_porcelain"))
+
     lines = [
         "# ScreenFS benchmark result",
         "",
         f"- timestamp: `{result['timestamp']}`",
-        f"- git: `{result['environment'].get('git_revision') or 'unknown'}`",
-        f"- screenfs_bin: `{result['screenfs']['binary']}`",
+        f"- harness_command_line: `{result['harness']['command_line']}`",
+        f"- git: `{environment.get('git_revision') or 'unknown'}`",
+        f"- git_worktree_clean: `{environment['git_worktree_clean']}`",
+        f"- screenfs_bin: `{screenfs['binary']}`",
+        f"- screenfs_bin_sha256: `{screenfs['binary_sha256']}`",
         f"- iterations: `{result['parameters']['iterations']}`, warmups: `{result['parameters']['warmups']}`",
         "",
         "## Comparable workloads",
@@ -415,6 +562,9 @@ def markdown_report(result: dict[str, Any]) -> str:
         "| workload | native p50 s | mounted p50 s | ratio mounted/native | mounted p90 s | mounted p95 s | mounted p99 s |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
+    if git_dirty_status is not None:
+        lines.insert(5, f"- git_dirty_status: `{git_dirty_status}`")
+
     comparable = result["comparisons"]
     for name, comparison in comparable.items():
         lines.append(
@@ -448,7 +598,20 @@ def markdown_report(result: dict[str, Any]) -> str:
 
 def main() -> int:
     args = parse_args()
-    for name in ["iterations", "warmups", "read_mib", "write_mib", "small_files", "dir_entries", "hidden_misses"]:
+    for name in [
+        "iterations",
+        "warmups",
+        "read_mib",
+        "write_mib",
+        "small_io_bytes",
+        "small_io_ops",
+        "sync_bytes",
+        "sync_ops",
+        "small_files",
+        "dir_entries",
+        "hidden_misses",
+        "symlink_parent_mutations",
+    ]:
         require_positive(name, getattr(args, name))
 
     if hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -461,6 +624,7 @@ def main() -> int:
     screenfs_bin = Path(args.screenfs_bin)
     if not screenfs_bin.exists():
         raise SystemExit(f"screenfs binary not found: {screenfs_bin}; run with --build or pass --screenfs-bin")
+    screenfs_binary_sha256 = sha256_file(screenfs_bin)
     if shutil.which("fusermount3") is None:
         raise SystemExit("fusermount3 not found; ScreenFS benchmark requires non-root FUSE3 cleanup")
 
@@ -527,16 +691,22 @@ def main() -> int:
         except OSError:
             screenfs_stderr = ""
 
+        git_status_porcelain = command_output(["git", "status", "--porcelain"])
+        harness_command = harness_argv()
         result = {
             "schema": "screenfs-benchmark-v1",
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "harness": {
+                "argv": harness_command,
+                "command_line": shell_join(harness_command),
+            },
             "environment": {
                 "platform": platform.platform(),
                 "python": sys.version.split()[0],
                 "uname": " ".join(platform.uname()),
                 "git_revision": command_output(["git", "rev-parse", "HEAD"]),
-                "git_status_porcelain": command_output(["git", "status", "--porcelain"]),
-                "git_worktree_clean": command_output(["git", "status", "--porcelain"]) == "",
+                "git_status_porcelain": git_status_porcelain,
+                "git_worktree_clean": git_status_porcelain == "",
                 "source_filesystem": path_fs_info(source),
                 "mount_filesystem": path_fs_info(mount),
                 "rustc": command_output(["rustc", "--version"]),
@@ -548,13 +718,19 @@ def main() -> int:
                 "warmups": args.warmups,
                 "read_mib": args.read_mib,
                 "write_mib": args.write_mib,
+                "small_io_bytes": args.small_io_bytes,
+                "small_io_ops": args.small_io_ops,
+                "sync_bytes": args.sync_bytes,
+                "sync_ops": args.sync_ops,
                 "small_files": args.small_files,
                 "dir_entries": args.dir_entries,
                 "hidden_misses": args.hidden_misses,
+                "symlink_parent_mutations": args.symlink_parent_mutations,
             },
             "paths": {"workdir": str(workdir), "source": str(source), "mount": str(mount)},
             "screenfs": {
                 "binary": str(screenfs_bin),
+                "binary_sha256": screenfs_binary_sha256,
                 "command": command,
                 "stderr_log": str(stderr_path),
                 "stderr_preview": screenfs_stderr[-4000:],
