@@ -25,6 +25,7 @@ real / -> screenfs mount root -> sandbox/chroot consumer
 - 설계 계약: [`docs/design.md`](docs/design.md)
 - 아키텍처 요약: [`docs/architecture.md`](docs/architecture.md)
 - 운영/검증 evidence: [`docs/operations.md`](docs/operations.md)
+- 성능 벤치마크: [`docs/benchmarks.md`](docs/benchmarks.md)
 
 ## 구조 한눈에 보기
 
@@ -171,6 +172,7 @@ mutability:
 - 설계: [`docs/design.md`](docs/design.md)
 - 아키텍처 요약: [`docs/architecture.md`](docs/architecture.md)
 - 운영/검증: [`docs/operations.md`](docs/operations.md)
+- 성능 벤치마크: [`docs/benchmarks.md`](docs/benchmarks.md)
 - Pi workflow 문서: [`docs/pi-agents.md`](docs/pi-agents.md)
 - 다이어그램 렌더링 계약: [`docs/diagrams/README.md`](docs/diagrams/README.md)
 

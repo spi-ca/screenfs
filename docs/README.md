@@ -8,6 +8,7 @@
 - [Design](design.md) — visibility/bridge-visible/mutability 의미론과 구현 계약
 - [Architecture](architecture.md) — 코드 경계, 데이터 흐름, 다이어그램 요약
 - [Operations](operations.md) — recorded build/test/live-smoke evidence와 검증 체크리스트
+- [Benchmarks](benchmarks.md) — formal performance benchmark workflow and result recording rules
 
 ## Current policy model at a glance
 
@@ -42,6 +43,7 @@ mutability:
 
 - [Pi role agents](pi-agents.md) — repo-local Pi workflow, role, resource 설명
 - [Diagram artifacts README](diagrams/README.md) — Mermaid source of truth와 SVG/PNG 렌더링 계약
+- [Benchmarks](benchmarks.md) — ScreenFS/native comparative performance benchmark harness
 
 ## Evidence artifacts
 
