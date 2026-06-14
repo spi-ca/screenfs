@@ -83,7 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--perf-counters",
         action="store_true",
-        help="Enable ScreenFS perf counters with a temporary config and record the stderr summary in JSON/Markdown artifacts.",
+        help="Build/use a ScreenFS binary compiled with --features perf-counters and record the stderr summary in JSON/Markdown artifacts.",
     )
     return parser.parse_args()
 
@@ -92,13 +92,6 @@ def require_positive(name: str, value: int) -> None:
     if value <= 0:
         raise SystemExit(f"{name} must be positive")
 
-
-def reject_perf_config_conflict(args: argparse.Namespace) -> None:
-    if not args.perf_counters:
-        return
-    for extra in args.extra_screenfs_arg:
-        if extra == "--config" or extra.startswith("--config="):
-            raise SystemExit("--perf-counters cannot be combined with --extra-screenfs-arg --config; the harness must control the temporary perf config")
 
 
 def run_checked(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -671,7 +664,6 @@ def main() -> int:
     ]:
         require_positive(name, getattr(args, name))
 
-    reject_perf_config_conflict(args)
 
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         raise SystemExit("do not run this benchmark as root or with sudo; ScreenFS evidence must be non-root FUSE evidence")
@@ -699,17 +691,10 @@ def main() -> int:
 
     stderr_path = workdir / "screenfs.stderr.log"
     stderr_file = stderr_path.open("w", encoding="utf-8")
-    screenfs_prefix_args: list[str] = []
-    perf_config_path: Path | None = None
-    if args.perf_counters:
-        perf_config_path = workdir / "screenfs-perf.yaml"
-        perf_config_path.write_text("perf:\n  enabled: true\n", encoding="utf-8")
-        screenfs_prefix_args.extend(["--config", str(perf_config_path)])
     command = [
         str(screenfs_bin),
         str(source),
         str(mount),
-        *screenfs_prefix_args,
         "--visibility-default",
         "visible",
         "--hidden",
@@ -821,7 +806,6 @@ def main() -> int:
                 "stderr_log": str(stderr_path),
                 "stderr_preview": screenfs_stderr[-4000:],
                 "perf_counters_enabled": args.perf_counters,
-                "perf_config": str(perf_config_path) if perf_config_path else None,
                 "perf_summary": perf_summary,
             },
             "native": native_results,

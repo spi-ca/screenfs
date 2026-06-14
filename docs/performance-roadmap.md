@@ -301,7 +301,7 @@ userspace path resolution cache로 confinement 대체
 
 ## Instrumentation status and backlog
 
-현재 `--features perf-counters`로 빌드한 binary에서 `perf.enabled: true` config로 켤 수 있는 opt-in counter:
+현재 `--features perf-counters`로 빌드한 binary에서 자동으로 켜지는 opt-in counter:
 
 - FUSE operation별 `fuse_op.<operation>` count/latency
 - policy decision count/latency와 matcher candidate count
@@ -313,7 +313,7 @@ userspace path resolution cache로 confinement 대체
 - `readdirplus_attr_generation_scan` count/latency plus `readdirplus_attr_generation_entries` scanned entry count
 - mutation invalidation count, invalidated entries, evicted entries
 
-출력은 ScreenFS 종료 시 stderr summary다. 이 summary는 benchmark/smoke run의 내부 attribution 보조 evidence이며, 단독 performance claim 근거가 아니다. 기본 build에는 instrumentation code/config surface가 포함되지 않는다. `scripts/bench-screenfs.py --perf-counters --build`는 `--features perf-counters`로 빌드하고 임시 config로 `perf.enabled`를 켜며, 종료 후 summary를 JSON `screenfs.perf_summary`와 Markdown report에 기록한다.
+출력은 ScreenFS 종료 시 stderr summary다. 이 summary는 benchmark/smoke run의 내부 attribution 보조 evidence이며, 단독 performance claim 근거가 아니다. 기본 build에는 instrumentation code/config surface가 포함되지 않는다. `scripts/bench-screenfs.py --perf-counters --build`는 `--features perf-counters`로 빌드하며, 종료 후 summary를 JSON `screenfs.perf_summary`와 Markdown report에 기록한다.
 
 남은 후보 counter:
 

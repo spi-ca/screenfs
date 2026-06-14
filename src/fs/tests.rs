@@ -113,8 +113,6 @@ fn fs_for_axes(
 fn fs_for_perf(source: &Path) -> ScreenFs {
     let mount = source.join("mount");
     std::fs::create_dir_all(&mount).unwrap();
-    let config_path = source.join("screenfs.yaml");
-    std::fs::write(&config_path, "perf:\n  enabled: true\n").unwrap();
     let _env = ProcessEnvGuard::new(source, None);
     let cfg = RuntimeConfig::from_launch(LaunchArgs {
         cli: CliArgs {
@@ -125,7 +123,7 @@ fn fs_for_perf(source: &Path) -> ScreenFs {
             mutability_readonly_rules: Vec::new(),
             mutability_writable_rules: Vec::new(),
         },
-        config_path: Some(config_path),
+        config_path: None,
         visibility_default: None,
         mutability_default: None,
     })

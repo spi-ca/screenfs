@@ -17,14 +17,9 @@ The harness intentionally uses only Python standard-library operations plus the 
 
 For optimization priorities and deferred performance candidates, see [`performance-roadmap.md`](performance-roadmap.md). This document remains the measurement workflow and evidence contract.
 
-ScreenFS also has optional internal attribution counters for benchmark/debug attribution. They are compiled only when the binary is built with `--features perf-counters`; default builds do not include the instrumentation code or config surface. In perf-enabled builds, counters are still disabled by default and should stay off for normal production use unless a run explicitly needs attribution evidence:
+ScreenFS also has optional internal attribution counters for benchmark/debug attribution. They are compiled and enabled only when the binary is built with `--features perf-counters`; default builds do not include the instrumentation code or config surface. A perf-enabled binary should be used only for benchmark/smoke runs that explicitly need attribution evidence, not for normal production use.
 
-```yaml
-perf:
-  enabled: true
-```
-
-When enabled, ScreenFS prints a stderr summary at shutdown with FUSE operation latency, policy decision latency, matcher candidate count, state lock read/write wait/hold latency, `open_confined_openat2` latency, `resolved_virtual_path` latency, `read_size_bucket.*` / `write_size_bucket.*` latency, `readdir_attr_generation_scan` and `readdirplus_attr_generation_scan` latency plus scanned entry counts, and invalidation/eviction counts. Treat these counters as attribution evidence for a benchmark or smoke run, not as standalone performance claims. With `--perf-counters --build`, the benchmark harness builds with `--features perf-counters`, enables `perf.enabled`, parses the shutdown summary into `screenfs.perf_summary` in the JSON output, and includes the raw summary in the Markdown report. If `--perf-counters` is used with an existing `--screenfs-bin`, that binary must already be built with the `perf-counters` feature.
+When enabled by the Cargo feature, ScreenFS prints a stderr summary at shutdown with FUSE operation latency, policy decision latency, matcher candidate count, state lock read/write wait/hold latency, `open_confined_openat2` latency, `resolved_virtual_path` latency, `read_size_bucket.*` / `write_size_bucket.*` latency, `readdir_attr_generation_scan` and `readdirplus_attr_generation_scan` latency plus scanned entry counts, and invalidation/eviction counts. Treat these counters as attribution evidence for a benchmark or smoke run, not as standalone performance claims. With `--perf-counters --build`, the benchmark harness builds with `--features perf-counters`, parses the shutdown summary into `screenfs.perf_summary` in the JSON output, and includes the raw summary in the Markdown report. If `--perf-counters` is used with an existing `--screenfs-bin`, that binary must already be built with the `perf-counters` feature.
 
 ## Workloads
 
@@ -134,7 +129,7 @@ When a performance change is proposed or merged, record at least:
 - JSON result path or attached result
 - `screenfs` binary path plus binary SHA256/provenance, especially when comparing dirty or otherwise uncommitted binaries
 - kernel, `fusermount3`, rustc/cargo, backing filesystem, CPU/storage notes when relevant
-- whether `perf.enabled` counters were enabled and the stderr counter summary when used for attribution
+- whether the binary was built with `--features perf-counters` and the stderr counter summary when used for attribution
 - workload sizes, warmups, iterations, and cache-control assumptions
 - before/after p50/median ratios, p90/p95/p99 tail latency, and raw-sample variance for the affected workload
 - separate post-change correctness validation command and result, typically `cargo test --all-targets --all-features`; record that in final evidence alongside the benchmark because the harness does not run correctness validation for you

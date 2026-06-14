@@ -235,7 +235,7 @@ Chroot/user namespace evidence should record the exact supervisor command. Scree
 
 - Use [`benchmarks.md`](benchmarks.md) for formal benchmark method and claim bar.
 - Benchmark evidence is scoped to the recorded machine, kernel, backing filesystem, policy, and workload.
-- Perf counters require a build with `--features perf-counters` and `perf.enabled: true`; they are attribution evidence, not standalone speed claims.
+- Perf counters require a build with `--features perf-counters`; they are attribution evidence, not standalone speed claims.
 - Do not use benchmark results to relax hidden `ENOENT`, bridge-visible, symlink target, or mutability precedence semantics.
 
 ## 10. Requirement-linked evidence summary

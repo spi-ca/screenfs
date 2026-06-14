@@ -48,16 +48,14 @@ impl<'a> RequestPathResolver<'a> {
         follow_final_symlink: bool,
     ) -> Result<VirtualPath, i32> {
         #[cfg(feature = "perf-counters")]
-        let start = self.fs.perf.as_ref().map(|_| std::time::Instant::now());
+        let start = std::time::Instant::now();
         let source_root = self.source_root()?;
         let source = path
             .resolve_host_path(source_root, follow_final_symlink)
             .map_err(errno_from_io)?;
         let result = virtual_path_from_source_path(source_root, &source);
         #[cfg(feature = "perf-counters")]
-        if let (Some(perf), Some(start)) = (self.fs.perf.as_ref(), start) {
-            perf.record_resolved_virtual_path(start.elapsed());
-        }
+        self.fs.perf.record_resolved_virtual_path(start.elapsed());
         result
     }
 
@@ -75,15 +73,13 @@ impl<'a> RequestPathResolver<'a> {
 
     fn resolved_virtual_path_for_open_file(&mut self, file: &File) -> Result<VirtualPath, i32> {
         #[cfg(feature = "perf-counters")]
-        let start = self.fs.perf.as_ref().map(|_| std::time::Instant::now());
+        let start = std::time::Instant::now();
         let fd_path = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
         let source = fs::read_link(fd_path).map_err(errno_from_io)?;
         let source_root = self.source_root()?;
         let result = virtual_path_from_source_path(source_root, &source);
         #[cfg(feature = "perf-counters")]
-        if let (Some(perf), Some(start)) = (self.fs.perf.as_ref(), start) {
-            perf.record_resolved_virtual_path(start.elapsed());
-        }
+        self.fs.perf.record_resolved_virtual_path(start.elapsed());
         result
     }
 }
@@ -136,16 +132,14 @@ impl ScreenFs {
         follow_final_symlink: bool,
     ) -> Result<VirtualPath, i32> {
         #[cfg(feature = "perf-counters")]
-        let start = self.perf.as_ref().map(|_| std::time::Instant::now());
+        let start = std::time::Instant::now();
         let source_root = self.source_root_path()?;
         let source = path
             .resolve_host_path(&source_root, follow_final_symlink)
             .map_err(errno_from_io)?;
         let result = virtual_path_from_source_path(&source_root, &source);
         #[cfg(feature = "perf-counters")]
-        if let (Some(perf), Some(start)) = (self.perf.as_ref(), start) {
-            perf.record_resolved_virtual_path(start.elapsed());
-        }
+        self.perf.record_resolved_virtual_path(start.elapsed());
         result
     }
 

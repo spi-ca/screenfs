@@ -37,12 +37,9 @@ impl ScreenFs {
         }
         #[cfg(feature = "perf-counters")]
         {
-            let Some(perf) = self.perf.as_ref() else {
-                return open_beneath_source_root(&self.source_root, path, flags, mode);
-            };
             let start = Instant::now();
             let result = open_beneath_source_root(&self.source_root, path, flags, mode);
-            perf.record_open_confined(start.elapsed());
+            self.perf.record_open_confined(start.elapsed());
             result
         }
     }

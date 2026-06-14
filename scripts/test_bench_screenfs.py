@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import argparse
 import importlib.util
 import unittest
 from pathlib import Path
@@ -21,11 +20,6 @@ class PerfSummaryTests(unittest.TestCase):
         self.assertEqual(summary["metrics"]["fuse_op.lookup"]["count"], 2)
         self.assertEqual(summary["metrics"]["matcher_candidates"]["count"], 7)
         self.assertEqual(summary["metrics"]["invalidations"]["evicted_entries"], 1)
-
-    def test_reject_perf_config_conflict(self) -> None:
-        args = argparse.Namespace(perf_counters=True, extra_screenfs_arg=["--config", "custom.yaml"])
-        with self.assertRaises(SystemExit):
-            bench.reject_perf_config_conflict(args)
 
     def test_markdown_report_includes_perf_summary(self) -> None:
         result = {

@@ -40,7 +40,7 @@ use self::state::{DirectoryResume, DirectorySnapshotEntry, State};
 #[cfg(feature = "perf-counters")]
 macro_rules! fuse_op_timer {
     ($fs:expr, $name:literal) => {
-        $fs.perf.as_ref().map(|perf| perf.fuse_op_timer($name))
+        $fs.perf.fuse_op_timer($name)
     };
 }
 
@@ -57,7 +57,7 @@ pub struct ScreenFs {
     source_root: File,
     state: RwLock<State>,
     #[cfg(feature = "perf-counters")]
-    perf: Option<Arc<PerfCounters>>,
+    perf: Arc<PerfCounters>,
 }
 
 type BlockingSyncResult = Result<FsResult<()>, Box<dyn Any + Send>>;
@@ -109,9 +109,7 @@ impl ScreenFs {
         crate::ensure_non_root_user().expect("screenfs must be run as a non-root user");
         let source_root = open_dir_handle(&cfg.source_root).expect("source root must be openable");
         #[cfg(feature = "perf-counters")]
-        let perf = cfg
-            .perf_counters_enabled()
-            .then(|| Arc::new(PerfCounters::default()));
+        let perf = Arc::new(PerfCounters::default());
         Self {
             cfg,
             source_root,
@@ -127,7 +125,7 @@ impl ScreenFs {
 
     #[cfg(all(test, feature = "perf-counters"))]
     pub(super) fn perf_snapshot(&self) -> Option<PerfSnapshot> {
-        self.perf.as_ref().map(|perf| perf.snapshot())
+        Some(self.perf.snapshot())
     }
 
     #[cfg(not(feature = "perf-counters"))]
@@ -138,10 +136,7 @@ impl ScreenFs {
 
     #[cfg(feature = "perf-counters")]
     fn with_state_read<T>(&self, f: impl FnOnce(&State) -> T) -> T {
-        let Some(perf) = self.perf.as_ref() else {
-            let state = self.state.read().expect("state rwlock poisoned");
-            return f(&state);
-        };
+        let perf = &self.perf;
         let wait_start = Instant::now();
         let state = self.state.read().expect("state rwlock poisoned");
         let wait = wait_start.elapsed();
@@ -160,10 +155,7 @@ impl ScreenFs {
 
     #[cfg(feature = "perf-counters")]
     fn with_state_write<T>(&self, f: impl FnOnce(&mut State) -> T) -> T {
-        let Some(perf) = self.perf.as_ref() else {
-            let mut state = self.state.write().expect("state rwlock poisoned");
-            return f(&mut state);
-        };
+        let perf = &self.perf;
         let wait_start = Instant::now();
         let mut state = self.state.write().expect("state rwlock poisoned");
         let wait = wait_start.elapsed();
@@ -176,28 +168,24 @@ impl ScreenFs {
 
     #[cfg(feature = "perf-counters")]
     fn record_matcher_candidates_for_visibility(&self, path: &crate::path::VirtualPath) {
-        if let Some(perf) = self.perf.as_ref() {
-            let count = self
+        let count = self
+            .cfg
+            .internal_hidden_matcher
+            .candidate_descriptor_count(path)
+            + self.cfg.hidden_matcher.candidate_descriptor_count(path)
+            + self.cfg.visible_matcher.candidate_descriptor_count(path)
+            + self
                 .cfg
-                .internal_hidden_matcher
-                .candidate_descriptor_count(path)
-                + self.cfg.hidden_matcher.candidate_descriptor_count(path)
-                + self.cfg.visible_matcher.candidate_descriptor_count(path)
-                + self
-                    .cfg
-                    .visible_matcher
-                    .descendant_candidate_descriptor_count(path);
-            perf.record_matcher_candidates(count);
-        }
+                .visible_matcher
+                .descendant_candidate_descriptor_count(path);
+        self.perf.record_matcher_candidates(count);
     }
 
     #[cfg(feature = "perf-counters")]
     fn record_matcher_candidates_for_mutability(&self, path: &crate::path::VirtualPath) {
-        if let Some(perf) = self.perf.as_ref() {
-            let count = self.cfg.readonly_matcher.candidate_descriptor_count(path)
-                + self.cfg.writable_matcher.candidate_descriptor_count(path);
-            perf.record_matcher_candidates(count);
-        }
+        let count = self.cfg.readonly_matcher.candidate_descriptor_count(path)
+            + self.cfg.writable_matcher.candidate_descriptor_count(path);
+        self.perf.record_matcher_candidates(count);
     }
 
     #[cfg(not(feature = "perf-counters"))]
@@ -213,9 +201,7 @@ impl ScreenFs {
         &self,
         path: &crate::path::VirtualPath,
     ) -> crate::config::VisibilityDecision {
-        let Some(perf) = self.perf.as_ref() else {
-            return self.cfg.visibility_decision(path);
-        };
+        let perf = &self.perf;
         self.record_matcher_candidates_for_visibility(path);
         let start = Instant::now();
         let decision = self.cfg.visibility_decision(path);
@@ -236,9 +222,7 @@ impl ScreenFs {
         &self,
         path: &crate::path::VirtualPath,
     ) -> crate::config::MutabilityDecision {
-        let Some(perf) = self.perf.as_ref() else {
-            return self.cfg.mutability_decision(path);
-        };
+        let perf = &self.perf;
         self.record_matcher_candidates_for_mutability(path);
         let start = Instant::now();
         let decision = self.cfg.mutability_decision(path);
@@ -253,9 +237,7 @@ impl ScreenFs {
 
     #[cfg(feature = "perf-counters")]
     pub(super) fn is_fully_visible(&self, path: &crate::path::VirtualPath) -> bool {
-        let Some(perf) = self.perf.as_ref() else {
-            return self.cfg.is_fully_visible(path);
-        };
+        let perf = &self.perf;
         self.record_matcher_candidates_for_visibility(path);
         let start = Instant::now();
         let result = self.cfg.is_fully_visible(path);
@@ -278,9 +260,7 @@ impl ScreenFs {
         path: &crate::path::VirtualPath,
         is_directory: bool,
     ) -> bool {
-        let Some(perf) = self.perf.as_ref() else {
-            return self.cfg.entry_is_readable(path, is_directory);
-        };
+        let perf = &self.perf;
         self.record_matcher_candidates_for_visibility(path);
         let start = Instant::now();
         let result = self.cfg.entry_is_readable(path, is_directory);
@@ -303,9 +283,7 @@ impl ScreenFs {
         path: &crate::path::VirtualPath,
         target: &OsStr,
     ) -> bool {
-        let Some(perf) = self.perf.as_ref() else {
-            return self.cfg.is_hidden_symlink_target(path, target);
-        };
+        let perf = &self.perf;
         self.record_matcher_candidates_for_visibility(path);
         let start = Instant::now();
         let result = self.cfg.is_hidden_symlink_target(path, target);
@@ -360,9 +338,7 @@ impl ScreenFs {
 #[cfg(feature = "perf-counters")]
 impl Drop for ScreenFs {
     fn drop(&mut self) {
-        if let Some(perf) = self.perf.as_ref() {
-            eprint!("{}", perf.summary());
-        }
+        eprint!("{}", self.perf.summary());
     }
 }
 
@@ -466,7 +442,7 @@ impl ScreenFs {
         self.guard_opened_directory_target(path, &dir_file, false)?;
         let mut candidates = BTreeMap::new();
         #[cfg(feature = "perf-counters")]
-        let attr_generation_start = self.perf.as_ref().map(|_| Instant::now());
+        let attr_generation_start = Instant::now();
         #[cfg(feature = "perf-counters")]
         let mut attr_generation_entries = 0_u64;
         backing::visit_dir_entries(dir_file, path, 3, |entry| {
@@ -495,12 +471,14 @@ impl ScreenFs {
             Ok(())
         })?;
         #[cfg(feature = "perf-counters")]
-        if let (Some(perf), Some(start)) = (self.perf.as_ref(), attr_generation_start) {
-            let elapsed = start.elapsed();
+        {
+            let elapsed = attr_generation_start.elapsed();
             if with_plus {
-                perf.record_readdirplus_attr_generation(attr_generation_entries, elapsed);
+                self.perf
+                    .record_readdirplus_attr_generation(attr_generation_entries, elapsed);
             } else {
-                perf.record_readdir_attr_generation(attr_generation_entries, elapsed);
+                self.perf
+                    .record_readdir_attr_generation(attr_generation_entries, elapsed);
             }
         }
 
@@ -589,11 +567,11 @@ impl Filesystem for ScreenFs {
         let (path, file) = self.file_handle_snapshot(inode, fh)?;
         self.guard_read_path(&path)?;
         #[cfg(feature = "perf-counters")]
-        let start = self.perf.as_ref().map(|_| Instant::now());
+        let start = Instant::now();
         let result = file.read_at(buf, offset).map_err(errno_from_io);
         #[cfg(feature = "perf-counters")]
-        if let (Some(perf), Some(start), Ok(size)) = (self.perf.as_ref(), start, result) {
-            perf.record_read(size, start.elapsed());
+        if let Ok(size) = result {
+            self.perf.record_read(size, start.elapsed());
         }
         result
     }
@@ -612,11 +590,11 @@ impl Filesystem for ScreenFs {
         let (path, file) = self.file_handle_snapshot(inode, fh)?;
         self.guard_mutation_path(&path, true)?;
         #[cfg(feature = "perf-counters")]
-        let start = self.perf.as_ref().map(|_| Instant::now());
+        let start = Instant::now();
         let result = file.write_at(data, offset).map_err(errno_from_io);
         #[cfg(feature = "perf-counters")]
-        if let (Some(perf), Some(start), Ok(size)) = (self.perf.as_ref(), start, result) {
-            perf.record_write(size, start.elapsed());
+        if let Ok(size) = result {
+            self.perf.record_write(size, start.elapsed());
         }
         result
     }

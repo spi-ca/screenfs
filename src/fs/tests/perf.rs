@@ -2,15 +2,15 @@ use super::*;
 use std::ffi::OsStr;
 
 #[test]
-fn perf_counters_are_disabled_by_default() {
-    let source = test_dir("perf-disabled");
+fn perf_counters_are_enabled_by_feature() {
+    let source = test_dir("perf-enabled-by-feature");
     std::fs::write(source.join("file.txt"), "hello").unwrap();
     let fs = fs_for(&source, vec![], vec![]);
 
     let inode = lookup_root_inode(&fs, "file.txt");
     let _ = block_on(fs.getattr(dummy_req(), inode, None, 0)).unwrap();
 
-    assert!(fs.perf_snapshot().is_none());
+    assert!(fs.perf_snapshot().is_some());
     std::fs::remove_dir_all(source).unwrap();
 }
 

@@ -514,9 +514,7 @@ impl ScreenFs {
             let inode = state.lookup_path(path.clone());
             let fh = state.insert_file(inode, path, file);
             #[cfg(feature = "perf-counters")]
-            if let Some(perf) = self.perf.as_ref() {
-                perf.record_invalidation(stats);
-            }
+            self.perf.record_invalidation(stats);
             (inode, fh)
         })
     }
@@ -549,9 +547,7 @@ impl ScreenFs {
                 state.invalidate_path_tree(path);
             }
             #[cfg(feature = "perf-counters")]
-            if let Some(perf) = self.perf.as_ref() {
-                perf.record_invalidation(stats);
-            }
+            self.perf.record_invalidation(stats);
         });
     }
 

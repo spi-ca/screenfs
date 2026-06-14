@@ -48,10 +48,6 @@ mutability:
   default: writable | readonly
   readonly: []
   writable: []
-
-# Optional, only when built with --features perf-counters.
-perf:
-  enabled: true | false
 ```
 
 ## Policy semantics at a glance
