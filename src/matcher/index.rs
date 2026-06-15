@@ -117,6 +117,23 @@ impl MatcherIndex {
         self.sort_and_dedup_candidates_by_match_order(candidates)
     }
 
+    pub(super) fn best_matching_candidate<F>(
+        &self,
+        path: &VirtualPath,
+        mut matches: F,
+    ) -> Option<usize>
+    where
+        F: FnMut(usize) -> bool,
+    {
+        let mut best = None;
+        self.visit_path_candidates(path, |index| {
+            if matches(index) {
+                self.update_best_candidate(&mut best, index);
+            }
+        });
+        best.map(|(_, index)| index)
+    }
+
     pub(super) fn candidate_metrics(&self, path: &VirtualPath) -> MatcherCandidateMetricsResult {
         let start = Instant::now();
         let mut candidates = Vec::new();
@@ -152,6 +169,32 @@ impl MatcherIndex {
         metrics.count = candidates.len();
         metrics.candidate_order.elapsed = start.elapsed();
         MatcherCandidateMetricsResult(metrics)
+    }
+
+    fn visit_path_candidates(&self, path: &VirtualPath, mut visit: impl FnMut(usize)) {
+        for ancestor in ancestor_paths(path.as_path()) {
+            if let Some(indices) = self.subtree_by_anchor.get(ancestor) {
+                for index in indices {
+                    visit(*index);
+                }
+            }
+            if let Some(indices) = self.direct_child_glob_by_anchor.get(ancestor) {
+                for index in indices {
+                    visit(*index);
+                }
+            }
+        }
+        for index in &self.recursive_order {
+            visit(*index);
+        }
+    }
+
+    fn update_best_candidate(&self, best: &mut Option<(usize, usize)>, index: usize) {
+        let rank = self.order_rank[index];
+        match best {
+            Some((best_rank, _)) if rank >= *best_rank => {}
+            _ => *best = Some((rank, index)),
+        }
     }
 
     fn extend_path_candidates(
@@ -222,7 +265,7 @@ impl MatcherIndex {
     }
 
     fn sort_and_dedup_candidates_by_match_order(&self, mut candidates: Vec<usize>) -> Vec<usize> {
-        candidates.sort_by_key(|index| self.order_rank[*index]);
+        candidates.sort_unstable_by_key(|index| self.order_rank[*index]);
         candidates.dedup();
         candidates
     }
@@ -259,5 +302,123 @@ impl<'a> Iterator for AncestorPaths<'a> {
             path.parent()
         };
         Some(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::matcher::descriptor::{GlobPattern, LiteralPathTail, RuleSpecificity};
+
+    fn subtree_descriptor(path: &str) -> RuleDescriptor {
+        let anchor = VirtualPath::new(path);
+        RuleDescriptor {
+            anchor: anchor.clone(),
+            specificity: RuleSpecificity::exact_or_prefix(&anchor, false),
+            target: RuleTarget::Subtree,
+        }
+    }
+
+    fn direct_child_suffix_descriptor(anchor: &str, suffix: &str) -> RuleDescriptor {
+        let anchor = VirtualPath::new(anchor);
+        let pattern = GlobPattern::Suffix(suffix.to_string());
+        RuleDescriptor {
+            anchor: anchor.clone(),
+            specificity: RuleSpecificity::glob(Some(&anchor), false, &pattern),
+            target: RuleTarget::Glob {
+                recursive: false,
+                pattern,
+            },
+        }
+    }
+
+    fn recursive_suffix_descriptor(anchor: &str, suffix: &str) -> RuleDescriptor {
+        let anchor = VirtualPath::new(anchor);
+        let pattern = GlobPattern::Suffix(suffix.to_string());
+        RuleDescriptor {
+            anchor: anchor.clone(),
+            specificity: RuleSpecificity::glob(Some(&anchor), true, &pattern),
+            target: RuleTarget::Glob {
+                recursive: true,
+                pattern,
+            },
+        }
+    }
+
+    fn recursive_literal_descriptor(anchor: &str, tail: &str) -> RuleDescriptor {
+        let anchor = VirtualPath::new(anchor);
+        let tail = LiteralPathTail::parse("test", tail).unwrap();
+        RuleDescriptor {
+            anchor: anchor.clone(),
+            specificity: RuleSpecificity::recursive_literal_subtree(Some(&anchor), &tail),
+            target: RuleTarget::RecursiveLiteralSubtree { tail },
+        }
+    }
+
+    #[test]
+    fn candidate_order_uses_match_order_after_unstable_sort() {
+        let descriptors = vec![
+            subtree_descriptor("/alpha/bravo"),
+            subtree_descriptor("/alpha"),
+            subtree_descriptor("/alpha/bravo/charlie"),
+            subtree_descriptor("/unrelated"),
+        ];
+        let index = MatcherIndex::build(&descriptors);
+        let path = VirtualPath::new("/alpha/bravo/charlie/file.txt");
+
+        assert_eq!(index.candidate_order(&path), vec![2, 0, 1]);
+
+        let metrics = index.candidate_metrics(&path).metrics();
+        assert_eq!(metrics.count, 3);
+        assert_eq!(metrics.family_counts.subtree, 3);
+        assert_eq!(metrics.family_counts.direct_child_glob, 0);
+        assert_eq!(metrics.family_counts.recursive, 0);
+        assert_eq!(metrics.candidate_order.duplicates_skipped, 0);
+        assert_eq!(metrics.candidate_order.seen_slots, descriptors.len());
+        assert!(metrics.candidate_order.ancestor_steps > 0);
+    }
+
+    #[test]
+    fn descendant_candidate_order_uses_match_order_after_unstable_sort() {
+        let descriptors = vec![
+            subtree_descriptor("/alpha/bravo"),
+            subtree_descriptor("/alpha/bravo/charlie"),
+            subtree_descriptor("/alpha"),
+            subtree_descriptor("/unrelated"),
+        ];
+        let index = MatcherIndex::build(&descriptors);
+        let path = VirtualPath::new("/alpha");
+
+        assert_eq!(index.descendant_candidate_order(&path), vec![1, 0, 2]);
+
+        let metrics = index.descendant_candidate_metrics(&path).metrics();
+        assert_eq!(metrics.count, 3);
+        assert_eq!(metrics.family_counts.subtree, 3);
+        assert_eq!(metrics.family_counts.direct_child_glob, 0);
+        assert_eq!(metrics.family_counts.recursive, 0);
+        assert_eq!(metrics.candidate_order.duplicates_skipped, 0);
+        assert_eq!(metrics.candidate_order.seen_slots, descriptors.len());
+    }
+
+    #[test]
+    fn best_matching_candidate_matches_candidate_order_winner_for_mixed_families() {
+        let descriptors = vec![
+            recursive_suffix_descriptor("/alpha", ".log"),
+            subtree_descriptor("/alpha/bravo"),
+            direct_child_suffix_descriptor("/alpha/bravo/charlie", ".log"),
+            recursive_literal_descriptor("/alpha", "charlie/audit.log"),
+            subtree_descriptor("/unrelated"),
+        ];
+        let index = MatcherIndex::build(&descriptors);
+        let path = VirtualPath::new("/alpha/bravo/charlie/audit.log");
+        let expected = index
+            .candidate_order(&path)
+            .into_iter()
+            .find(|index| descriptors[*index].matches_path(&path));
+
+        assert_eq!(
+            index.best_matching_candidate(&path, |index| descriptors[index].matches_path(&path)),
+            expected
+        );
     }
 }

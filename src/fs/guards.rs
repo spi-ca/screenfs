@@ -21,13 +21,13 @@ struct MutationCoordinateEvaluation<'a> {
     resolved: Option<VirtualPath>,
 }
 
-struct RequestPathResolver<'a> {
+pub(super) struct RequestPathResolver<'a> {
     fs: &'a ScreenFs,
     source_root: Option<PathBuf>,
 }
 
 impl<'a> RequestPathResolver<'a> {
-    fn new(fs: &'a ScreenFs) -> Self {
+    pub(super) fn new(fs: &'a ScreenFs) -> Self {
         Self {
             fs,
             source_root: None,
@@ -144,21 +144,47 @@ fn virtual_path_from_source_path_with_metrics(
 }
 
 impl ScreenFs {
-    pub(super) fn visible_for_entry(&self, path: &VirtualPath) -> bool {
-        match self.stat_child_no_follow(path, 0) {
-            Ok(attr) => self.entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR),
-            Err(_) => self.is_fully_visible(path),
+    fn visible_for_entry_with_known_attr(
+        &self,
+        path: &VirtualPath,
+        known_child_attr: Option<&FileAttr>,
+    ) -> bool {
+        match known_child_attr {
+            Some(attr) => self.entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR),
+            None => match self.stat_child_no_follow(path, 0) {
+                Ok(attr) => {
+                    self.entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR)
+                }
+                Err(_) => self.is_fully_visible(path),
+            },
         }
     }
 
     pub(super) fn guard_hidden_path(&self, path: &VirtualPath) -> Result<(), i32> {
-        if self.visible_for_entry(path) {
+        self.guard_hidden_path_with_known_attr(path, None)
+    }
+
+    fn guard_hidden_path_with_known_attr(
+        &self,
+        path: &VirtualPath,
+        known_child_attr: Option<&FileAttr>,
+    ) -> Result<(), i32> {
+        if self.visible_for_entry_with_known_attr(path, known_child_attr) {
             Ok(())
         } else {
             Err(ENOENT)
         }
     }
 
+    fn guard_hidden_path_after_child_stat_error(&self, path: &VirtualPath) -> Result<(), i32> {
+        if self.is_fully_visible(path) {
+            Ok(())
+        } else {
+            Err(ENOENT)
+        }
+    }
+
+    #[allow(dead_code)]
     pub(super) fn resolved_virtual_path(
         &self,
         path: &VirtualPath,
@@ -194,8 +220,35 @@ impl ScreenFs {
     }
 
     pub(super) fn guard_read_path(&self, path: &VirtualPath) -> Result<(), i32> {
-        self.guard_hidden_path(path)?;
+        self.guard_read_path_with_known_attr(path, None)
+    }
+
+    pub(super) fn guard_read_path_with_known_attr(
+        &self,
+        path: &VirtualPath,
+        known_child_attr: Option<&FileAttr>,
+    ) -> Result<(), i32> {
+        self.guard_hidden_path_with_known_attr(path, known_child_attr)?;
         self.guard_resolved_target_visibility_if_needed(path)
+    }
+
+    pub(super) fn guard_read_path_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        known_child_attr: Option<&FileAttr>,
+    ) -> Result<(), i32> {
+        self.guard_hidden_path_with_known_attr(path, known_child_attr)?;
+        self.guard_resolved_target_visibility_if_needed_with_resolver(resolver, path)
+    }
+
+    fn guard_read_path_after_child_stat_error_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+    ) -> Result<(), i32> {
+        self.guard_hidden_path_after_child_stat_error(path)?;
+        self.guard_resolved_target_visibility_if_needed_with_resolver(resolver, path)
     }
 
     fn guard_resolved_target_fully_visible(
@@ -274,17 +327,26 @@ impl ScreenFs {
         writable: &[(&VirtualPath, bool)],
     ) -> Result<(), i32> {
         let mut resolver = RequestPathResolver::new(self);
+        self.guard_mutation_coordinates_with_resolver(&mut resolver, visible, writable)
+    }
+
+    fn guard_mutation_coordinates_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        visible: &[(&VirtualPath, bool)],
+        writable: &[(&VirtualPath, bool)],
+    ) -> Result<(), i32> {
         let mut coordinates = Vec::with_capacity(visible.len() + writable.len());
         for (path, follow_final_symlink) in visible.iter().copied().chain(writable.iter().copied())
         {
             coordinates.push(self.evaluate_mutation_coordinate_visibility(
-                &mut resolver,
+                resolver,
                 path,
                 follow_final_symlink,
             )?);
         }
         for coordinate in coordinates.iter_mut().skip(visible.len()) {
-            self.guard_mutation_coordinate_writable(&mut resolver, coordinate)?;
+            self.guard_mutation_coordinate_writable(resolver, coordinate)?;
         }
         Ok(())
     }
@@ -294,7 +356,21 @@ impl ScreenFs {
         path: &VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<(), i32> {
-        self.guard_mutation_coordinates(&[], &[(path, follow_final_symlink)])
+        let mut resolver = RequestPathResolver::new(self);
+        self.guard_mutation_path_with_resolver(&mut resolver, path, follow_final_symlink)
+    }
+
+    fn guard_mutation_path_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        follow_final_symlink: bool,
+    ) -> Result<(), i32> {
+        self.guard_mutation_coordinates_with_resolver(
+            resolver,
+            &[],
+            &[(path, follow_final_symlink)],
+        )
     }
 
     pub(super) fn guard_multi_path_mutation(
@@ -328,7 +404,19 @@ impl ScreenFs {
         if self.cfg.can_skip_symlink_target_visibility_check() {
             return Ok(());
         }
-        let resolved = match self.resolved_virtual_path(path, true) {
+        let mut resolver = RequestPathResolver::new(self);
+        self.guard_resolved_target_visibility_if_needed_with_resolver(&mut resolver, path)
+    }
+
+    fn guard_resolved_target_visibility_if_needed_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+    ) -> Result<(), i32> {
+        if self.cfg.can_skip_symlink_target_visibility_check() {
+            return Ok(());
+        }
+        let resolved = match resolver.resolved_virtual_path(path, true) {
             Ok(resolved) => resolved,
             Err(ENOENT) => return Ok(()),
             Err(err) => return Err(err),
@@ -337,13 +425,29 @@ impl ScreenFs {
     }
 
     pub(super) fn attr_for_path(&self, path: &VirtualPath, inode: u64) -> Result<FileAttr, i32> {
-        self.guard_read_path(path)?;
-        self.stat_child_no_follow(path, inode)
+        let mut resolver = RequestPathResolver::new(self);
+        match self.stat_child_no_follow_with_resolver(&mut resolver, path, inode) {
+            Ok(attr) => {
+                self.guard_read_path_with_resolver(&mut resolver, path, Some(&attr))?;
+                Ok(attr)
+            }
+            Err(err) => {
+                self.guard_read_path_after_child_stat_error_with_resolver(&mut resolver, path)?;
+                Err(err)
+            }
+        }
     }
 
     pub(super) fn reply_entry_for_path(&self, path: VirtualPath) -> Result<ReplyEntry, i32> {
-        self.guard_read_path(&path)?;
-        let mut attr = self.stat_child_no_follow(&path, 0)?;
+        let mut resolver = RequestPathResolver::new(self);
+        let mut attr = match self.stat_child_no_follow_with_resolver(&mut resolver, &path, 0) {
+            Ok(attr) => attr,
+            Err(err) => {
+                self.guard_read_path_after_child_stat_error_with_resolver(&mut resolver, &path)?;
+                return Err(err);
+            }
+        };
+        self.guard_read_path_with_resolver(&mut resolver, &path, Some(&attr))?;
         let inode = self.track_path(path);
         attr.ino = inode;
         Ok(ReplyEntry {
@@ -372,19 +476,29 @@ impl ScreenFs {
             .unwrap_or_else(VirtualPath::root)
     }
 
-    pub(super) fn guard_open_flags(&self, path: &VirtualPath, flags: u32) -> Result<(), i32> {
+    pub(super) fn guard_open_flags_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        flags: u32,
+    ) -> Result<(), i32> {
         if open_has_write_intent(flags) {
-            self.guard_mutation_path(path, true)
+            self.guard_mutation_path_with_resolver(resolver, path, true)
         } else {
-            self.guard_read_path(path)
+            self.guard_read_path_with_resolver(resolver, path, None)
         }
     }
 
-    pub(super) fn guard_access_mask(&self, path: &VirtualPath, mask: u32) -> Result<(), i32> {
+    pub(super) fn guard_access_mask_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        mask: u32,
+    ) -> Result<(), i32> {
         if mask & libc::W_OK as u32 != 0 {
-            self.guard_mutation_path(path, true)
+            self.guard_mutation_path_with_resolver(resolver, path, true)
         } else {
-            self.guard_read_path(path)
+            self.guard_read_path_with_resolver(resolver, path, None)
         }
     }
 
@@ -405,6 +519,7 @@ impl ScreenFs {
         Ok((path, parent_path))
     }
 
+    #[allow(dead_code)]
     pub(super) fn resolved_virtual_path_for_open_file(
         &self,
         file: &File,
@@ -418,7 +533,18 @@ impl ScreenFs {
         file: &File,
         mutation: bool,
     ) -> Result<(), i32> {
-        let resolved = self.resolved_virtual_path_for_open_file(file)?;
+        let mut resolver = RequestPathResolver::new(self);
+        self.guard_opened_file_target_with_resolver(&mut resolver, path, file, mutation)
+    }
+
+    pub(super) fn guard_opened_file_target_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        file: &File,
+        mutation: bool,
+    ) -> Result<(), i32> {
+        let resolved = resolver.resolved_virtual_path_for_open_file(file)?;
         if !self.is_fully_visible(&resolved) {
             return Err(ENOENT);
         }
@@ -431,7 +557,18 @@ impl ScreenFs {
         file: &File,
         mutation: bool,
     ) -> Result<(), i32> {
-        let resolved = self.resolved_virtual_path_for_open_file(file)?;
+        let mut resolver = RequestPathResolver::new(self);
+        self.guard_opened_directory_target_with_resolver(&mut resolver, path, file, mutation)
+    }
+
+    pub(super) fn guard_opened_directory_target_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        file: &File,
+        mutation: bool,
+    ) -> Result<(), i32> {
+        let resolved = resolver.resolved_virtual_path_for_open_file(file)?;
         if !self.entry_is_readable(&resolved, true) {
             return Err(ENOENT);
         }
@@ -445,6 +582,16 @@ impl ScreenFs {
         mutation: bool,
     ) -> Result<(), i32> {
         let mut resolver = RequestPathResolver::new(self);
+        self.guard_opened_directory_at_path_with_resolver(&mut resolver, path, file, mutation)
+    }
+
+    pub(super) fn guard_opened_directory_at_path_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        file: &File,
+        mutation: bool,
+    ) -> Result<(), i32> {
         let resolved = resolver.resolved_virtual_path_for_open_file(file)?;
         let expected = resolver.resolved_virtual_path(path, true)?;
         if resolved != expected {

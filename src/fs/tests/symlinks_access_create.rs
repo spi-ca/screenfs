@@ -534,6 +534,29 @@ fn readonly_create_returns_erofs_instead_of_enosys() {
 }
 
 #[test]
+fn opened_parent_directory_at_path_rejects_host_rename_replacement() {
+    let dir = test_dir("opened-parent-dir-retarget");
+    std::fs::create_dir(dir.join("parent")).unwrap();
+    std::fs::write(dir.join("parent/file"), b"old").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let parent_path = VirtualPath::new("/parent");
+    let (_parent, parent_dir, _name) = fs
+        .open_parent_dir(&VirtualPath::new("/parent/file"))
+        .unwrap();
+
+    std::fs::rename(dir.join("parent"), dir.join("moved")).unwrap();
+    std::fs::create_dir(dir.join("parent")).unwrap();
+    std::fs::write(dir.join("parent/file"), b"new").unwrap();
+
+    assert_eq!(
+        fs.guard_opened_directory_at_path(&parent_path, &parent_dir, false)
+            .unwrap_err(),
+        ENOENT
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn statfs_reflects_backing_filesystem_instead_of_placeholder_values() {
     let dir = test_dir("statfs");
     std::fs::write(dir.join("visible"), b"ok").unwrap();
@@ -561,7 +584,8 @@ fn statfs_reflects_backing_filesystem_instead_of_placeholder_values() {
     assert_eq!(stats.namelen, host.namelen);
     assert!(stats.blocks > 0);
     assert!(stats.bfree <= stats.blocks);
-    assert!(stats.bavail <= stats.bfree);
+    assert!(stats.bavail <= stats.blocks);
+    assert_eq!(stats.bavail <= stats.bfree, host.bavail <= host.bfree);
     if host.files > 0 {
         assert!(stats.ffree <= stats.files);
         assert!(stats.files > tracked_inodes);

@@ -513,6 +513,41 @@ fn offload_file_sync_maps_closure_panic_to_eio() {
 }
 
 #[test]
+fn opened_fallocate_revalidates_target_after_host_rename_into_hidden_subtree() {
+    let dir = test_dir("fallocate-opened-hidden-retarget");
+    std::fs::write(dir.join("visible"), b"data").unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+    let visible = fs
+        .reply_entry_for_path(VirtualPath::new("/visible"))
+        .unwrap()
+        .attr
+        .ino;
+    let fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            visible,
+            VirtualPath::new("/visible"),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("visible"))
+                .unwrap(),
+        );
+
+    std::fs::rename(dir.join("visible"), dir.join("hidden")).unwrap();
+    std::fs::write(dir.join("visible"), b"data").unwrap();
+
+    assert_eq!(
+        block_on(fs.fallocate(dummy_req(), visible, fh, 0, 8, 0)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(std::fs::metadata(dir.join("hidden")).unwrap().len(), 4);
+    assert_eq!(std::fs::metadata(dir.join("visible")).unwrap().len(), 4);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn visible_copy_file_range_copies_data() {
     let dir = test_dir("copy-visible");
     std::fs::write(dir.join("a"), b"abcdef").unwrap();
@@ -550,6 +585,58 @@ fn visible_copy_file_range_copies_data() {
     let copied = block_on(fs.copy_file_range(dummy_req(), a, a_fh, 1, b, b_fh, 2, 3, 0)).unwrap();
     assert_eq!(copied, 3);
     assert_eq!(std::fs::read(dir.join("b")).unwrap(), b"--bcd-");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn copy_file_range_revalidates_input_after_host_rename_into_hidden_subtree() {
+    let dir = test_dir("copy-opened-input-hidden-retarget");
+    std::fs::write(dir.join("input"), b"secret").unwrap();
+    std::fs::write(dir.join("output"), b"------").unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+    let input = fs
+        .reply_entry_for_path(VirtualPath::new("/input"))
+        .unwrap()
+        .attr
+        .ino;
+    let output = fs
+        .reply_entry_for_path(VirtualPath::new("/output"))
+        .unwrap()
+        .attr
+        .ino;
+    let input_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            input,
+            VirtualPath::new("/input"),
+            OpenOptions::new()
+                .read(true)
+                .open(dir.join("input"))
+                .unwrap(),
+        );
+    let output_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            output,
+            VirtualPath::new("/output"),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("output"))
+                .unwrap(),
+        );
+
+    std::fs::rename(dir.join("input"), dir.join("hidden")).unwrap();
+
+    assert_eq!(
+        block_on(fs.copy_file_range(dummy_req(), input, input_fh, 0, output, output_fh, 0, 1, 0,))
+            .unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(std::fs::read(dir.join("output")).unwrap(), b"------");
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -624,6 +711,60 @@ fn hidden_copy_file_range_paths_return_enoent_before_readonly() {
         .unwrap_err(),
         ENOENT
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn copy_file_range_revalidates_output_after_host_rename_into_hidden_subtree() {
+    let dir = test_dir("copy-opened-output-hidden-retarget");
+    std::fs::write(dir.join("input"), b"abcdef").unwrap();
+    std::fs::write(dir.join("output"), b"------").unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+    let input = fs
+        .reply_entry_for_path(VirtualPath::new("/input"))
+        .unwrap()
+        .attr
+        .ino;
+    let output = fs
+        .reply_entry_for_path(VirtualPath::new("/output"))
+        .unwrap()
+        .attr
+        .ino;
+    let input_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            input,
+            VirtualPath::new("/input"),
+            OpenOptions::new()
+                .read(true)
+                .open(dir.join("input"))
+                .unwrap(),
+        );
+    let output_fh = fs
+        .state
+        .write()
+        .expect("state rwlock poisoned")
+        .insert_file(
+            output,
+            VirtualPath::new("/output"),
+            OpenOptions::new()
+                .write(true)
+                .open(dir.join("output"))
+                .unwrap(),
+        );
+
+    std::fs::rename(dir.join("output"), dir.join("hidden")).unwrap();
+    std::fs::write(dir.join("output"), b"------").unwrap();
+
+    assert_eq!(
+        block_on(fs.copy_file_range(dummy_req(), input, input_fh, 0, output, output_fh, 0, 1, 0,))
+            .unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(std::fs::read(dir.join("hidden")).unwrap(), b"------");
+    assert_eq!(std::fs::read(dir.join("output")).unwrap(), b"------");
     std::fs::remove_dir_all(dir).unwrap();
 }
 

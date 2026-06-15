@@ -141,10 +141,8 @@ impl PathRuleMatcher {
 
     pub fn best_descriptor(&self, path: &VirtualPath) -> Option<&RuleDescriptor> {
         self.index
-            .candidate_order(path)
-            .into_iter()
+            .best_matching_candidate(path, |index| self.descriptors[index].matches_path(path))
             .map(|index| &self.descriptors[index])
-            .find(|descriptor| descriptor.matches_path(path))
     }
 
     pub fn candidate_descriptor_count(&self, path: &VirtualPath) -> usize {

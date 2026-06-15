@@ -13,7 +13,7 @@ use fractal_fuse::{FileAttr, FileType, ReplyStatfs, ReplyXattr, SetAttr, SetAttr
 use crate::errors::errno_from_io;
 use crate::path::VirtualPath;
 
-use super::ScreenFs;
+use super::{ScreenFs, guards::RequestPathResolver};
 
 const RESOLVE_NO_MAGICLINKS: u64 = 0x02;
 const RESOLVE_IN_ROOT: u64 = 0x10;
@@ -23,6 +23,12 @@ struct OpenHow {
     flags: u64,
     mode: u64,
     resolve: u64,
+}
+
+pub(super) struct PreparedReadlinkChild {
+    pub(super) attr: FileAttr,
+    parent_dir: File,
+    name: CString,
 }
 
 impl ScreenFs {
@@ -319,19 +325,64 @@ impl ScreenFs {
         path: &VirtualPath,
         ino: u64,
     ) -> Result<FileAttr, i32> {
+        let mut resolver = RequestPathResolver::new(self);
+        self.stat_child_no_follow_with_resolver(&mut resolver, path, ino)
+    }
+
+    pub(super) fn stat_child_no_follow_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        ino: u64,
+    ) -> Result<FileAttr, i32> {
+        #[cfg(feature = "perf-counters")]
+        let start = Instant::now();
+        let result = self.stat_child_no_follow_inner(resolver, path, ino);
+        #[cfg(feature = "perf-counters")]
+        self.perf.record_stat_child_no_follow(start.elapsed());
+        result
+    }
+
+    fn stat_child_no_follow_inner(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        ino: u64,
+    ) -> Result<FileAttr, i32> {
         if path.as_path() == Path::new("/") {
             let file = self.open_confined(path, libc::O_PATH | libc::O_DIRECTORY, None)?;
             return fstat_attr(&file, ino);
         }
         let (parent, parent_dir, name) = self.open_parent_dir(path)?;
-        self.guard_opened_directory_target(&parent, &parent_dir, false)?;
+        self.guard_opened_directory_at_path_with_resolver(resolver, &parent, &parent_dir, false)?;
         fstatat_attr(&parent_dir, &name, libc::AT_SYMLINK_NOFOLLOW, ino)
     }
 
-    pub(super) fn readlink_child(&self, path: &VirtualPath) -> Result<OsString, i32> {
+    pub(super) fn prepare_readlink_child(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        ino: u64,
+    ) -> Result<PreparedReadlinkChild, i32> {
         let (parent, parent_dir, name) = self.open_parent_dir(path)?;
-        self.guard_opened_directory_target(&parent, &parent_dir, false)?;
-        readlinkat_os(&parent_dir, &name)
+        self.guard_opened_directory_at_path_with_resolver(resolver, &parent, &parent_dir, false)?;
+        #[cfg(feature = "perf-counters")]
+        let start = Instant::now();
+        let attr = fstatat_attr(&parent_dir, &name, libc::AT_SYMLINK_NOFOLLOW, ino)?;
+        #[cfg(feature = "perf-counters")]
+        self.perf.record_stat_child_no_follow(start.elapsed());
+        Ok(PreparedReadlinkChild {
+            attr,
+            parent_dir,
+            name,
+        })
+    }
+
+    pub(super) fn readlink_prepared_child(
+        &self,
+        child: &PreparedReadlinkChild,
+    ) -> Result<OsString, i32> {
+        readlinkat_os(&child.parent_dir, &child.name)
     }
 }
 

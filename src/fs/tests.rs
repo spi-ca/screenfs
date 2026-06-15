@@ -6,10 +6,11 @@ use crate::path::{ProcessEnvGuard, VirtualPath};
 use fractal_fuse::abi::FUSE_ROOT_ID;
 use std::fs::{File, OpenOptions};
 use std::future::Future;
-use std::path::Path;
+use std::os::unix::fs::FileExt;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
 use std::task::{Context, Poll, Wake, Waker};
@@ -267,7 +268,7 @@ fn waking_block_on<F: Future>(future: F) -> F::Output {
 fn test_dir(label: &str) -> std::path::PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    let mut dir = std::path::PathBuf::from("/tmp/screenfs-tests");
+    let mut dir = test_scratch_root();
     std::fs::create_dir_all(&dir).unwrap();
     let id = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -278,6 +279,46 @@ fn test_dir(label: &str) -> std::path::PathBuf {
     dir.push(format!("screenfs-{label}-{pid}-{id}-{counter}"));
     std::fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+fn test_scratch_root() -> PathBuf {
+    if let Some(root) = std::env::var_os("SCREENFS_TEST_TMPDIR").map(PathBuf::from) {
+        return root;
+    }
+    static SCRATCH_ROOT: OnceLock<PathBuf> = OnceLock::new();
+    SCRATCH_ROOT
+        .get_or_init(|| {
+            let shm = Path::new("/dev/shm").join("screenfs-tests");
+            if scratch_root_supports_open_fd_lifetime(&shm) {
+                shm
+            } else {
+                PathBuf::from("/tmp/screenfs-tests")
+            }
+        })
+        .clone()
+}
+
+fn scratch_root_supports_open_fd_lifetime(root: &Path) -> bool {
+    let probe = root.join("probe-open-fd-lifetime");
+    let original = probe.join("file");
+    let renamed = probe.join("renamed");
+    let result = (|| -> std::io::Result<bool> {
+        std::fs::create_dir_all(&probe)?;
+        std::fs::write(&original, b"ok")?;
+        let file = OpenOptions::new().read(true).write(true).open(&original)?;
+        std::fs::rename(&original, &renamed)?;
+        let mut buf = [0_u8; 2];
+        if file.read_at(&mut buf, 0)? != 2 || buf != *b"ok" {
+            return Ok(false);
+        }
+        std::fs::remove_file(&renamed)?;
+        if file.read_at(&mut buf, 0)? != 2 || buf != *b"ok" {
+            return Ok(false);
+        }
+        Ok(true)
+    })();
+    let _ = std::fs::remove_dir_all(&probe);
+    result.unwrap_or(false)
 }
 
 fn dummy_req() -> Request {

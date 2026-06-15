@@ -1,4 +1,5 @@
 use super::*;
+use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn hidden_read_and_list_operations_return_enoent_and_filter_entries() {
@@ -30,6 +31,26 @@ fn hidden_read_and_list_operations_return_enoent_and_filter_entries() {
     assert!(names.contains(&"visible".to_string()));
     assert!(!names.contains(&"hidden.pem".to_string()));
     assert!(!names.contains(&"private".to_string()));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn hidden_lookup_preserves_enoent_when_initial_stat_fails() {
+    let dir = test_dir("hidden-stat-failure-fallback");
+    let private = dir.join("private");
+    std::fs::create_dir(&private).unwrap();
+    std::fs::write(private.join("secret"), b"secret").unwrap();
+    let original_mode = std::fs::metadata(&private).unwrap().permissions().mode();
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let fs = fs_for(&dir, vec!["/private/secret".to_string()], Vec::new());
+
+    assert_eq!(
+        fs.reply_entry_for_path(VirtualPath::new("/private/secret"))
+            .unwrap_err(),
+        ENOENT
+    );
+
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(original_mode)).unwrap();
     std::fs::remove_dir_all(dir).unwrap();
 }
 

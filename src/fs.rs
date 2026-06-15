@@ -594,8 +594,16 @@ impl Filesystem for ScreenFs {
     async fn readlink(&self, _req: Request, inode: u64) -> FsResult<ReplyReadlink> {
         let _timer = fuse_op_timer!(self, "readlink");
         let path = self.path_for_inode(inode)?;
-        self.guard_read_path(&path)?;
-        let target = self.readlink_child(&path)?;
+        let mut resolver = guards::RequestPathResolver::new(self);
+        let child = match self.prepare_readlink_child(&mut resolver, &path, inode) {
+            Ok(child) => child,
+            Err(err) => {
+                self.guard_read_path_with_resolver(&mut resolver, &path, None)?;
+                return Err(err);
+            }
+        };
+        self.guard_read_path_with_resolver(&mut resolver, &path, Some(&child.attr))?;
+        let target = self.readlink_prepared_child(&child)?;
         self.check_hidden_symlink_target(&path, target.as_os_str())?;
         Ok(ReplyReadlink {
             data: target.as_os_str().as_bytes().to_vec(),
@@ -605,10 +613,16 @@ impl Filesystem for ScreenFs {
     async fn open(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {
         let _timer = fuse_op_timer!(self, "open");
         let path = self.path_for_inode(inode)?;
-        self.guard_open_flags(&path, flags)?;
+        let mut resolver = guards::RequestPathResolver::new(self);
+        self.guard_open_flags_with_resolver(&mut resolver, &path, flags)?;
         let open_flags = sanitize_open_flags(flags, false) & !libc::O_TRUNC;
         let file = self.open_confined(&path, open_flags, None)?;
-        self.guard_opened_file_target(&path, &file, open_has_write_intent(flags))?;
+        self.guard_opened_file_target_with_resolver(
+            &mut resolver,
+            &path,
+            &file,
+            open_has_write_intent(flags),
+        )?;
         self.apply_deferred_truncate(&file, flags)?;
         let fh = self.insert_open_file(inode, path, file, self.open_file_io_guard_cache());
         Ok(ReplyOpen {
@@ -756,9 +770,10 @@ impl Filesystem for ScreenFs {
     async fn opendir(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {
         let _timer = fuse_op_timer!(self, "opendir");
         let path = self.path_for_inode(inode)?;
-        self.guard_open_flags(&path, flags)?;
+        let mut resolver = guards::RequestPathResolver::new(self);
+        self.guard_open_flags_with_resolver(&mut resolver, &path, flags)?;
         let dir_file = self.open_confined(&path, libc::O_PATH | libc::O_DIRECTORY, None)?;
-        self.guard_opened_directory_target(&path, &dir_file, false)?;
+        self.guard_opened_directory_target_with_resolver(&mut resolver, &path, &dir_file, false)?;
         let fh = self.insert_open_directory(inode, path);
         Ok(ReplyOpen {
             fh,
@@ -821,9 +836,15 @@ impl Filesystem for ScreenFs {
     async fn access(&self, _req: Request, inode: u64, mask: u32) -> FsResult<()> {
         let _timer = fuse_op_timer!(self, "access");
         let path = self.path_for_inode(inode)?;
-        self.guard_access_mask(&path, mask)?;
+        let mut resolver = guards::RequestPathResolver::new(self);
+        self.guard_access_mask_with_resolver(&mut resolver, &path, mask)?;
         let file = self.open_confined(&path, libc::O_PATH, None)?;
-        self.guard_opened_file_target(&path, &file, mask & libc::W_OK as u32 != 0)?;
+        self.guard_opened_file_target_with_resolver(
+            &mut resolver,
+            &path,
+            &file,
+            mask & libc::W_OK as u32 != 0,
+        )?;
         faccessat2_empty(&file, mask)
     }
 
@@ -1134,6 +1155,7 @@ impl Filesystem for ScreenFs {
         let _timer = fuse_op_timer!(self, "fallocate");
         let (path, file) = self.file_handle_snapshot(inode, fh)?;
         self.guard_mutation_path(&path, true)?;
+        self.guard_opened_file_target(&path, &file, true)?;
         let result = unsafe {
             libc::fallocate(
                 file.as_raw_fd(),
@@ -1183,8 +1205,10 @@ impl Filesystem for ScreenFs {
         let ((input_path, input_file), (output_path, output_file)) =
             self.copy_file_range_snapshot(inode_in, fh_in, inode_out, fh_out)?;
         self.guard_read_path(&input_path)?;
+        self.guard_opened_file_target(&input_path, &input_file, false)?;
         let output_parent = Self::parent_path(&output_path);
         self.guard_mutation_coordinates(&[], &[(&output_path, true), (&output_parent, true)])?;
+        self.guard_opened_file_target(&output_path, &output_file, true)?;
         let mut in_off = off_in as libc::off64_t;
         let mut out_off = off_out as libc::off64_t;
         let copied = unsafe {

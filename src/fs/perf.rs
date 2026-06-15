@@ -26,6 +26,7 @@ pub(super) struct PerfCounters {
     state_write_wait: LatencyCounter,
     state_write_hold: LatencyCounter,
     open_confined: LatencyCounter,
+    stat_child_no_follow: LatencyCounter,
     source_root_path: LatencyCounter,
     resolved_virtual_path: LatencyCounter,
     resolved_virtual_path_from_path: LatencyCounter,
@@ -102,6 +103,7 @@ pub(crate) struct PerfSnapshot {
     pub(super) state_write_wait: LatencySnapshot,
     pub(super) state_write_hold: LatencySnapshot,
     pub(super) open_confined: LatencySnapshot,
+    pub(super) stat_child_no_follow: LatencySnapshot,
     pub(super) source_root_path: LatencySnapshot,
     pub(super) resolved_virtual_path: LatencySnapshot,
     pub(super) resolved_virtual_path_from_path: LatencySnapshot,
@@ -238,6 +240,10 @@ impl PerfCounters {
 
     pub(super) fn record_open_confined(&self, elapsed: Duration) {
         self.open_confined.record(elapsed);
+    }
+
+    pub(super) fn record_stat_child_no_follow(&self, elapsed: Duration) {
+        self.stat_child_no_follow.record(elapsed);
     }
 
     pub(super) fn record_source_root_path(&self, elapsed: Duration) {
@@ -386,6 +392,7 @@ impl PerfCounters {
             state_write_wait: self.state_write_wait.snapshot(),
             state_write_hold: self.state_write_hold.snapshot(),
             open_confined: self.open_confined.snapshot(),
+            stat_child_no_follow: self.stat_child_no_follow.snapshot(),
             source_root_path: self.source_root_path.snapshot(),
             resolved_virtual_path: self.resolved_virtual_path.snapshot(),
             resolved_virtual_path_from_path: self.resolved_virtual_path_from_path.snapshot(),
@@ -505,6 +512,11 @@ impl PerfCounters {
             snapshot.state_write_hold,
         );
         write_latency(&mut output, "open_confined_openat2", snapshot.open_confined);
+        write_latency(
+            &mut output,
+            "stat_child_no_follow",
+            snapshot.stat_child_no_follow,
+        );
         write_latency(&mut output, "source_root_path", snapshot.source_root_path);
         write_latency(
             &mut output,
@@ -729,11 +741,7 @@ fn size_bucket(size: usize) -> &'static str {
 }
 
 fn write_latency(output: &mut String, name: &str, snapshot: LatencySnapshot) {
-    let avg_ns = if snapshot.count == 0 {
-        0
-    } else {
-        snapshot.total_ns / snapshot.count
-    };
+    let avg_ns = snapshot.total_ns.checked_div(snapshot.count).unwrap_or(0);
     writeln!(
         output,
         "  {name}: count={} total_ns={} avg_ns={} max_ns={}",
