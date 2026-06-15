@@ -477,6 +477,47 @@ fn writable_default_symlink_returns_erofs_and_hidden_precedence_remains_enoent()
 }
 
 #[test]
+fn opened_symlink_write_revalidates_readonly_target_after_retarget() {
+    let dir = test_dir("opened-symlink-readonly-retarget");
+    std::fs::write(dir.join("free.txt"), b"free").unwrap();
+    std::fs::write(dir.join("locked.txt"), b"lock").unwrap();
+    std::os::unix::fs::symlink("free.txt", dir.join("alias")).unwrap();
+    let fs = fs_for_policy(
+        &dir,
+        Vec::new(),
+        vec!["/locked.txt".to_string()],
+        Some(crate::cli::MutabilityDefault::Writable),
+        Vec::new(),
+    );
+    let alias_path = VirtualPath::new("/alias");
+    assert_eq!(
+        fs.config().mutability_decision(&alias_path),
+        crate::config::MutabilityDecision::Writable
+    );
+    assert!(
+        !fs.config().can_skip_resolved_target_mutability_check(
+            fs.config().mutability_decision(&alias_path)
+        )
+    );
+
+    let inode = fs.reply_entry_for_path(alias_path).unwrap().attr.ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_WRONLY as u32)).unwrap();
+
+    std::fs::remove_file(dir.join("alias")).unwrap();
+    std::os::unix::fs::symlink("locked.txt", dir.join("alias")).unwrap();
+
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 0, b"!", 0, 0)).unwrap_err(),
+        libc::EROFS
+    );
+    assert_eq!(std::fs::read(dir.join("free.txt")).unwrap(), b"free");
+    assert_eq!(std::fs::read(dir.join("locked.txt")).unwrap(), b"lock");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn readonly_default_writable_match_non_match_and_hidden_precedence() {
     let dir = test_dir("allowwrite-match-hidden");
     std::fs::write(dir.join("allowed.txt"), b"ok").unwrap();

@@ -70,6 +70,26 @@ fn fs_for(
     )
 }
 
+fn fs_for_external_mount(source: &Path, mount: &Path) -> ScreenFs {
+    std::fs::create_dir_all(mount).unwrap();
+    let _env = ProcessEnvGuard::new(source, None);
+    let cfg = RuntimeConfig::from_launch(LaunchArgs {
+        cli: CliArgs {
+            source_root: source.to_path_buf(),
+            mount_root: mount.to_path_buf(),
+            visibility_hidden_rules: Vec::new(),
+            visibility_visible_rules: Vec::new(),
+            mutability_readonly_rules: Vec::new(),
+            mutability_writable_rules: Vec::new(),
+        },
+        config_path: None,
+        visibility_default: None,
+        mutability_default: None,
+    })
+    .unwrap();
+    ScreenFs::new(cfg)
+}
+
 fn fs_for_root_readonly(source: &Path, visibility_hidden_rules: Vec<String>) -> ScreenFs {
     fs_for_policy(
         source,

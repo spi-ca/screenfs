@@ -34,6 +34,13 @@ pub(super) struct PerfCounters {
     resolved_virtual_path_from_path_source_root_confinement: LatencyCounter,
     resolved_virtual_path_from_path_virtual_conversion: LatencyCounter,
     resolved_virtual_path_from_open_fd: LatencyCounter,
+    read_handle_snapshot: LatencyCounter,
+    read_guard_path: LatencyCounter,
+    read_io: LatencyCounter,
+    write_handle_snapshot: LatencyCounter,
+    write_guard_mutation: LatencyCounter,
+    write_io: LatencyCounter,
+    file_sync: LabeledLatencyCounters,
     read_size_buckets: LabeledLatencyCounters,
     write_size_buckets: LabeledLatencyCounters,
     readdir_directory_scan: LatencyCounter,
@@ -103,6 +110,13 @@ pub(crate) struct PerfSnapshot {
     pub(super) resolved_virtual_path_from_path_source_root_confinement: LatencySnapshot,
     pub(super) resolved_virtual_path_from_path_virtual_conversion: LatencySnapshot,
     pub(super) resolved_virtual_path_from_open_fd: LatencySnapshot,
+    pub(super) read_handle_snapshot: LatencySnapshot,
+    pub(super) read_guard_path: LatencySnapshot,
+    pub(super) read_io: LatencySnapshot,
+    pub(super) write_handle_snapshot: LatencySnapshot,
+    pub(super) write_guard_mutation: LatencySnapshot,
+    pub(super) write_io: LatencySnapshot,
+    pub(super) file_sync: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) read_size_buckets: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) write_size_buckets: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) readdir_directory_scan: LatencySnapshot,
@@ -258,12 +272,40 @@ impl PerfCounters {
         self.resolved_virtual_path_from_open_fd.record(elapsed);
     }
 
-    pub(super) fn record_read(&self, size: usize, elapsed: Duration) {
+    pub(super) fn record_read_handle_snapshot(&self, elapsed: Duration) {
+        self.read_handle_snapshot.record(elapsed);
+    }
+
+    pub(super) fn record_read_guard_path(&self, elapsed: Duration) {
+        self.read_guard_path.record(elapsed);
+    }
+
+    pub(super) fn record_read_io(&self, elapsed: Duration) {
+        self.read_io.record(elapsed);
+    }
+
+    pub(super) fn record_read_size_bucket(&self, size: usize, elapsed: Duration) {
         self.read_size_buckets.record(size_bucket(size), elapsed);
     }
 
-    pub(super) fn record_write(&self, size: usize, elapsed: Duration) {
+    pub(super) fn record_write_handle_snapshot(&self, elapsed: Duration) {
+        self.write_handle_snapshot.record(elapsed);
+    }
+
+    pub(super) fn record_write_guard_mutation(&self, elapsed: Duration) {
+        self.write_guard_mutation.record(elapsed);
+    }
+
+    pub(super) fn record_write_io(&self, elapsed: Duration) {
+        self.write_io.record(elapsed);
+    }
+
+    pub(super) fn record_write_size_bucket(&self, size: usize, elapsed: Duration) {
         self.write_size_buckets.record(size_bucket(size), elapsed);
+    }
+
+    pub(super) fn record_file_sync(&self, label: &'static str, elapsed: Duration) {
+        self.file_sync.record(label, elapsed);
     }
 
     pub(super) fn record_readdir_directory_scan(&self, elapsed: Duration) {
@@ -360,6 +402,13 @@ impl PerfCounters {
                 .resolved_virtual_path_from_path_virtual_conversion
                 .snapshot(),
             resolved_virtual_path_from_open_fd: self.resolved_virtual_path_from_open_fd.snapshot(),
+            read_handle_snapshot: self.read_handle_snapshot.snapshot(),
+            read_guard_path: self.read_guard_path.snapshot(),
+            read_io: self.read_io.snapshot(),
+            write_handle_snapshot: self.write_handle_snapshot.snapshot(),
+            write_guard_mutation: self.write_guard_mutation.snapshot(),
+            write_io: self.write_io.snapshot(),
+            file_sync: self.file_sync.snapshot(),
             read_size_buckets: self.read_size_buckets.snapshot(),
             write_size_buckets: self.write_size_buckets.snapshot(),
             readdir_directory_scan: self.readdir_directory_scan.snapshot(),
@@ -492,6 +541,25 @@ impl PerfCounters {
             "resolved_virtual_path_from_open_fd",
             snapshot.resolved_virtual_path_from_open_fd,
         );
+        write_latency(
+            &mut output,
+            "read_handle_snapshot",
+            snapshot.read_handle_snapshot,
+        );
+        write_latency(&mut output, "read_guard_path", snapshot.read_guard_path);
+        write_latency(&mut output, "read_io", snapshot.read_io);
+        write_latency(
+            &mut output,
+            "write_handle_snapshot",
+            snapshot.write_handle_snapshot,
+        );
+        write_latency(
+            &mut output,
+            "write_guard_mutation",
+            snapshot.write_guard_mutation,
+        );
+        write_latency(&mut output, "write_io", snapshot.write_io);
+        write_labeled_latency(&mut output, "file_sync", &snapshot.file_sync);
         write_labeled_latency(&mut output, "read_size_bucket", &snapshot.read_size_buckets);
         write_labeled_latency(
             &mut output,

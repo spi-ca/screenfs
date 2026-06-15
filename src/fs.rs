@@ -19,7 +19,7 @@ use fractal_fuse::{
     ReplyEntry, ReplyOpen, ReplyReadlink, ReplyStatfs, ReplyXattr, Request, SetAttr,
 };
 
-use crate::config::RuntimeConfig;
+use crate::config::{MutabilityDecision, RuntimeConfig};
 use crate::errors::{errno_from_io, open_has_write_intent};
 mod backing;
 mod guards;
@@ -35,7 +35,7 @@ use self::backing::{
 use self::perf::PerfCounters;
 #[cfg(all(test, feature = "perf-counters"))]
 use self::perf::PerfSnapshot;
-use self::state::{DirectoryResume, DirectorySnapshotEntry, State};
+use self::state::{DirectoryResume, DirectorySnapshotEntry, FileIoGuardCache, State};
 
 #[cfg(feature = "perf-counters")]
 macro_rules! fuse_op_timer {
@@ -121,6 +121,15 @@ impl ScreenFs {
 
     pub fn config(&self) -> &RuntimeConfig {
         &self.cfg
+    }
+
+    fn open_file_io_guard_cache(&self) -> FileIoGuardCache {
+        let skip_read_guard = self.cfg.can_skip_symlink_target_visibility_check();
+        let skip_write_guard = skip_read_guard
+            && self
+                .cfg
+                .can_skip_resolved_target_mutability_check(MutabilityDecision::Writable);
+        FileIoGuardCache::new(skip_read_guard, skip_write_guard)
     }
 
     #[cfg(all(test, feature = "perf-counters"))]
@@ -601,7 +610,7 @@ impl Filesystem for ScreenFs {
         let file = self.open_confined(&path, open_flags, None)?;
         self.guard_opened_file_target(&path, &file, open_has_write_intent(flags))?;
         self.apply_deferred_truncate(&file, flags)?;
-        let fh = self.insert_open_file(inode, path, file);
+        let fh = self.insert_open_file(inode, path, file, self.open_file_io_guard_cache());
         Ok(ReplyOpen {
             fh,
             flags: 0,
@@ -618,14 +627,34 @@ impl Filesystem for ScreenFs {
         buf: &mut [u8],
     ) -> FsResult<usize> {
         let _timer = fuse_op_timer!(self, "read");
-        let (path, file) = self.file_handle_snapshot(inode, fh)?;
-        self.guard_read_path(&path)?;
         #[cfg(feature = "perf-counters")]
-        let start = Instant::now();
+        let snapshot_start = Instant::now();
+        let snapshot = self.file_data_path_snapshot(inode, fh);
+        #[cfg(feature = "perf-counters")]
+        self.perf
+            .record_read_handle_snapshot(snapshot_start.elapsed());
+        let (path, file, io_guard_cache) = snapshot?;
+        #[cfg(feature = "perf-counters")]
+        let guard_start = Instant::now();
+        let guard = if io_guard_cache.skip_read_guard {
+            Ok(())
+        } else {
+            self.guard_read_path(&path)
+                .and_then(|()| self.guard_opened_file_target(&path, &file, false))
+        };
+        #[cfg(feature = "perf-counters")]
+        self.perf.record_read_guard_path(guard_start.elapsed());
+        guard?;
+        #[cfg(feature = "perf-counters")]
+        let io_start = Instant::now();
         let result = file.read_at(buf, offset).map_err(errno_from_io);
         #[cfg(feature = "perf-counters")]
-        if let Ok(size) = result {
-            self.perf.record_read(size, start.elapsed());
+        {
+            let io_elapsed = io_start.elapsed();
+            self.perf.record_read_io(io_elapsed);
+            if let Ok(size) = result {
+                self.perf.record_read_size_bucket(size, io_elapsed);
+            }
         }
         result
     }
@@ -641,14 +670,34 @@ impl Filesystem for ScreenFs {
         _flags: u32,
     ) -> FsResult<usize> {
         let _timer = fuse_op_timer!(self, "write");
-        let (path, file) = self.file_handle_snapshot(inode, fh)?;
-        self.guard_mutation_path(&path, true)?;
         #[cfg(feature = "perf-counters")]
-        let start = Instant::now();
+        let snapshot_start = Instant::now();
+        let snapshot = self.file_data_path_snapshot(inode, fh);
+        #[cfg(feature = "perf-counters")]
+        self.perf
+            .record_write_handle_snapshot(snapshot_start.elapsed());
+        let (path, file, io_guard_cache) = snapshot?;
+        #[cfg(feature = "perf-counters")]
+        let guard_start = Instant::now();
+        let guard = if io_guard_cache.skip_write_guard {
+            Ok(())
+        } else {
+            self.guard_mutation_path(&path, true)
+                .and_then(|()| self.guard_opened_file_target(&path, &file, true))
+        };
+        #[cfg(feature = "perf-counters")]
+        self.perf.record_write_guard_mutation(guard_start.elapsed());
+        guard?;
+        #[cfg(feature = "perf-counters")]
+        let io_start = Instant::now();
         let result = file.write_at(data, offset).map_err(errno_from_io);
         #[cfg(feature = "perf-counters")]
-        if let Ok(size) = result {
-            self.perf.record_write(size, start.elapsed());
+        {
+            let io_elapsed = io_start.elapsed();
+            self.perf.record_write_io(io_elapsed);
+            if let Ok(size) = result {
+                self.perf.record_write_size_bucket(size, io_elapsed);
+            }
         }
         result
     }
@@ -656,7 +705,13 @@ impl Filesystem for ScreenFs {
     async fn flush(&self, _req: Request, inode: u64, fh: u64, _lock_owner: u64) -> FsResult<()> {
         let _timer = fuse_op_timer!(self, "flush");
         let (_path, file) = self.file_handle_snapshot(inode, fh)?;
-        Self::offload_file_sync(file, |file| file.sync_all().map_err(errno_from_io)).await
+        #[cfg(feature = "perf-counters")]
+        let sync_start = Instant::now();
+        let result =
+            Self::offload_file_sync(file, |file| file.sync_all().map_err(errno_from_io)).await;
+        #[cfg(feature = "perf-counters")]
+        self.perf.record_file_sync("flush", sync_start.elapsed());
+        result
     }
 
     async fn release(
@@ -672,8 +727,15 @@ impl Filesystem for ScreenFs {
         let _timer = fuse_op_timer!(self, "release");
         let handle = self.with_state_write(|state| state.remove_file(fh));
         if flush && let Some(handle) = handle {
-            Self::offload_file_sync(handle.file, |file| file.sync_all().map_err(errno_from_io))
-                .await?;
+            #[cfg(feature = "perf-counters")]
+            let sync_start = Instant::now();
+            let result =
+                Self::offload_file_sync(handle.file, |file| file.sync_all().map_err(errno_from_io))
+                    .await;
+            #[cfg(feature = "perf-counters")]
+            self.perf
+                .record_file_sync("release_flush", sync_start.elapsed());
+            result?;
         }
         Ok(())
     }
@@ -681,7 +743,14 @@ impl Filesystem for ScreenFs {
     async fn fsync(&self, _req: Request, inode: u64, fh: u64, datasync: bool) -> FsResult<()> {
         let _timer = fuse_op_timer!(self, "fsync");
         let (_path, file) = self.file_handle_snapshot(inode, fh)?;
-        Self::offload_file_sync(file, move |file| Self::fsync_fd(file.as_ref(), datasync)).await
+        #[cfg(feature = "perf-counters")]
+        let sync_start = Instant::now();
+        let result =
+            Self::offload_file_sync(file, move |file| Self::fsync_fd(file.as_ref(), datasync))
+                .await;
+        #[cfg(feature = "perf-counters")]
+        self.perf.record_file_sync("fsync", sync_start.elapsed());
+        result
     }
 
     async fn opendir(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {

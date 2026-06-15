@@ -328,6 +328,99 @@ fn symlink_to_outside_source_root_stays_visible_but_following_ops_return_enoent(
 }
 
 #[test]
+fn opened_symlink_read_revalidates_hidden_target_after_retarget() {
+    let dir = test_dir("opened-symlink-hidden-retarget");
+    std::fs::write(dir.join("visible.txt"), b"public").unwrap();
+    std::fs::write(dir.join("hidden.txt"), b"secret").unwrap();
+    std::os::unix::fs::symlink("visible.txt", dir.join("alias")).unwrap();
+    let fs = fs_for(&dir, vec!["/hidden.txt".to_string()], Vec::new());
+    assert!(!fs.config().can_skip_symlink_target_visibility_check());
+
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/alias"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap();
+
+    std::fs::remove_file(dir.join("alias")).unwrap();
+    std::os::unix::fs::symlink("hidden.txt", dir.join("alias")).unwrap();
+
+    let mut buf = [0_u8; 6];
+    assert_eq!(
+        block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(std::fs::read(dir.join("visible.txt")).unwrap(), b"public");
+    assert_eq!(std::fs::read(dir.join("hidden.txt")).unwrap(), b"secret");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn cache_eligible_opened_symlink_read_keeps_pinned_fd_after_final_retarget() {
+    let root = test_dir("cache-eligible-opened-symlink-final-retarget");
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("first.txt"), b"first").unwrap();
+    std::fs::write(source.join("second.txt"), b"second").unwrap();
+    std::os::unix::fs::symlink("first.txt", source.join("alias")).unwrap();
+    let fs = fs_for_external_mount(&source, &mount);
+    assert!(fs.config().can_skip_symlink_target_visibility_check());
+
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/alias"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap();
+
+    std::fs::remove_file(source.join("alias")).unwrap();
+    std::os::unix::fs::symlink("second.txt", source.join("alias")).unwrap();
+
+    let mut buf = [0_u8; 5];
+    let len = block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap();
+    assert_eq!(&buf[..len], b"first");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cache_eligible_opened_symlink_read_keeps_pinned_fd_after_ancestor_retarget() {
+    let root = test_dir("cache-eligible-opened-symlink-ancestor-retarget");
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::create_dir(source.join("first")).unwrap();
+    std::fs::create_dir(source.join("second")).unwrap();
+    std::fs::write(source.join("first/file.txt"), b"first").unwrap();
+    std::fs::write(source.join("second/file.txt"), b"second").unwrap();
+    std::os::unix::fs::symlink("first", source.join("alias-dir")).unwrap();
+    let fs = fs_for_external_mount(&source, &mount);
+    assert!(fs.config().can_skip_symlink_target_visibility_check());
+
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/alias-dir/file.txt"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap();
+
+    std::fs::remove_file(source.join("alias-dir")).unwrap();
+    std::os::unix::fs::symlink("second", source.join("alias-dir")).unwrap();
+
+    let mut buf = [0_u8; 5];
+    let len = block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap();
+    assert_eq!(&buf[..len], b"first");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn deleted_source_root_resolved_path_fails_closed() {
     let source = test_dir("deleted-source-root-resolve");
     let fs = fs_for(&source, Vec::new(), Vec::new());

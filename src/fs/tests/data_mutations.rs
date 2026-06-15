@@ -261,6 +261,156 @@ fn read_write_offsets_do_not_depend_on_shared_file_position() {
 }
 
 #[test]
+fn cache_eligible_opened_file_read_write_keep_pinned_fd_after_host_rename() {
+    let root = test_dir("cache-eligible-pinned-fd-after-host-rename");
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("file"), b"abcdef").unwrap();
+    let fs = fs_for_external_mount(&source, &mount);
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDWR as u32)).unwrap();
+
+    std::fs::rename(source.join("file"), source.join("renamed")).unwrap();
+
+    let mut buf = [0_u8; 3];
+    let len = block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap();
+    assert_eq!(&buf[..len], b"abc");
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 0, b"ZZ", 0, 0)).unwrap(),
+        2
+    );
+    assert!(!source.join("file").exists());
+    assert_eq!(std::fs::read(source.join("renamed")).unwrap(), b"ZZcdef");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cache_eligible_opened_file_read_write_keep_pinned_fd_after_ancestor_rename() {
+    let root = test_dir("cache-eligible-pinned-fd-after-ancestor-rename");
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir_all(source.join("dir")).unwrap();
+    std::fs::write(source.join("dir/file"), b"abcdef").unwrap();
+    let fs = fs_for_external_mount(&source, &mount);
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/dir/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDWR as u32)).unwrap();
+
+    std::fs::rename(source.join("dir"), source.join("moved")).unwrap();
+
+    let mut buf = [0_u8; 3];
+    let len = block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap();
+    assert_eq!(&buf[..len], b"abc");
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 0, b"YY", 0, 0)).unwrap(),
+        2
+    );
+    assert!(!source.join("dir/file").exists());
+    assert_eq!(std::fs::read(source.join("moved/file")).unwrap(), b"YYcdef");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cache_eligible_opened_file_read_write_keep_pinned_fd_after_unlink() {
+    let root = test_dir("cache-eligible-pinned-fd-after-unlink");
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("file"), b"abcdef").unwrap();
+    let fs = fs_for_external_mount(&source, &mount);
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDWR as u32)).unwrap();
+
+    std::fs::remove_file(source.join("file")).unwrap();
+
+    let mut buf = [0_u8; 3];
+    let len = block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap();
+    assert_eq!(&buf[..len], b"abc");
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 0, b"XX", 0, 0)).unwrap(),
+        2
+    );
+    assert!(!source.join("file").exists());
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn opened_file_read_write_fail_closed_after_host_rename_into_hidden_subtree() {
+    let dir = test_dir("pinned-fd-renamed-hidden");
+    std::fs::create_dir(dir.join("hidden")).unwrap();
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let fs = fs_for(&dir, vec!["/hidden".to_string()], Vec::new());
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDWR as u32)).unwrap();
+
+    std::fs::rename(dir.join("file"), dir.join("hidden/file")).unwrap();
+
+    let mut buf = [0_u8; 3];
+    assert_eq!(
+        block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 0, b"ZZ", 0, 0)).unwrap_err(),
+        ENOENT
+    );
+    assert_eq!(std::fs::read(dir.join("hidden/file")).unwrap(), b"abcdef");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn opened_file_read_keeps_pinned_fd_after_host_rename_but_write_fails_closed() {
+    let dir = test_dir("pinned-fd-after-host-rename");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let inode = fs
+        .reply_entry_for_path(VirtualPath::new("/file"))
+        .unwrap()
+        .attr
+        .ino;
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDWR as u32)).unwrap();
+
+    std::fs::rename(dir.join("file"), dir.join("renamed")).unwrap();
+
+    let mut buf = [0_u8; 3];
+    let len = block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap();
+    assert_eq!(&buf[..len], b"abc");
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 0, b"ZZ", 0, 0)).unwrap_err(),
+        ENOENT
+    );
+    assert!(!dir.join("file").exists());
+    assert_eq!(std::fs::read(dir.join("renamed")).unwrap(), b"abcdef");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn flush_and_fsync_complete_under_compio_runtime() {
     let dir = test_dir("compio-flush-fsync");
     std::fs::write(dir.join("file"), b"abcdef").unwrap();

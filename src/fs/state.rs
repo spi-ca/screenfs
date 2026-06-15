@@ -29,14 +29,31 @@ pub(super) struct InodeRecord {
     pub(super) open_refs: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct FileIoGuardCache {
+    pub(super) skip_read_guard: bool,
+    pub(super) skip_write_guard: bool,
+}
+
+impl FileIoGuardCache {
+    pub(super) const fn new(skip_read_guard: bool, skip_write_guard: bool) -> Self {
+        Self {
+            skip_read_guard,
+            skip_write_guard,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct FileHandle {
     pub(super) inode: u64,
     pub(super) path: VirtualPath,
     pub(super) file: Arc<File>,
+    pub(super) io_guard_cache: FileIoGuardCache,
 }
 
 pub(super) type FileSnapshot = (VirtualPath, Arc<File>);
+pub(super) type FileDataPathSnapshot = (VirtualPath, Arc<File>, FileIoGuardCache);
 pub(super) type CopyFileRangeSnapshot = (FileSnapshot, FileSnapshot);
 
 #[derive(Debug, Clone)]
@@ -175,7 +192,18 @@ impl State {
         self.try_evict_inode(inode);
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn insert_file(&mut self, inode: u64, path: VirtualPath, file: File) -> u64 {
+        self.insert_file_with_guard_cache(inode, path, file, FileIoGuardCache::default())
+    }
+
+    pub(super) fn insert_file_with_guard_cache(
+        &mut self,
+        inode: u64,
+        path: VirtualPath,
+        file: File,
+        io_guard_cache: FileIoGuardCache,
+    ) -> u64 {
         let fh = self.next_handle();
         self.files.insert(
             fh,
@@ -183,6 +211,7 @@ impl State {
                 inode,
                 path,
                 file: Arc::new(file),
+                io_guard_cache,
             },
         );
         if inode != FUSE_ROOT_ID
@@ -422,8 +451,16 @@ impl ScreenFs {
         self.with_state_write(|state| state.inode_for_path(path))
     }
 
-    pub(super) fn insert_open_file(&self, inode: u64, path: VirtualPath, file: File) -> u64 {
-        self.with_state_write(|state| state.insert_file(inode, path, file))
+    pub(super) fn insert_open_file(
+        &self,
+        inode: u64,
+        path: VirtualPath,
+        file: File,
+        io_guard_cache: FileIoGuardCache,
+    ) -> u64 {
+        self.with_state_write(|state| {
+            state.insert_file_with_guard_cache(inode, path, file, io_guard_cache)
+        })
     }
 
     pub(super) fn insert_open_directory(&self, inode: u64, path: VirtualPath) -> u64 {
@@ -443,6 +480,24 @@ impl ScreenFs {
                 return Err(ENOENT);
             }
             Ok((handle.path.clone(), Arc::clone(&handle.file)))
+        })
+    }
+
+    pub(super) fn file_data_path_snapshot(
+        &self,
+        inode: u64,
+        fh: u64,
+    ) -> Result<FileDataPathSnapshot, i32> {
+        self.with_state_read(|state| {
+            let handle = state.files.get(&fh).ok_or(ENOENT)?;
+            if handle.inode != inode {
+                return Err(ENOENT);
+            }
+            Ok((
+                handle.path.clone(),
+                Arc::clone(&handle.file),
+                handle.io_guard_cache,
+            ))
         })
     }
 
@@ -500,6 +555,7 @@ impl ScreenFs {
         path: VirtualPath,
         file: File,
     ) -> (u64, u64) {
+        let io_guard_cache = self.open_file_io_guard_cache();
         self.with_state_write(|state| {
             #[cfg(feature = "perf-counters")]
             let mut stats = state.invalidate_directory_snapshots(std::slice::from_ref(parent_path));
@@ -512,7 +568,7 @@ impl ScreenFs {
             #[cfg(not(feature = "perf-counters"))]
             state.invalidate_exact_path(&path);
             let inode = state.lookup_path(path.clone());
-            let fh = state.insert_file(inode, path, file);
+            let fh = state.insert_file_with_guard_cache(inode, path, file, io_guard_cache);
             #[cfg(feature = "perf-counters")]
             self.perf.record_invalidation(stats);
             (inode, fh)
