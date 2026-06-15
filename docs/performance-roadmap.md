@@ -102,10 +102,64 @@ per-open cache claim-grade pair가 이미 체크인된 현재 기준에서, 다�
 
 현재 측정 plumbing/evidence:
 
-- next-candidate measurement bundle: [`artifacts/metadata-open-path-claim/summary.md`](artifacts/metadata-open-path-claim/summary.md)와 companion JSON/Markdown/SVG/PNG. 이 bundle은 현재 worktree의 metadata/open-path, sync surface, directory surface, policy-heavy matrix row를 측정한 attribution evidence이며 before/after optimization claim은 아니다. 현재 mounted `sync_release_flush` workload는 kernel이 `release(flush=true)`를 실제로 주지 않아 `file_sync.release_flush`를 태우지 못한 known measurement gap으로 남기고, 해당 counter 자체는 focused Rust perf test로 검증한다.
+- next-candidate measurement bundle: [`artifacts/metadata-open-path-claim/summary.md`](artifacts/metadata-open-path-claim/summary.md)와 companion JSON/Markdown/SVG/PNG. 이 bundle은 현재 worktree의 metadata/open-path, sync surface, directory surface, policy-heavy matrix row를 측정한 attribution evidence이며 before/after optimization claim은 아니다.
+- coverage caveat: checked-in fast-path-cache-eligible row에는 metadata/open-path와 directory surface evidence가 있지만, 현재 policy-heavy matcher32 row는 `metadata_lookup`, `metadata_getattr`, `metadata_access`, `matcher_hidden_stat_miss`만 포함한다. 따라서 unsafe-policy row에서 `metadata_open`, `metadata_readlink`, `readdir_basic`, `readdirplus_basic`까지 같은 강도로 입증됐다고 쓰지 않는다. 해당 workload가 필요하면 먼저 matrix row를 채우거나 gap으로 남긴다.
+- matcher caveat: matcher32 artifact의 현재 rule-rich 신호는 subtree-heavy synthetic probe에서 `matcher_candidate_order.path` 호출량과 path-order ancestor/seen-slot work를 보여주는 attribution이다. 이 row의 `matcher_candidate_order.descendant`는 `visible-rules=0`인 empty visible matcher 호출 비용이므로 rule-rich descendant candidate-order 근거로 쓰지 않는다. `matcher_candidate_order_duplicates`가 0인 현 artifact만으로 duplicate-removal 비용 또는 broad matcher-family 재배치 효과를 주장하지 않는다.
+- 현재 mounted `sync_release_flush` workload는 kernel이 `release(flush=true)`를 실제로 주지 않아 `file_sync.release_flush`를 태우지 못한 known measurement gap으로 남기고, 해당 counter 자체는 focused Rust perf test로 검증한다.
 - raw three-way FUSE fixed-overhead floor: [`artifacts/rawlat-three-way/summary.md`](artifacts/rawlat-three-way/summary.md), [`artifacts/rawlat-three-way/boxplot-stats.json`](artifacts/rawlat-three-way/boxplot-stats.json), [`artifacts/rawlat-three-way/boxplot.svg`](artifacts/rawlat-three-way/boxplot.svg), [`artifacts/rawlat-three-way/boxplot.png`](artifacts/rawlat-three-way/boxplot.png). 이 artifact는 native/passthrough/ScreenFS 모두에서 fio raw `clat` sample metric을 사용한다.
 
-이 candidate는 correctness guardrail을 바꾸지 않는다. hidden `ENOENT`, bridge-visible ancestor semantics, symlink target fully-visible gate, `openat2` confinement, readonly `EROFS`, stable resume cookie/shared cookie domain, returned-page-only `readdirplus` lookup-ref pinning은 그대로 유지한다.
+이 candidate는 correctness guardrail을 바꾸지 않는다. hidden `ENOENT`, bridge-visible ancestor semantics, symlink target fully-visible gate, `openat2` confinement, readonly `EROFS`, stable resume cookie/shared cookie domain, returned-page-only `readdirplus` lookup-ref pinning은 그대로 유지한다. metadata parent dirfd나 resolved-path 결과를 cross-request cache/pool로 재사용하지 않고, request-local reuse라도 mutation 직전 opened-target revalidation을 유지한다.
+
+#### Partial step: lookup/getattr same-path no-follow attr reuse
+
+첫 implementation slice는 `lookup`/`getattr`에서 같은 `VirtualPath`에 대해 `stat_child_no_follow(path, ino)`를 두 번 호출하는 fixed overhead를 줄이는 것이다. 이 단계는 전체 metadata/open-path candidate의 partial step이며, 직접 효과는 `metadata_lookup`과 `metadata_getattr` 중심으로 판단한다. 전체 candidate acceptance의 primary 5개 중 4개 개선 기준은 유지하되, 이 slice만으로 `metadata_open`, `metadata_readlink`, `metadata_access`까지 완료됐다고 주장하지 않는다.
+
+구현 계약:
+
+- `reply_entry_for_path()`와 `attr_for_path()`는 먼저 같은 path의 no-follow `stat_child_no_follow(path, ino)`를 얻고, 그 성공한 attr를 `guard_hidden_path`/`guard_read_path` 계열에 known child attr로 전달해 visibility 판단에서 같은 stat를 반복하지 않는다.
+- known attr API는 전제를 이름이나 타입에 드러낸다. 예: `guard_read_path_with_known_attr(path, known_child_attr)` 또는 `guard_hidden_path(path, known_child_attr: Option<&FileAttr>)`.
+- 주입 가능한 attr는 반드시 같은 `VirtualPath`에 대한 `stat_child_no_follow()` 결과여야 한다. symlink target resolved attr, opened fd attr, parent dir attr, 다른 child path attr는 child path guard에 재사용하지 않는다.
+- no-follow attr는 final component의 type/readability 판단에만 재사용하고, symlink target fully-visible gate, ancestor symlink 해소, source-root confinement, opened-fd target revalidation, mutability 판단을 대체하지 않는다.
+- injected stat가 없거나 stat 수집이 실패한 경로에서는 기존 `visible_for_entry()` fallback 의미론을 유지한다. stat 실패를 새 hidden `ENOENT` 근거로 승격하지 않고, 기존 `is_fully_visible()`/bridge-visible 판단과 후속 host syscall errno 흐름을 유지한다.
+- `guard_read_path(path)`의 기존 호출부는 안전한 no-known-attr 경로를 유지하거나 전용 helper로 분리한다.
+- `fallocate`/`copy_file_range` 같은 opened-fd mutator/data movement path는 attr injection으로 우회하지 않으며, per-call guard와 opened-target revalidation 요구를 계속 별도 guardrail로 유지한다.
+
+측정/증거 요구:
+
+- 정적 diff로 `reply_entry_for_path()`/`attr_for_path()`의 같은-path double stat 제거를 확인한다.
+- perf attribution에는 `stat_child_no_follow` 또는 인접 helper 호출/latency counter, trace, focused test 중 하나를 추가해 double stat 제거를 직접 설명한다. whole-workload latency만으로 helper 감소를 단정하지 않는다.
+- before/after benchmark는 최소 `metadata_lookup`, `metadata_getattr`를 포함하고, 가능하면 `metadata_open`, `metadata_access`도 non-regression/context로 함께 기록한다.
+- policy-first guard 재구성은 이 slice 이후 남는 비용을 perf counter로 확인한 뒤 별도 후속 최적화로 다룬다. `visibility_decision(path)`을 무조건 선행하지 말고, Visible/Hidden policy-only fast 판정 가능성, BridgeVisible의 attr/type 필요성, glob-heavy matcher 비용과 host stat 절감 tradeoff를 분리해 본다.
+
+
+#### Next slices: request-local guard context, readlink, and matcher streaming
+
+The next metadata/open-path work must keep the lookup/getattr attr-reuse slice separate from broader request-local reuse. A request-local guard context is allowed to carry only values derived inside the same FUSE request: the canonical `source_root_path()` result, optional same-`VirtualPath` no-follow child attrs, and opened parent/object fd resolution results that still pass current-path validation. It must not become a cross-request path, visibility, symlink, or policy cache.
+
+Readlink optimization contract:
+
+- `readlink()` may use a readlink-specific helper that opens and validates the parent directory once, then uses that same parent dirfd for `fstatat(AT_SYMLINK_NOFOLLOW)` and `readlinkat`.
+- The no-follow attr from that helper may be passed to the read guard only for the same symlink `VirtualPath`; it does not replace `check_hidden_symlink_target()` or symlink target fully-visible policy.
+- Parent dirfd reuse must still call the same current-path validation used by other backing helpers before issuing host syscalls. If validation fails, the operation fails closed with the existing `ENOENT` behavior.
+
+Open/access/opendir request-local reuse contract:
+
+- `open()`, `access()`, and `opendir()` may share one request-local resolver between pre-open guards and opened-target revalidation so the canonical source root is not recomputed inside the same request.
+- `open_confined` still uses `openat2(RESOLVE_IN_ROOT | RESOLVE_NO_MAGICLINKS)` and must not rely on cached policy to skip opened-target revalidation.
+- Mutating opens and writable access still perform mutability checks with hidden-before-`EROFS` precedence.
+- `opendir` is part of this scope even when the formal mounted latency matrix reports it through directory-surface workloads; perf counters must show whether source-root/open-fd resolution work moved or decreased.
+
+Matcher streaming contract:
+
+- `PathRuleMatcher::best_descriptor()` is the hot path and may use an allocation-free streaming best-candidate helper.
+- `candidate_order()` and descendant candidate-order APIs remain the debug/metrics source of truth and must keep their current `Vec` order, dedup, and metric behavior.
+- The streaming helper must return the same winner as `candidate_order(path).into_iter().find(|descriptor| descriptor.matches_path(path))`, including mixed exact/subtree, direct-child glob, recursive glob, and recursive literal families. Ties continue to follow existing `match_order`/specificity precedence.
+
+Additional evidence for these slices:
+
+- Static diff must show readlink parent dirfd validation is not repeated between guard and `readlinkat`, and that `open()`/`access()` share a request-local resolver through pre-open and opened-target checks.
+- Matcher tests must compare streaming `best_descriptor()` results to the existing candidate-order winner across specificity, conflict, glob, recursive, and mixed-family cases.
+- Benchmark artifacts must include `metadata_readlink` and the policy rows needed for fast-path-cache-eligible, fallback-unsafe-policy, and glob/matcher-heavy claims.
 
 ### Sync surface
 
@@ -202,7 +256,8 @@ is_fully_visible
 최적화 후보(계측 후에만):
 
 - matcher family split 결과를 본 뒤에만 bucket/index 재배치 검토
-- `candidate_order`/`descendant_candidate_order`의 allocation reuse 또는 duplicate-removal 단순화는 counter/trace가 그 비용을 보여줄 때만 검토
+- candidate set/order 불변성을 유지하는 allocation reuse류 미세 최적화는 검토 가능하지만, 최종 후보 집합과 `order_rank` 순서 및 dedup 결과가 기존과 같아야 한다.
+- `candidate_order`/`descendant_candidate_order`의 duplicate-removal 단순화는 counter/trace가 실제 duplicate cost를 보여줄 때만 검토한다. 현재 matcher32 checked-in artifact처럼 duplicate counter가 0인 경우에는 duplicate-removal 최적화 근거로 쓰지 않는다.
 
 ### 2. Read/write buffer size and concurrency
 
@@ -383,6 +438,7 @@ userspace path resolution cache로 confinement 대체
 - `matcher_candidate_order.{path,descendant}` latency와 aggregate/order-labeled `matcher_candidate_order_duplicates`, `matcher_candidate_order_seen_slots`, `matcher_candidate_order_ancestor_steps`
 - state lock read/write wait/hold count/latency
 - `open_confined_openat2` count/latency
+- `stat_child_no_follow` count/latency
 - `source_root_path` count/latency
 - aggregate `resolved_virtual_path` count/latency (retained sum of `resolved_virtual_path_from_path` + `resolved_virtual_path_from_open_fd`)
 - `resolved_virtual_path_from_path` / `resolved_virtual_path_from_open_fd` count/latency
@@ -403,7 +459,7 @@ userspace path resolution cache로 confinement 대체
 
 ## Measurement-guided optimization notes
 
-Perf-enabled benchmark evidence should drive optimization order. The historical smoke baseline summarized in [`artifacts/current-perf-counter-baseline-summary.md`](artifacts/current-perf-counter-baseline-summary.md) showed aggregate `resolved_virtual_path` attribution (`count=145166`, `total_ns=394848335`) and `policy_decision` (`count=171732`, `total_ns=183484872`) as broader hot surfaces than `open_confined_openat2` (`count=98298`, `total_ns=47566036`). That baseline was enough to justify deeper attribution, not a user-visible speedup claim. Current code still retains aggregate `resolved_virtual_path`, additionally emits `source_root_path`, `resolved_virtual_path_from_path`, `resolved_virtual_path_from_open_fd`, `resolved_virtual_path_from_path_*` sub-counters, matcher family/`matcher_candidate_order` counters, read/write data-path split counters, and split `readdir`/`readdirplus` attr/symlink/candidate-selection/page-commit buckets. It also uses request-local canonical source-root reuse in `ScreenFs::resolved_virtual_path()`/`RequestPathResolver` via `resolve_host_path_from_canonical_source_root()` so per-call `source_root.canonicalize()` is avoided without changing confinement or `ENOENT` semantics; the path-walk cleanup keeps iterator-based component traversal rather than materializing a component `Vec`. The next step remains measurement-first: read the expanded attribution surface, regenerate smoke artifacts when they predate the current counter surface, and still require claim-grade before/after benchmark pairs before describing any speedup. The checked-in smoke artifacts remain smoke-only evidence, not claim evidence, while [`artifacts/per-open-cache-claim/summary.md`](artifacts/per-open-cache-claim/summary.md) is the current claim-grade pair for the active per-open-cache goal. [`artifacts/current-perf-counter-benchmark-result.json`](artifacts/current-perf-counter-benchmark-result.json), [`artifacts/current-perf-counter-benchmark-result.md`](artifacts/current-perf-counter-benchmark-result.md), and [`artifacts/current-perf-counter-benchmark-result.svg`](artifacts/current-perf-counter-benchmark-result.svg) predate the read/write data-path split counters; use [`artifacts/managed-fio-attribution-summary.md`](artifacts/managed-fio-attribution-summary.md), [`artifacts/managed-fio-attribution-perf-split.json`](artifacts/managed-fio-attribution-perf-split.json), and [`artifacts/managed-fio-attribution-screenfs.stderr.log`](artifacts/managed-fio-attribution-screenfs.stderr.log) for current supplemental data-path split attribution evidence.
+Perf-enabled benchmark evidence should drive optimization order. The historical smoke baseline summarized in [`artifacts/current-perf-counter-baseline-summary.md`](artifacts/current-perf-counter-baseline-summary.md) showed aggregate `resolved_virtual_path` attribution (`count=145166`, `total_ns=394848335`) and `policy_decision` (`count=171732`, `total_ns=183484872`) as broader hot surfaces than `open_confined_openat2` (`count=98298`, `total_ns=47566036`). That baseline was enough to justify deeper attribution, not a user-visible speedup claim. Current code still retains aggregate `resolved_virtual_path`, additionally emits `stat_child_no_follow`, `source_root_path`, `resolved_virtual_path_from_path`, `resolved_virtual_path_from_open_fd`, `resolved_virtual_path_from_path_*` sub-counters, matcher family/`matcher_candidate_order` counters, read/write data-path split counters, and split `readdir`/`readdirplus` attr/symlink/candidate-selection/page-commit buckets. It also uses request-local canonical source-root reuse in `ScreenFs::resolved_virtual_path()`/`RequestPathResolver` via `resolve_host_path_from_canonical_source_root()` so per-call `source_root.canonicalize()` is avoided without changing confinement or `ENOENT` semantics; the path-walk cleanup keeps iterator-based component traversal rather than materializing a component `Vec`. The next step remains measurement-first: read the expanded attribution surface, regenerate smoke artifacts when they predate the current counter surface, and still require claim-grade before/after benchmark pairs before describing any speedup. The checked-in smoke artifacts remain smoke-only evidence, not claim evidence, while [`artifacts/per-open-cache-claim/summary.md`](artifacts/per-open-cache-claim/summary.md) is the current claim-grade pair for the active per-open-cache goal. [`artifacts/current-perf-counter-benchmark-result.json`](artifacts/current-perf-counter-benchmark-result.json), [`artifacts/current-perf-counter-benchmark-result.md`](artifacts/current-perf-counter-benchmark-result.md), and [`artifacts/current-perf-counter-benchmark-result.svg`](artifacts/current-perf-counter-benchmark-result.svg) predate the read/write data-path split counters; use [`artifacts/managed-fio-attribution-summary.md`](artifacts/managed-fio-attribution-summary.md), [`artifacts/managed-fio-attribution-perf-split.json`](artifacts/managed-fio-attribution-perf-split.json), and [`artifacts/managed-fio-attribution-screenfs.stderr.log`](artifacts/managed-fio-attribution-screenfs.stderr.log) for current supplemental data-path split attribution evidence.
 
 ## Recommended order
 
@@ -411,7 +467,7 @@ Perf-enabled benchmark evidence should drive optimization order. The historical 
 1. 문서/상태 정합성을 유지한다
 2. active next candidate인 metadata/open-path fixed-overhead contract부터 고정한다 (split workload additions, policy matrix, artifact naming, raw-sample metric contract)
 3. claim-grade before/after benchmark pair가 필요한 metadata/open-path + sync + `readdir`/`readdirplus` workload를 먼저 채운다 (`--matcher-extra-rules` 같은 focused policy knobs 포함)
-4. opt-in perf counter와 benchmark surface를 유지·확장하고 현재 expanded attribution(`source_root_path`, `resolved_virtual_path_from_path_*`, `matcher_family_candidates.*`, `matcher_candidate_order.*`, `readdir*`/`readdirplus*` split buckets)을 먼저 읽는다
+4. opt-in perf counter와 benchmark surface를 유지·확장하고 현재 expanded attribution(`stat_child_no_follow`, `source_root_path`, `resolved_virtual_path_from_path_*`, `matcher_family_candidates.*`, `matcher_candidate_order.*`, `readdir*`/`readdirplus*` split buckets)을 먼저 읽는다
 5. 현재 checked-in smoke/benchmark artifact가 필요한 counter surface를 못 담으면 재생성 계획부터 세운다
 6. policy/matcher hot path와 state lock hold time을 계측한다
 7. request-local canonical source-root reuse 결과를 mounted probe workload와 before/after 비교로 계측한다

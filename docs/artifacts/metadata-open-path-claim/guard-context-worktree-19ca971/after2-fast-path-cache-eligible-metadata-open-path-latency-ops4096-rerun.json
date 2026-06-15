@@ -1,0 +1,522 @@
+{
+  "comparisons": {
+    "metadata_access": {
+      "mounted_median_sec": 0.42543348049999996,
+      "mounted_over_native_median": 17.479870579428127,
+      "mounted_p50_sec": 0.42543348049999996,
+      "mounted_p90_sec": 0.4346396134,
+      "mounted_p95_sec": 0.4356874357,
+      "mounted_p99_sec": 0.43652569354000004,
+      "native_median_sec": 0.024338480000000003,
+      "native_p50_sec": 0.024338480000000003,
+      "native_p90_sec": 0.0246783733,
+      "native_p95_sec": 0.02468373865,
+      "native_p99_sec": 0.02468803093
+    },
+    "metadata_getattr": {
+      "mounted_median_sec": 0.37714175299999997,
+      "mounted_over_native_median": 14.109234876666353,
+      "mounted_p50_sec": 0.37714175299999997,
+      "mounted_p90_sec": 0.3911295477,
+      "mounted_p95_sec": 0.39142831935,
+      "mounted_p99_sec": 0.39166733667000003,
+      "native_median_sec": 0.026730135000000002,
+      "native_p50_sec": 0.026730135000000002,
+      "native_p90_sec": 0.0271520463,
+      "native_p95_sec": 0.02716459365,
+      "native_p99_sec": 0.02717463153
+    },
+    "metadata_lookup": {
+      "mounted_median_sec": 0.3496365495,
+      "mounted_over_native_median": 14.366710514932125,
+      "mounted_p50_sec": 0.3496365495,
+      "mounted_p90_sec": 0.35530171159999996,
+      "mounted_p95_sec": 0.35771032129999997,
+      "mounted_p99_sec": 0.35963720905999996,
+      "native_median_sec": 0.0243365765,
+      "native_p50_sec": 0.0243365765,
+      "native_p90_sec": 0.024561783099999998,
+      "native_p95_sec": 0.02460727405,
+      "native_p99_sec": 0.02464366681
+    },
+    "metadata_open": {
+      "mounted_median_sec": 0.438800425,
+      "mounted_over_native_median": 17.066986222467015,
+      "mounted_p50_sec": 0.438800425,
+      "mounted_p90_sec": 0.4483104837,
+      "mounted_p95_sec": 0.45643408485,
+      "mounted_p99_sec": 0.46293296577000004,
+      "native_median_sec": 0.025710481,
+      "native_p50_sec": 0.025710481,
+      "native_p90_sec": 0.0259249779,
+      "native_p95_sec": 0.02598645645,
+      "native_p99_sec": 0.026035639290000002
+    },
+    "metadata_readlink": {
+      "mounted_median_sec": 0.3437725465,
+      "mounted_over_native_median": 83.70996405882082,
+      "mounted_p50_sec": 0.3437725465,
+      "mounted_p90_sec": 0.3537924848,
+      "mounted_p95_sec": 0.36204288739999996,
+      "mounted_p99_sec": 0.36864320948,
+      "native_median_sec": 0.0041067099999999995,
+      "native_p50_sec": 0.0041067099999999995,
+      "native_p90_sec": 0.0042024105,
+      "native_p95_sec": 0.00420380325,
+      "native_p99_sec": 0.00420491745
+    }
+  },
+  "environment": {
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "fusermount3": "fusermount3 version: 3.18.2",
+    "git_revision": "19ca971446a4d298da689c813946dfbfa7d5c6ab",
+    "git_status_porcelain": "M docs/artifacts/metadata-open-path-claim/summary.md\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M src/fs.rs\n M src/fs/backing.rs\n M src/fs/guards.rs\n M src/fs/perf.rs\n M src/fs/tests.rs\n M src/fs/tests/data_mutations.rs\n M src/fs/tests/perf.rs\n M src/fs/tests/symlinks_access_create.rs\n M src/fs/tests/visibility.rs\n M src/matcher.rs\n M src/matcher/index.rs\n?? docs/artifacts/metadata-open-path-claim/attr-reuse-worktree-19ca971/\n?? docs/artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/",
+    "git_worktree_clean": false,
+    "harness_repo_root": "/home/spi-ca/Codebase/screenfs",
+    "mount_filesystem": {
+      "block_size": 4096,
+      "findmnt": "fuse screenfs rw,nosuid,nodev,relatime,user_id=1000,group_id=1000",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-l0wv9v88/mount",
+      "stat_f_type": "fuse"
+    },
+    "platform": "Linux-7.0.10-1-spica-stable-git-x86_64-with-glibc2.43",
+    "python": "3.14.6",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "source_filesystem": {
+      "block_size": 4096,
+      "findmnt": "tmpfs tmpfs rw,nosuid,nodev,nr_inodes=1048576,inode64,usrquota",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-l0wv9v88/source",
+      "stat_f_type": "tmpfs"
+    },
+    "uname": "Linux ari-amd-lin 7.0.10-1-spica-stable-git #1 SMP PREEMPT Sat, 23 May 2026 15:38:56 +0000 x86_64 "
+  },
+  "harness": {
+    "argv": [
+      "python3",
+      "scripts/bench-screenfs.py",
+      "--screenfs-bin",
+      "/dev/shm/screenfs-after-guard-context-target-noperf-rerun/release/screenfs",
+      "--screenfs-source-root",
+      "/home/spi-ca/Codebase/screenfs",
+      "--policy-preset",
+      "fast-path-cache-eligible",
+      "--policy-label",
+      "fast-path-cache-eligible",
+      "--iterations",
+      "10",
+      "--warmups",
+      "3",
+      "--metadata-ops",
+      "4096",
+      "--workload",
+      "metadata_lookup",
+      "--workload",
+      "metadata_getattr",
+      "--workload",
+      "metadata_open",
+      "--workload",
+      "metadata_readlink",
+      "--workload",
+      "metadata_access",
+      "--output-json",
+      "docs/artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/after2-fast-path-cache-eligible-metadata-open-path-latency-ops4096-rerun.json",
+      "--output-md",
+      "docs/artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/after2-fast-path-cache-eligible-metadata-open-path-latency-ops4096-rerun.md",
+      "--output-svg",
+      "docs/artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/after2-fast-path-cache-eligible-metadata-open-path-latency-ops4096-rerun.svg"
+    ],
+    "command_line": "python3 scripts/bench-screenfs.py --screenfs-bin /dev/shm/screenfs-after-guard-context-target-noperf-rerun/release/screenfs --screenfs-source-root /home/spi-ca/Codebase/screenfs --policy-preset fast-path-cache-eligible --policy-label fast-path-cache-eligible --iterations 10 --warmups 3 --metadata-ops 4096 --workload metadata_lookup --workload metadata_getattr --workload metadata_open --workload metadata_readlink --workload metadata_access --output-json docs/artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/after2-fast-path-cache-eligible-metadata-open-path-latency-ops4096-rerun.json --output-md docs/artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/after2-fast-path-cache-eligible-metadata-open-path-latency-ops4096-rerun.md --output-svg docs/artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/after2-fast-path-cache-eligible-metadata-open-path-latency-ops4096-rerun.svg"
+  },
+  "mounted": [
+    {
+      "name": "metadata_lookup",
+      "samples_sec": [
+        0.360118931,
+        0.346057516,
+        0.35027148,
+        0.354766465,
+        0.352552486,
+        0.346737714,
+        0.34908231,
+        0.346479095,
+        0.350190789,
+        0.347578496
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.360118931,
+        "mean_sec": 0.3503835282,
+        "median_sec": 0.3496365495,
+        "min_sec": 0.346057516,
+        "p50_sec": 0.3496365495,
+        "p90_sec": 0.35530171159999996,
+        "p95_sec": 0.35771032129999997,
+        "p99_sec": 0.35963720905999996,
+        "q1_sec": 0.3469479095,
+        "q3_sec": 0.3519822345,
+        "stdev_sec": 0.004416567289490068
+      }
+    },
+    {
+      "name": "metadata_getattr",
+      "samples_sec": [
+        0.387941817,
+        0.376646015,
+        0.375930311,
+        0.377637491,
+        0.374123052,
+        0.391063154,
+        0.391727091,
+        0.385843548,
+        0.369126609,
+        0.372457252
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.391727091,
+        "mean_sec": 0.380249634,
+        "median_sec": 0.37714175299999997,
+        "min_sec": 0.369126609,
+        "p50_sec": 0.37714175299999997,
+        "p90_sec": 0.3911295477,
+        "p95_sec": 0.39142831935,
+        "p99_sec": 0.39166733667000003,
+        "q1_sec": 0.37457486675,
+        "q3_sec": 0.38741724975,
+        "stdev_sec": 0.008162036841631484
+      }
+    },
+    {
+      "name": "metadata_open",
+      "samples_sec": [
+        0.407656713,
+        0.437649903,
+        0.435143862,
+        0.428167111,
+        0.439950947,
+        0.446505239,
+        0.464557686,
+        0.443644827,
+        0.42513762,
+        0.443509662
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.464557686,
+        "mean_sec": 0.43719235700000003,
+        "median_sec": 0.438800425,
+        "min_sec": 0.407656713,
+        "p50_sec": 0.438800425,
+        "p90_sec": 0.4483104837,
+        "p95_sec": 0.45643408485,
+        "p99_sec": 0.46293296577000004,
+        "q1_sec": 0.42991129875,
+        "q3_sec": 0.44361103575000005,
+        "stdev_sec": 0.015012125576338298
+      }
+    },
+    {
+      "name": "metadata_readlink",
+      "samples_sec": [
+        0.37029329,
+        0.350888606,
+        0.334882511,
+        0.343545932,
+        0.344948587,
+        0.329074131,
+        0.342683201,
+        0.343999161,
+        0.351959062,
+        0.343518902
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.37029329,
+        "mean_sec": 0.3455793383,
+        "median_sec": 0.3437725465,
+        "min_sec": 0.329074131,
+        "p50_sec": 0.3437725465,
+        "p90_sec": 0.3537924848,
+        "p95_sec": 0.36204288739999996,
+        "p99_sec": 0.36864320948,
+        "q1_sec": 0.34289212625,
+        "q3_sec": 0.34940360125,
+        "stdev_sec": 0.010985723799651742
+      }
+    },
+    {
+      "name": "metadata_access",
+      "samples_sec": [
+        0.422349238,
+        0.436735258,
+        0.421249108,
+        0.419700468,
+        0.433015782,
+        0.434406764,
+        0.433672335,
+        0.42485467,
+        0.426012291,
+        0.422770187
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.436735258,
+        "mean_sec": 0.4274766101,
+        "median_sec": 0.42543348049999996,
+        "min_sec": 0.419700468,
+        "p50_sec": 0.42543348049999996,
+        "p90_sec": 0.4346396134,
+        "p95_sec": 0.4356874357,
+        "p99_sec": 0.43652569354000004,
+        "q1_sec": 0.42245447525,
+        "q3_sec": 0.43350819675,
+        "stdev_sec": 0.0063204110108588465
+      }
+    }
+  ],
+  "native": [
+    {
+      "name": "metadata_lookup",
+      "samples_sec": [
+        0.024375981,
+        0.024652765,
+        0.024229654,
+        0.024271824,
+        0.024297172,
+        0.024433931,
+        0.024225406,
+        0.023911823,
+        0.024437457,
+        0.024551674
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.024652765,
+        "mean_sec": 0.0243387687,
+        "median_sec": 0.0243365765,
+        "min_sec": 0.023911823,
+        "p50_sec": 0.0243365765,
+        "p90_sec": 0.024561783099999998,
+        "p95_sec": 0.02460727405,
+        "p99_sec": 0.02464366681,
+        "q1_sec": 0.0242401965,
+        "q3_sec": 0.0244365755,
+        "stdev_sec": 0.00020476381269813717
+      }
+    },
+    {
+      "name": "metadata_getattr",
+      "samples_sec": [
+        0.026852056,
+        0.026670473,
+        0.026752237,
+        0.027177141,
+        0.027149258,
+        0.026640947,
+        0.026696491,
+        0.026892032,
+        0.026708033,
+        0.026464162
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.027177141,
+        "mean_sec": 0.026800283,
+        "median_sec": 0.026730135000000002,
+        "min_sec": 0.026464162,
+        "p50_sec": 0.026730135000000002,
+        "p90_sec": 0.0271520463,
+        "p95_sec": 0.02716459365,
+        "p99_sec": 0.02717463153,
+        "q1_sec": 0.0266769775,
+        "q3_sec": 0.026882038,
+        "stdev_sec": 0.00022403149799277928
+      }
+    },
+    {
+      "name": "metadata_open",
+      "samples_sec": [
+        0.02562307,
+        0.025849078,
+        0.025704455,
+        0.025468398,
+        0.025911316,
+        0.026047935,
+        0.025690428,
+        0.025716507,
+        0.025544733,
+        0.025872243
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.026047935,
+        "mean_sec": 0.0257428163,
+        "median_sec": 0.025710481,
+        "min_sec": 0.025468398,
+        "p50_sec": 0.025710481,
+        "p90_sec": 0.0259249779,
+        "p95_sec": 0.02598645645,
+        "p99_sec": 0.026035639290000002,
+        "q1_sec": 0.025639909500000002,
+        "q3_sec": 0.025866451749999998,
+        "stdev_sec": 0.00017742675033442223
+      }
+    },
+    {
+      "name": "metadata_readlink",
+      "samples_sec": [
+        0.004070571,
+        0.004118493,
+        0.004124324,
+        0.004045484,
+        0.004094927,
+        0.00409043,
+        0.004086432,
+        0.004205196,
+        0.004202101,
+        0.004119124
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.004205196,
+        "mean_sec": 0.0041157082,
+        "median_sec": 0.0041067099999999995,
+        "min_sec": 0.004045484,
+        "p50_sec": 0.0041067099999999995,
+        "p90_sec": 0.0042024105,
+        "p95_sec": 0.00420380325,
+        "p99_sec": 0.00420491745,
+        "q1_sec": 0.0040874315000000005,
+        "q3_sec": 0.004123024,
+        "stdev_sec": 5.2134637340468805e-05
+      }
+    },
+    {
+      "name": "metadata_access",
+      "samples_sec": [
+        0.024283196,
+        0.0245291,
+        0.024339842,
+        0.024309375,
+        0.024337118,
+        0.024677181,
+        0.024650801,
+        0.024314135,
+        0.024250053,
+        0.024689104
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.024689104,
+        "mean_sec": 0.0244379905,
+        "median_sec": 0.024338480000000003,
+        "min_sec": 0.024250053,
+        "p50_sec": 0.024338480000000003,
+        "p90_sec": 0.0246783733,
+        "p95_sec": 0.02468373865,
+        "p99_sec": 0.02468803093,
+        "q1_sec": 0.024310565,
+        "q3_sec": 0.02462037575,
+        "stdev_sec": 0.00017789875311489178
+      }
+    }
+  ],
+  "parameters": {
+    "dir_entries": 5000,
+    "hidden_misses": 2000,
+    "iterations": 10,
+    "matcher_extra_rules": 0,
+    "matcher_misses": 2000,
+    "metadata_ops": 4096,
+    "open_read_close_ops": 4096,
+    "rand_io_ops": 16384,
+    "read_mib": 64,
+    "small_files": 2000,
+    "small_io_bytes": 4096,
+    "small_io_ops": 1024,
+    "symlink_parent_mutations": 2000,
+    "sync_4k_fsync_every": 32,
+    "sync_bytes": 4096,
+    "sync_ops": 128,
+    "warmups": 3,
+    "write_mib": 64
+  },
+  "paths": {
+    "mount": "/tmp/screenfs-bench-l0wv9v88/mount",
+    "source": "/tmp/screenfs-bench-l0wv9v88/source",
+    "workdir": "/tmp/screenfs-bench-l0wv9v88"
+  },
+  "policy": {
+    "built_in_screenfs_args": [
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "description": "Default visible/writable policy with no hidden or readonly carve-outs.",
+    "effective_bucket": "fast-path-cache-eligible",
+    "extra_screenfs_args": [],
+    "fast_path_cache_eligible": true,
+    "hidden_paths": [],
+    "label": "fast-path-cache-eligible",
+    "manual_policy_override_flags": [],
+    "matcher_extra_rules": 0,
+    "notes": [
+      "effective policy remains cache-eligible for the current per-open read/write fast path"
+    ],
+    "readonly_paths": [],
+    "requested_bucket": "fast-path-cache-eligible",
+    "requested_preset": "fast-path-cache-eligible",
+    "supports_hidden_stat_miss": false,
+    "supports_matcher_hidden_stat_miss": false
+  },
+  "schema": "screenfs-benchmark-v2",
+  "screenfs": {
+    "binary": "/dev/shm/screenfs-after-guard-context-target-noperf-rerun/release/screenfs",
+    "binary_sha256": "df73f8827a902bc9a6a9f0d0fc853025bebfb464e2cb7047cde640659d1ac86d",
+    "command": [
+      "/dev/shm/screenfs-after-guard-context-target-noperf-rerun/release/screenfs",
+      "/tmp/screenfs-bench-l0wv9v88/source",
+      "/tmp/screenfs-bench-l0wv9v88/mount",
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "perf_counters_enabled": false,
+    "perf_summary": null,
+    "source": {
+      "git_revision": "19ca971446a4d298da689c813946dfbfa7d5c6ab",
+      "git_status_porcelain": "M docs/artifacts/metadata-open-path-claim/summary.md\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M src/fs.rs\n M src/fs/backing.rs\n M src/fs/guards.rs\n M src/fs/perf.rs\n M src/fs/tests.rs\n M src/fs/tests/data_mutations.rs\n M src/fs/tests/perf.rs\n M src/fs/tests/symlinks_access_create.rs\n M src/fs/tests/visibility.rs\n M src/matcher.rs\n M src/matcher/index.rs\n?? docs/artifacts/metadata-open-path-claim/attr-reuse-worktree-19ca971/\n?? docs/artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/",
+      "git_worktree_clean": false,
+      "source_root": "/home/spi-ca/Codebase/screenfs",
+      "source_root_origin": "cli"
+    },
+    "stderr_log": "/tmp/screenfs-bench-l0wv9v88/screenfs.stderr.log",
+    "stderr_preview": "mounting screenfs: source=/tmp/screenfs-bench-l0wv9v88/source mount=/tmp/screenfs-bench-l0wv9v88/mount visibility-default=visible visibility-source=cli hidden-rules=0 visible-rules=0 mutability-default=writable mutability-source=cli readonly-rules=0 writable-rules=0 io_uring=required\n"
+  },
+  "screenfs_only": [],
+  "timestamp": "2026-06-15T20:44:49.005478+00:00",
+  "workloads": {
+    "comparable": [
+      "metadata_lookup",
+      "metadata_getattr",
+      "metadata_open",
+      "metadata_readlink",
+      "metadata_access"
+    ],
+    "mode": "explicit",
+    "requested_names": [
+      "metadata_lookup",
+      "metadata_getattr",
+      "metadata_open",
+      "metadata_readlink",
+      "metadata_access"
+    ],
+    "requested_set": null,
+    "screenfs_only": [],
+    "skipped": []
+  }
+}
