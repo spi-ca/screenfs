@@ -13,7 +13,7 @@ use std::task::{Context, Poll, Waker};
 #[cfg(feature = "perf-counters")]
 use std::time::Instant;
 
-use fractal_fuse::abi::{fuse_dirent_size, fuse_direntplus_size};
+use fractal_fuse::abi::{FOPEN_NOFLUSH, fuse_dirent_size, fuse_direntplus_size};
 use fractal_fuse::{
     DirectoryEntry, DirectoryEntryPlus, ENOENT, Filesystem, FsResult, ReplyAttr, ReplyCreate,
     ReplyEntry, ReplyOpen, ReplyReadlink, ReplyStatfs, ReplyXattr, Request, SetAttr,
@@ -486,6 +486,7 @@ impl ScreenFs {
             dir_file,
             path,
             3,
+            with_plus,
             |name_bytes| resume_name.is_none_or(|resume| name_bytes > resume),
             |entry| {
                 let name_bytes = entry.name.as_bytes();
@@ -624,10 +625,17 @@ impl Filesystem for ScreenFs {
             open_has_write_intent(flags),
         )?;
         self.apply_deferred_truncate(&file, flags)?;
-        let fh = self.insert_open_file(inode, path, file, self.open_file_io_guard_cache());
+        let write_intent = open_has_write_intent(flags);
+        let fh = self.insert_open_file(
+            inode,
+            path,
+            file,
+            self.open_file_io_guard_cache(),
+            write_intent,
+        );
         Ok(ReplyOpen {
             fh,
-            flags: 0,
+            flags: if write_intent { 0 } else { FOPEN_NOFLUSH },
             backing_id: 0,
         })
     }
@@ -718,7 +726,10 @@ impl Filesystem for ScreenFs {
 
     async fn flush(&self, _req: Request, inode: u64, fh: u64, _lock_owner: u64) -> FsResult<()> {
         let _timer = fuse_op_timer!(self, "flush");
-        let (_path, file) = self.file_handle_snapshot(inode, fh)?;
+        let (_path, file, flush_needs_sync) = self.file_flush_snapshot(inode, fh)?;
+        if !flush_needs_sync {
+            return Ok(());
+        }
         #[cfg(feature = "perf-counters")]
         let sync_start = Instant::now();
         let result =
@@ -740,7 +751,10 @@ impl Filesystem for ScreenFs {
     ) -> FsResult<()> {
         let _timer = fuse_op_timer!(self, "release");
         let handle = self.with_state_write(|state| state.remove_file(fh));
-        if flush && let Some(handle) = handle {
+        if flush
+            && let Some(handle) = handle
+            && handle.flush_needs_sync
+        {
             #[cfg(feature = "perf-counters")]
             let sync_start = Instant::now();
             let result =

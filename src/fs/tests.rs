@@ -223,12 +223,8 @@ fn assert_readdir_handle_invalidated(fs: &ScreenFs, inode: u64, fh: u64) {
 }
 
 fn block_on<F: Future>(future: F) -> F::Output {
-    struct Noop;
-    impl Wake for Noop {
-        fn wake(self: Arc<Self>) {}
-    }
-    let waker = Waker::from(Arc::new(Noop));
-    let mut cx = Context::from_waker(&waker);
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
     let mut future = Box::pin(future);
     match Pin::new(&mut future).poll(&mut cx) {
         Poll::Ready(value) => value,

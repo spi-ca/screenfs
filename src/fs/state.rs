@@ -50,9 +50,11 @@ pub(super) struct FileHandle {
     pub(super) path: VirtualPath,
     pub(super) file: Arc<File>,
     pub(super) io_guard_cache: FileIoGuardCache,
+    pub(super) flush_needs_sync: bool,
 }
 
 pub(super) type FileSnapshot = (VirtualPath, Arc<File>);
+pub(super) type FileFlushSnapshot = (VirtualPath, Arc<File>, bool);
 pub(super) type FileDataPathSnapshot = (VirtualPath, Arc<File>, FileIoGuardCache);
 pub(super) type CopyFileRangeSnapshot = (FileSnapshot, FileSnapshot);
 
@@ -194,7 +196,7 @@ impl State {
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn insert_file(&mut self, inode: u64, path: VirtualPath, file: File) -> u64 {
-        self.insert_file_with_guard_cache(inode, path, file, FileIoGuardCache::default())
+        self.insert_file_with_guard_cache(inode, path, file, FileIoGuardCache::default(), true)
     }
 
     pub(super) fn insert_file_with_guard_cache(
@@ -203,6 +205,7 @@ impl State {
         path: VirtualPath,
         file: File,
         io_guard_cache: FileIoGuardCache,
+        flush_needs_sync: bool,
     ) -> u64 {
         let fh = self.next_handle();
         self.files.insert(
@@ -212,6 +215,7 @@ impl State {
                 path,
                 file: Arc::new(file),
                 io_guard_cache,
+                flush_needs_sync,
             },
         );
         if inode != FUSE_ROOT_ID
@@ -457,9 +461,10 @@ impl ScreenFs {
         path: VirtualPath,
         file: File,
         io_guard_cache: FileIoGuardCache,
+        flush_needs_sync: bool,
     ) -> u64 {
         self.with_state_write(|state| {
-            state.insert_file_with_guard_cache(inode, path, file, io_guard_cache)
+            state.insert_file_with_guard_cache(inode, path, file, io_guard_cache, flush_needs_sync)
         })
     }
 
@@ -480,6 +485,24 @@ impl ScreenFs {
                 return Err(ENOENT);
             }
             Ok((handle.path.clone(), Arc::clone(&handle.file)))
+        })
+    }
+
+    pub(super) fn file_flush_snapshot(
+        &self,
+        inode: u64,
+        fh: u64,
+    ) -> Result<FileFlushSnapshot, i32> {
+        self.with_state_read(|state| {
+            let handle = state.files.get(&fh).ok_or(ENOENT)?;
+            if handle.inode != inode {
+                return Err(ENOENT);
+            }
+            Ok((
+                handle.path.clone(),
+                Arc::clone(&handle.file),
+                handle.flush_needs_sync,
+            ))
         })
     }
 
@@ -568,7 +591,7 @@ impl ScreenFs {
             #[cfg(not(feature = "perf-counters"))]
             state.invalidate_exact_path(&path);
             let inode = state.lookup_path(path.clone());
-            let fh = state.insert_file_with_guard_cache(inode, path, file, io_guard_cache);
+            let fh = state.insert_file_with_guard_cache(inode, path, file, io_guard_cache, true);
             #[cfg(feature = "perf-counters")]
             self.perf.record_invalidation(stats);
             (inode, fh)

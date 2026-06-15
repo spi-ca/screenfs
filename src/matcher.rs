@@ -167,12 +167,9 @@ impl PathRuleMatcher {
 
     pub fn may_match_descendant_of(&self, path: &VirtualPath) -> bool {
         self.index.has_global_descendant_match
-            || self
-                .index
-                .descendant_candidate_order(path)
-                .into_iter()
-                .map(|index| &self.descriptors[index])
-                .any(|descriptor| descriptor.may_match_descendant_of(path))
+            || self.index.any_matching_descendant_candidate(path, |index| {
+                self.descriptors[index].may_match_descendant_of(path)
+            })
     }
 
     pub fn descendant_candidate_descriptor_count(&self, path: &VirtualPath) -> usize {

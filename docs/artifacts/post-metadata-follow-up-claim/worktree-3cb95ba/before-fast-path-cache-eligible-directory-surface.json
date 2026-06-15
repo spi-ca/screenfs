@@ -1,0 +1,293 @@
+{
+  "comparisons": {
+    "readdir_basic": {
+      "mounted_median_sec": 0.044362409500000005,
+      "mounted_over_native_median": 42.36791855028602,
+      "mounted_p50_sec": 0.044362409500000005,
+      "mounted_p90_sec": 0.044717513099999995,
+      "mounted_p95_sec": 0.04485083955,
+      "mounted_p99_sec": 0.04495750071,
+      "native_median_sec": 0.0010470755,
+      "native_p50_sec": 0.0010470755,
+      "native_p90_sec": 0.001056184,
+      "native_p95_sec": 0.001072897,
+      "native_p99_sec": 0.0010862674
+    },
+    "readdirplus_basic": {
+      "mounted_median_sec": 0.469179683,
+      "mounted_over_native_median": 60.69182269691757,
+      "mounted_p50_sec": 0.469179683,
+      "mounted_p90_sec": 0.4820799228,
+      "mounted_p95_sec": 0.4838832744,
+      "mounted_p99_sec": 0.48532595568000003,
+      "native_median_sec": 0.0077305255,
+      "native_p50_sec": 0.0077305255,
+      "native_p90_sec": 0.007840670899999999,
+      "native_p95_sec": 0.00786191945,
+      "native_p99_sec": 0.00787891829
+    }
+  },
+  "environment": {
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "fusermount3": "fusermount3 version: 3.18.2",
+    "git_revision": "3cb95ba86f4124cb6edf4f35e8ddf65f9b485b91",
+    "git_status_porcelain": "M docs/artifacts/current-perf-counter-benchmark-result.json\n M docs/artifacts/current-perf-counter-benchmark-result.md\n M docs/artifacts/current-perf-counter-benchmark-result.svg\n M docs/artifacts/managed-fio-attribution-env.json\n M docs/artifacts/managed-fio-attribution-native.json\n M docs/artifacts/managed-fio-attribution-passthrough.json\n M docs/artifacts/managed-fio-attribution-passthrough.stderr.log\n M docs/artifacts/managed-fio-attribution-perf-split.json\n M docs/artifacts/managed-fio-attribution-screenfs.json\n M docs/artifacts/managed-fio-attribution-screenfs.stderr.log\n M docs/artifacts/managed-fio-attribution-summary.md\n M docs/artifacts/managed-fio-attribution-summary.png\n M docs/artifacts/managed-fio-attribution-summary.svg\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M scripts/bench-screenfs.py\n M src/fs.rs\n M src/fs/backing.rs\n M src/fs/state.rs\n M src/fs/tests/perf.rs\n M src/matcher.rs\n M src/matcher/index.rs",
+    "git_worktree_clean": false,
+    "harness_repo_root": "/home/spi-ca/Codebase/screenfs",
+    "mount_filesystem": {
+      "block_size": 4096,
+      "findmnt": "fuse screenfs rw,nosuid,nodev,relatime,user_id=1000,group_id=1000",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-5buyv21s/mount",
+      "stat_f_type": "fuse"
+    },
+    "platform": "Linux-7.0.10-1-spica-stable-git-x86_64-with-glibc2.43",
+    "python": "3.14.6",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "source_filesystem": {
+      "block_size": 4096,
+      "findmnt": "tmpfs tmpfs rw,nosuid,nodev,nr_inodes=1048576,inode64,usrquota",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-5buyv21s/source",
+      "stat_f_type": "tmpfs"
+    },
+    "uname": "Linux ari-amd-lin 7.0.10-1-spica-stable-git #1 SMP PREEMPT Sat, 23 May 2026 15:38:56 +0000 x86_64 "
+  },
+  "harness": {
+    "argv": [
+      "python3",
+      "scripts/bench-screenfs.py",
+      "--screenfs-bin",
+      "/dev/shm/screenfs-before-postmeta-target/release/screenfs",
+      "--screenfs-source-root",
+      "/tmp/screenfs-before-postmeta-3cb95ba",
+      "--policy-preset",
+      "fast-path-cache-eligible",
+      "--policy-label",
+      "fast-path-cache-eligible",
+      "--workload-set",
+      "directory-surface",
+      "--iterations",
+      "10",
+      "--warmups",
+      "3",
+      "--output-json",
+      "docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/before-fast-path-cache-eligible-directory-surface.json",
+      "--output-md",
+      "docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/before-fast-path-cache-eligible-directory-surface.md",
+      "--output-svg",
+      "docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/before-fast-path-cache-eligible-directory-surface.svg"
+    ],
+    "command_line": "python3 scripts/bench-screenfs.py --screenfs-bin /dev/shm/screenfs-before-postmeta-target/release/screenfs --screenfs-source-root /tmp/screenfs-before-postmeta-3cb95ba --policy-preset fast-path-cache-eligible --policy-label fast-path-cache-eligible --workload-set directory-surface --iterations 10 --warmups 3 --output-json docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/before-fast-path-cache-eligible-directory-surface.json --output-md docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/before-fast-path-cache-eligible-directory-surface.md --output-svg docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/before-fast-path-cache-eligible-directory-surface.svg"
+  },
+  "mounted": [
+    {
+      "name": "readdir_basic",
+      "samples_sec": [
+        0.044181857,
+        0.044337923,
+        0.044687885,
+        0.044386896,
+        0.044147894,
+        0.044313207,
+        0.044608845,
+        0.043905946,
+        0.044984166,
+        0.04447346
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.044984166,
+        "mean_sec": 0.0444028079,
+        "median_sec": 0.044362409500000005,
+        "min_sec": 0.043905946,
+        "p50_sec": 0.044362409500000005,
+        "p90_sec": 0.044717513099999995,
+        "p95_sec": 0.04485083955,
+        "p99_sec": 0.04495750071,
+        "q1_sec": 0.0442146945,
+        "q3_sec": 0.04457499875,
+        "stdev_sec": 0.0003054782959333148
+      }
+    },
+    {
+      "name": "readdirplus_basic",
+      "samples_sec": [
+        0.469151625,
+        0.469207741,
+        0.485686626,
+        0.481679178,
+        0.468743574,
+        0.469404574,
+        0.464403306,
+        0.465923962,
+        0.470558407,
+        0.46149126
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.485686626,
+        "mean_sec": 0.4706250253,
+        "median_sec": 0.469179683,
+        "min_sec": 0.46149126,
+        "p50_sec": 0.469179683,
+        "p90_sec": 0.4820799228,
+        "p95_sec": 0.4838832744,
+        "p99_sec": 0.48532595568000003,
+        "q1_sec": 0.466628865,
+        "q3_sec": 0.47026994875,
+        "stdev_sec": 0.007472133154551615
+      }
+    }
+  ],
+  "native": [
+    {
+      "name": "readdir_basic",
+      "samples_sec": [
+        0.00108961,
+        0.001051609,
+        0.001046038,
+        0.001048113,
+        0.00105247,
+        0.001013467,
+        0.001021321,
+        0.001031921,
+        0.001025549,
+        0.00105221
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.00108961,
+        "mean_sec": 0.0010432308,
+        "median_sec": 0.0010470755,
+        "min_sec": 0.001013467,
+        "p50_sec": 0.0010470755,
+        "p90_sec": 0.001056184,
+        "p95_sec": 0.001072897,
+        "p99_sec": 0.0010862674,
+        "q1_sec": 0.001027142,
+        "q3_sec": 0.00105205975,
+        "stdev_sec": 2.166771864010298e-05
+      }
+    },
+    {
+      "name": "readdirplus_basic",
+      "samples_sec": [
+        0.007729128,
+        0.007883168,
+        0.00776231,
+        0.007835949,
+        0.007764434,
+        0.007731923,
+        0.007726773,
+        0.007648155,
+        0.007687228,
+        0.007675497
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.007883168,
+        "mean_sec": 0.0077444565,
+        "median_sec": 0.0077305255,
+        "min_sec": 0.007648155,
+        "p50_sec": 0.0077305255,
+        "p90_sec": 0.007840670899999999,
+        "p95_sec": 0.00786191945,
+        "p99_sec": 0.00787891829,
+        "q1_sec": 0.0076971142499999996,
+        "q3_sec": 0.007763903,
+        "stdev_sec": 7.175487301957641e-05
+      }
+    }
+  ],
+  "parameters": {
+    "dir_entries": 5000,
+    "hidden_misses": 2000,
+    "iterations": 10,
+    "matcher_extra_rules": 0,
+    "matcher_misses": 2000,
+    "metadata_ops": 512,
+    "open_read_close_ops": 4096,
+    "rand_io_ops": 16384,
+    "read_mib": 64,
+    "small_files": 2000,
+    "small_io_bytes": 4096,
+    "small_io_ops": 1024,
+    "symlink_parent_mutations": 2000,
+    "sync_4k_fsync_every": 32,
+    "sync_bytes": 4096,
+    "sync_ops": 128,
+    "warmups": 3,
+    "write_mib": 64
+  },
+  "paths": {
+    "mount": "/tmp/screenfs-bench-5buyv21s/mount",
+    "source": "/tmp/screenfs-bench-5buyv21s/source",
+    "workdir": "/tmp/screenfs-bench-5buyv21s"
+  },
+  "policy": {
+    "built_in_screenfs_args": [
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "description": "Default visible/writable policy with no hidden or readonly carve-outs.",
+    "effective_bucket": "fast-path-cache-eligible",
+    "extra_screenfs_args": [],
+    "fast_path_cache_eligible": true,
+    "hidden_paths": [],
+    "label": "fast-path-cache-eligible",
+    "manual_policy_override_flags": [],
+    "matcher_extra_rules": 0,
+    "notes": [
+      "effective policy remains cache-eligible for the current per-open read/write fast path"
+    ],
+    "readonly_paths": [],
+    "requested_bucket": "fast-path-cache-eligible",
+    "requested_preset": "fast-path-cache-eligible",
+    "supports_hidden_stat_miss": false,
+    "supports_matcher_hidden_stat_miss": false
+  },
+  "schema": "screenfs-benchmark-v2",
+  "screenfs": {
+    "binary": "/dev/shm/screenfs-before-postmeta-target/release/screenfs",
+    "binary_sha256": "b219e2a9cab23b2759fdd24c2b57d39bffdd184d353817a5b40b6ca4f21beba2",
+    "command": [
+      "/dev/shm/screenfs-before-postmeta-target/release/screenfs",
+      "/tmp/screenfs-bench-5buyv21s/source",
+      "/tmp/screenfs-bench-5buyv21s/mount",
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "perf_counters_enabled": false,
+    "perf_summary": null,
+    "source": {
+      "git_revision": "3cb95ba86f4124cb6edf4f35e8ddf65f9b485b91",
+      "git_status_porcelain": "",
+      "git_worktree_clean": true,
+      "source_root": "/tmp/screenfs-before-postmeta-3cb95ba",
+      "source_root_origin": "cli"
+    },
+    "stderr_log": "/tmp/screenfs-bench-5buyv21s/screenfs.stderr.log",
+    "stderr_preview": "mounting screenfs: source=/tmp/screenfs-bench-5buyv21s/source mount=/tmp/screenfs-bench-5buyv21s/mount visibility-default=visible visibility-source=cli hidden-rules=0 visible-rules=0 mutability-default=writable mutability-source=cli readonly-rules=0 writable-rules=0 io_uring=required\n"
+  },
+  "screenfs_only": [],
+  "timestamp": "2026-06-15T22:08:59.154285+00:00",
+  "workloads": {
+    "comparable": [
+      "readdir_basic",
+      "readdirplus_basic"
+    ],
+    "mode": "named-set",
+    "requested_names": [
+      "readdir_basic",
+      "readdirplus_basic"
+    ],
+    "requested_set": "directory-surface",
+    "screenfs_only": [],
+    "skipped": []
+  }
+}

@@ -44,7 +44,7 @@ It also runs these ScreenFS-only contract workloads:
 | `matcher_hidden_stat_miss` | optional rule-rich hidden path `ENOENT` probe enabled by `--matcher-extra-rules`; omitted from default runs when that knob is `0`; intended for matcher family / `candidate_order` attribution, not default policy claims |
 | `symlink_parent_mkdir_rmdir` | repeated mkdir/rmdir under a visible symlink parent alias as an intended mounted probe for symlink-parent mutation guard/path-resolution paths |
 
-The default `--workload-set default` preserves the historical comparable + ScreenFS-only run above. `--workload-set per-open-cache-minimum` runs `rand_read_4k`, `rand_write_4k`, `sync_write_4k`, and `small_open_read_close`; `--workload-set all` combines both comparable sets; and repeated `--workload <name>` overrides the named set with an explicit workload list.
+The default `--workload-set default` preserves the historical comparable + ScreenFS-only run above. `--workload-set per-open-cache-minimum` runs `rand_read_4k`, `rand_write_4k`, `sync_write_4k`, and `small_open_read_close`; `--workload-set read-only-close-surface` runs `read_only_open_close`, `read_only_open_read_close`, `write_open_write_close`, and `write_open_fsync_close`; `--workload-set all` combines all comparable sets; and repeated `--workload <name>` overrides the named set with an explicit workload list.
 
 The default policy is intentionally simple but non-empty when `--policy-preset fallback-unsafe-policy` (the default) is selected:
 
@@ -280,6 +280,19 @@ Acceptance for the full metadata/open-path candidate is concrete. A smaller impl
 4. the sync guardrail workloads (`sync_flush_only`, `sync_fsync_only`, `sync_release_flush`) must be reported separately; do not roll `flush`, `fsync`, and `release(flush=true)` back into a single `write_fsync_close` acceptance number. When the active candidate is metadata/open-path rather than sync, each sync workload must stay within `<= 1.05x` median and `<= 1.10x` at both p95 and p99
 5. `readdir_basic` and `readdirplus_basic` must also stay split. A `readdir` claim is invalid if `fuse_op.readdir` is zero or if all matching `readdir_*` split counters remain zero. A `readdirplus` claim is invalid if `fuse_op.readdirplus`, `readdirplus_directory_scan`, `readdirplus_attr_generation_scan`, `readdirplus_attr_generation_entries`, `readdirplus_candidate_selection`, or `readdirplus_page_commit` is zero, because that means the workload failed to exercise the intended path
 6. native vs passthrough vs ScreenFS fixed-overhead floor artifacts must use the same raw-sample metric on all three sides. For fio-based raw-lat runs, use raw completion-latency (`clat`) samples everywhere rather than mixing `clat` with total `lat` or fio percentile summaries. A fixed-overhead improvement claim is incomplete unless the ScreenFS/passthrough gap shrinks on that same p50/p95/p99 raw-sample metric
+
+
+### Post-metadata directory and read-only close follow-up
+
+For the directory/read-only-close follow-up, claim-grade evidence must include both latency and attribution:
+
+- `--policy-preset fast-path-cache-eligible --workload-set directory-surface --iterations 10 --warmups 3` before/after evidence.
+- A glob/hidden-heavy directory row, for example `--policy-preset fallback-unsafe-policy --matcher-extra-rules 32 --policy-label glob-matcher-heavy`, when claiming matcher-descendant or directory-hot policy improvements.
+- Read-only close workloads `read_only_open_close` and `read_only_open_read_close`, plus write-capable guardrails `write_open_write_close` and `write_open_fsync_close`, or an explicitly equivalent artifact.
+
+Directory claims must report `readdir_basic` and `readdirplus_basic` p50/p95/p99 together with `readdir_directory_scan`, `readdir_attr_generation_scan`, `readdir_candidate_selection`, `readdir_page_commit`, `readdirplus_directory_scan`, `readdirplus_attr_generation_scan`, `readdirplus_candidate_selection`, and `readdirplus_page_commit`. If symlink visibility logic changed, the regular-file directory fixture is insufficient unless separate symlink-aware evidence is added.
+
+Read-only close claims must report `fuse_op.flush`, `file_sync.flush`, `fuse_op.release`, `file_sync.fsync`, and read-only/write p50/p95/p99. `FOPEN_NOFLUSH` success is a mounted fact, not an assumption: if `fuse_op.flush` does not drop for read-only handles, document that and rely only on a separately verified read-only `flush()` no-op guard. Do not claim `release(flush=true)` improvement from a run where `file_sync.release_flush` is zero.
 
 ## Current harness coverage limits
 

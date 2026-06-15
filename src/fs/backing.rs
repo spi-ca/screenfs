@@ -470,10 +470,53 @@ pub(super) fn file_type_from_mode(mode: libc::mode_t) -> FileType {
     }
 }
 
+fn mode_from_file_type(kind: FileType) -> libc::mode_t {
+    match kind {
+        FileType::Directory => libc::S_IFDIR,
+        FileType::Symlink => libc::S_IFLNK,
+        FileType::BlockDevice => libc::S_IFBLK,
+        FileType::CharDevice => libc::S_IFCHR,
+        FileType::NamedPipe => libc::S_IFIFO,
+        FileType::Socket => libc::S_IFSOCK,
+        FileType::RegularFile => libc::S_IFREG,
+    }
+}
+
+fn file_type_from_dirent_type(d_type: u8) -> Option<FileType> {
+    match d_type {
+        libc::DT_DIR => Some(FileType::Directory),
+        libc::DT_LNK => Some(FileType::Symlink),
+        libc::DT_BLK => Some(FileType::BlockDevice),
+        libc::DT_CHR => Some(FileType::CharDevice),
+        libc::DT_FIFO => Some(FileType::NamedPipe),
+        libc::DT_SOCK => Some(FileType::Socket),
+        libc::DT_REG => Some(FileType::RegularFile),
+        _ => None,
+    }
+}
+
+fn synthetic_attr_for_dirent(kind: FileType, ino: u64) -> FileAttr {
+    FileAttr {
+        ino,
+        size: 0,
+        blocks: 0,
+        atime: Timestamp::new(0, 0),
+        mtime: Timestamp::new(0, 0),
+        ctime: Timestamp::new(0, 0),
+        mode: mode_from_file_type(kind),
+        nlink: 0,
+        uid: 0,
+        gid: 0,
+        rdev: 0,
+        blksize: 0,
+    }
+}
+
 pub(super) fn visit_dir_entries(
     dir: File,
     base: &VirtualPath,
     start_offset: u64,
+    require_attr: bool,
     mut include_name: impl FnMut(&[u8]) -> bool,
     mut visit: impl FnMut(DirEntryInfo) -> Result<(), i32>,
 ) -> Result<DirectoryScanStats, i32> {
@@ -509,25 +552,28 @@ pub(super) fn visit_dir_entries(
         let attr_generation_start = Instant::now();
         let name_os = OsStr::from_bytes(name_bytes).to_os_string();
         let child = base.join_child(&name_os);
-        let attr = match fstatat_attr_fd(
-            dir_fd,
-            name,
-            libc::AT_SYMLINK_NOFOLLOW,
-            start_offset + seen + 1,
-        ) {
-            Ok(attr) => attr,
-            Err(err) => {
-                unsafe { libc::closedir(dirp) };
-                return Err(err);
+        let ino = start_offset + seen + 1;
+        let dirent_kind = file_type_from_dirent_type(dent.d_type);
+        let (attr, kind) = match (require_attr, dirent_kind) {
+            (false, Some(kind)) => (synthetic_attr_for_dirent(kind, ino), kind),
+            _ => {
+                let attr = match fstatat_attr_fd(dir_fd, name, libc::AT_SYMLINK_NOFOLLOW, ino) {
+                    Ok(attr) => attr,
+                    Err(err) => {
+                        unsafe { libc::closedir(dirp) };
+                        return Err(err);
+                    }
+                };
+                #[cfg(feature = "perf-counters")]
+                {
+                    stats.attr_generation += attr_generation_start.elapsed();
+                }
+                stats.attr_entries += 1;
+                let kind = file_type_from_mode(attr.mode);
+                (attr, kind)
             }
         };
-        #[cfg(feature = "perf-counters")]
-        {
-            stats.attr_generation += attr_generation_start.elapsed();
-        }
-        stats.attr_entries += 1;
         seen += 1;
-        let kind = file_type_from_mode(attr.mode);
         if let Err(err) = visit(DirEntryInfo {
             name: name_os,
             child,

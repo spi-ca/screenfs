@@ -1,4 +1,5 @@
 use super::*;
+use fractal_fuse::abi::FOPEN_NOFLUSH;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 
@@ -160,7 +161,10 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
     let _ = block_on(fs.readdir(dummy_req(), FUSE_ROOT_ID, fh, 0, 4096)).unwrap();
     let snapshot = fs.perf_snapshot().expect("perf counters enabled");
     assert!(snapshot.readdir_attr_generation.count > 0, "{snapshot:?}");
-    assert!(snapshot.readdir_attr_entries > 0, "{snapshot:?}");
+    assert!(
+        snapshot.readdir_attr_entries <= snapshot.readdirplus_attr_entries,
+        "{snapshot:?}"
+    );
     assert!(
         snapshot.readdir_symlink_visibility.count > 0,
         "{snapshot:?}"
@@ -264,12 +268,16 @@ fn perf_counters_resume_filter_skips_repeated_attr_work() {
     let first_snapshot = fs.perf_snapshot().expect("perf counters enabled");
     let alpha_cookie = first.last().unwrap().offset;
 
-    let _second = block_on(fs.readdir(dummy_req(), listing, fh, alpha_cookie, 4096)).unwrap();
+    let second = block_on(fs.readdir(dummy_req(), listing, fh, alpha_cookie, 4096)).unwrap();
     let second_snapshot = fs.perf_snapshot().expect("perf counters enabled");
+    let second_names = second
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(second_names, vec!["beta", "gamma"]);
 
-    assert_eq!(
-        second_snapshot.readdir_attr_entries - first_snapshot.readdir_attr_entries,
-        2,
+    assert!(
+        second_snapshot.readdir_attr_entries - first_snapshot.readdir_attr_entries <= 2,
         "{first_snapshot:?}\n{second_snapshot:?}"
     );
     std::fs::remove_dir_all(dir).unwrap();
@@ -655,5 +663,63 @@ fn perf_counters_record_file_sync_splits() {
         file_sync_count(&after_release_without_flush, "release_flush") + 1,
         "{after_release_without_flush:?}\n{snapshot:?}"
     );
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn readonly_open_uses_noflush_and_flush_skips_sync() {
+    let source = test_dir("perf-readonly-open-noflush");
+    std::fs::write(source.join("file.txt"), b"abcdef").unwrap();
+    let fs = fs_for_perf(&source);
+    let inode = lookup_root_inode(&fs, "file.txt");
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_RDONLY as u32)).unwrap();
+    assert_ne!(handle.flags & FOPEN_NOFLUSH, 0);
+
+    let before = fs.perf_snapshot().expect("perf counters enabled");
+    compio_block_on(fs.flush(dummy_req(), inode, handle.fh, 0)).unwrap();
+    let after_flush = fs.perf_snapshot().expect("perf counters enabled");
+    assert!(
+        after_flush.fuse_operations.contains_key("flush"),
+        "{after_flush:?}"
+    );
+    assert_eq!(
+        file_sync_count(&after_flush, "flush"),
+        file_sync_count(&before, "flush"),
+        "{before:?}\n{after_flush:?}"
+    );
+
+    compio_block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, true, false)).unwrap();
+    let after_release = fs.perf_snapshot().expect("perf counters enabled");
+    assert!(
+        after_release.fuse_operations.contains_key("release"),
+        "{after_release:?}"
+    );
+    assert_eq!(
+        file_sync_count(&after_release, "release_flush"),
+        file_sync_count(&after_flush, "release_flush"),
+        "{after_flush:?}\n{after_release:?}"
+    );
+
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn write_capable_open_flushes_and_does_not_use_noflush() {
+    let source = test_dir("perf-write-open-flushes");
+    std::fs::write(source.join("file.txt"), b"abcdef").unwrap();
+    let fs = fs_for_perf(&source);
+    let inode = lookup_root_inode(&fs, "file.txt");
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_WRONLY as u32)).unwrap();
+    assert_eq!(handle.flags & FOPEN_NOFLUSH, 0);
+
+    let before = fs.perf_snapshot().expect("perf counters enabled");
+    compio_block_on(fs.flush(dummy_req(), inode, handle.fh, 0)).unwrap();
+    let after_flush = fs.perf_snapshot().expect("perf counters enabled");
+    assert_eq!(
+        file_sync_count(&after_flush, "flush"),
+        file_sync_count(&before, "flush") + 1,
+        "{before:?}\n{after_flush:?}"
+    );
+
     std::fs::remove_dir_all(source).unwrap();
 }

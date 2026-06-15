@@ -154,6 +154,23 @@ impl MatcherIndex {
         self.sort_and_dedup_candidates_by_match_order(candidates)
     }
 
+    pub(super) fn any_matching_descendant_candidate<F>(
+        &self,
+        path: &VirtualPath,
+        mut matches: F,
+    ) -> bool
+    where
+        F: FnMut(usize) -> bool,
+    {
+        let mut found = false;
+        self.visit_descendant_candidates(path, |index| {
+            if !found && matches(index) {
+                found = true;
+            }
+        });
+        found
+    }
+
     pub(super) fn descendant_candidate_metrics(
         &self,
         path: &VirtualPath,
@@ -224,6 +241,32 @@ impl MatcherIndex {
             metrics.family_counts.recursive += self.recursive_order.len();
         }
         candidates.extend(&self.recursive_order);
+    }
+
+    fn visit_descendant_candidates(&self, path: &VirtualPath, mut visit: impl FnMut(usize)) {
+        if let Some(indices) = self.bridge_subtree_descendant_by_path.get(path.as_path()) {
+            for index in indices {
+                visit(*index);
+            }
+        }
+        if let Some(indices) = self
+            .bridge_direct_child_glob_descendant_by_path
+            .get(path.as_path())
+        {
+            for index in indices {
+                visit(*index);
+            }
+        }
+        for ancestor in ancestor_paths(path.as_path()) {
+            if let Some(indices) = self.direct_child_glob_by_anchor.get(ancestor) {
+                for index in indices {
+                    visit(*index);
+                }
+            }
+        }
+        for index in &self.recursive_order {
+            visit(*index);
+        }
     }
 
     fn extend_descendant_candidates(
@@ -420,5 +463,30 @@ mod tests {
             index.best_matching_candidate(&path, |index| descriptors[index].matches_path(&path)),
             expected
         );
+    }
+
+    #[test]
+    fn descendant_streaming_candidate_matches_candidate_order_bool_for_mixed_families() {
+        let descriptors = vec![
+            subtree_descriptor("/alpha/bravo"),
+            direct_child_suffix_descriptor("/alpha", ".log"),
+            recursive_suffix_descriptor("/alpha", ".pem"),
+            recursive_literal_descriptor("/alpha", "charlie/secret.txt"),
+            subtree_descriptor("/unrelated"),
+        ];
+        let index = MatcherIndex::build(&descriptors);
+        for path in ["/", "/alpha", "/alpha/bravo", "/alpha/charlie"] {
+            let path = VirtualPath::new(path);
+            let expected = index
+                .descendant_candidate_order(&path)
+                .into_iter()
+                .any(|index| descriptors[index].may_match_descendant_of(&path));
+            assert_eq!(
+                index.any_matching_descendant_candidate(&path, |index| descriptors[index]
+                    .may_match_descendant_of(&path)),
+                expected,
+                "{path:?}"
+            );
+        }
     }
 }

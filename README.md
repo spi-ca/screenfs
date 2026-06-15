@@ -124,8 +124,11 @@ mutability:
 
 Checked-in performance evidence lives under `docs/artifacts/**` and should be read as machine-local, warm-cache evidence unless the artifact records stronger cache controls.
 
-- Perf-counter smoke result: [`current-perf-counter-benchmark-result.md`](docs/artifacts/current-perf-counter-benchmark-result.md), [`json`](docs/artifacts/current-perf-counter-benchmark-result.json), [`svg`](docs/artifacts/current-perf-counter-benchmark-result.svg). This artifact records the formal harness command line, workload ratios, and raw ScreenFS perf counters.
+- Perf-counter smoke result: [`current-perf-counter-benchmark-result.md`](docs/artifacts/current-perf-counter-benchmark-result.md), [`json`](docs/artifacts/current-perf-counter-benchmark-result.json), [`svg`](docs/artifacts/current-perf-counter-benchmark-result.svg). This current artifact uses `--workload-set all` and records the formal harness command line, workload ratios, directory/read-only-close workloads, and raw ScreenFS perf counters.
+- Post-metadata follow-up before/after evidence: [`summary.md`](docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/summary.md) with paired directory-surface, glob-heavy directory-surface, read-only-close-surface, and metadata-open-path artifacts.
 - Supplemental fio attribution: [`managed-fio-attribution-summary.md`](docs/artifacts/managed-fio-attribution-summary.md), [`perf-split json`](docs/artifacts/managed-fio-attribution-perf-split.json), [`boxplot svg`](docs/artifacts/managed-fio-attribution-boxplot.svg), [`boxplot png`](docs/artifacts/managed-fio-attribution-boxplot.png). This compares native, minimal managed passthrough, and ScreenFS fio latency attribution; it is attribution evidence, not claim-grade before/after evidence.
+
+![Current perf-counter benchmark box plot](docs/artifacts/current-perf-counter-benchmark-result.svg)
 
 ![Managed fio attribution boxplot](docs/artifacts/managed-fio-attribution-boxplot.svg)
 

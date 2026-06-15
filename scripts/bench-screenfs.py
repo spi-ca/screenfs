@@ -99,6 +99,12 @@ SYNC_SURFACE_COMPARABLE_WORKLOADS = [
     "sync_fsync_only",
     "sync_release_flush",
 ]
+READ_ONLY_CLOSE_SURFACE_COMPARABLE_WORKLOADS = [
+    "read_only_open_close",
+    "read_only_open_read_close",
+    "write_open_write_close",
+    "write_open_fsync_close",
+]
 DIRECTORY_SURFACE_COMPARABLE_WORKLOADS = [
     "readdir_basic",
     "readdirplus_basic",
@@ -131,6 +137,10 @@ WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
         "comparable": list(SYNC_SURFACE_COMPARABLE_WORKLOADS),
         "screenfs_only": [],
     },
+    "read-only-close-surface": {
+        "comparable": list(READ_ONLY_CLOSE_SURFACE_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
     "directory-surface": {
         "comparable": list(DIRECTORY_SURFACE_COMPARABLE_WORKLOADS),
         "screenfs_only": [],
@@ -146,6 +156,7 @@ WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
                 + PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS
                 + METADATA_OPEN_PATH_COMPARABLE_WORKLOADS
                 + SYNC_SURFACE_COMPARABLE_WORKLOADS
+                + READ_ONLY_CLOSE_SURFACE_COMPARABLE_WORKLOADS
                 + DIRECTORY_SURFACE_COMPARABLE_WORKLOADS
             )
         ),
@@ -763,6 +774,57 @@ def sync_release_flush(root: Path, args: argparse.Namespace, side: str) -> None:
 
 
 
+def read_only_open_close(root: Path, args: argparse.Namespace, _side: str) -> None:
+    for index in range(args.open_read_close_ops):
+        fd = os.open(metadata_entry(root, index % args.small_files), os.O_RDONLY | os.O_CLOEXEC)
+        os.close(fd)
+
+
+
+def read_only_open_read_close(root: Path, args: argparse.Namespace, _side: str) -> None:
+    total = 0
+    for index in range(args.open_read_close_ops):
+        fd = os.open(metadata_entry(root, index % args.small_files), os.O_RDONLY | os.O_CLOEXEC)
+        try:
+            total += len(os.read(fd, 32))
+        finally:
+            os.close(fd)
+    if total == 0:
+        raise RuntimeError("read_only_open_read_close read no data")
+
+
+
+def write_open_write_close(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "write-open-write-close.bin")
+    payload = b"w" * min(args.sync_bytes, 4096)
+    try:
+        for _ in range(args.sync_ops):
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+            try:
+                write_all_fd(fd, payload)
+            finally:
+                os.close(fd)
+    finally:
+        path.unlink(missing_ok=True)
+
+
+
+def write_open_fsync_close(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "write-open-fsync-close.bin")
+    payload = b"f" * min(args.sync_bytes, 4096)
+    try:
+        for _ in range(args.sync_ops):
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+            try:
+                write_all_fd(fd, payload)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+    finally:
+        path.unlink(missing_ok=True)
+
+
+
 def small_open_read_close(root: Path, args: argparse.Namespace, _side: str) -> None:
     small_dir = root / ".screenfs-bench" / "small-files"
     total = 0
@@ -986,6 +1048,10 @@ WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
     "sync_flush_only": sync_flush_only,
     "sync_fsync_only": sync_fsync_only,
     "sync_release_flush": sync_release_flush,
+    "read_only_open_close": read_only_open_close,
+    "read_only_open_read_close": read_only_open_read_close,
+    "write_open_write_close": write_open_write_close,
+    "write_open_fsync_close": write_open_fsync_close,
     "small_open_read_close": small_open_read_close,
     "metadata_lookup": metadata_lookup,
     "metadata_getattr": metadata_getattr,

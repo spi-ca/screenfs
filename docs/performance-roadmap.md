@@ -293,6 +293,37 @@ is_fully_visible
 - internal offload helper attribution은 counter/trace 없이는 증명하지 못한다.
 - tmpfs 결과를 storage-backed fsync evidence로 일반화하지 않는다.
 
+
+### Post-metadata follow-up: directory, matcher-descendant, and read-only close
+
+After the metadata/open-path guard-context work, the next active follow-up is directory-surface and read-only close fixed overhead. This work must not weaken hidden filtering, bridge-visible directory-only listing, stable resume cookies, returned-page-only `readdirplus` lookup-ref pinning, or write-capable sync semantics.
+
+Directory optimization contract:
+
+- `readdir` may avoid building a full `FileAttr` for entries when the kernel directory entry type is sufficient for visibility decisions. If the host returns `DT_UNKNOWN`, or if symlink/directory status is otherwise needed, fall back to the existing no-follow metadata path.
+- `readdirplus` still needs returned entry attrs, but may reduce repeated scan/page work with a handle-local bounded scan buffer or progress reuse. This must remain invalidated by the existing mutation invalidation paths; it must not become a persistent full-directory listing cache.
+- Candidate selection may replace the current `BTreeMap` top-N shape only if page ordering, bounded FUSE `size`, stable cookies, and hidden-entry filtering before returned-page commit remain identical. `readdirplus` lookup refs are pinned only for children in the committed returned page.
+- If a change touches symlink visibility inside directory iteration, the regular-file-only `readdir_basic`/`readdirplus_basic` fixture is not enough; add focused tests or a symlink-aware workload/trace that exercises `readdir*_symlink_visibility`.
+
+Matcher-descendant contract:
+
+- Directory-heavy bridge-visible checks use `visible_matcher.may_match_descendant_of(path)`, not only `best_descriptor()`. Any optimization here must preserve current boolean results, short-circuit behavior, most-specific rule wins, and hidden/visible precedence for exact, subtree, direct-child glob, recursive glob, and recursive literal families.
+- Debug/metrics APIs that expose descendant candidate-order shape must keep their current ordering/dedup semantics unless the metric contract is explicitly updated with equivalent evidence.
+- Claim-grade matcher evidence requires a glob/hidden-heavy directory row or an equivalent focused workload that actually exercises descendant candidate logic; the existing matcher32 metadata artifact is not sufficient when `matcher_candidate_order.descendant` comes only from an empty visible matcher.
+
+Read-only open-close sync contract:
+
+- `FOPEN_NOFLUSH` may be set only for handles opened without write intent. Treat `O_WRONLY`, `O_RDWR`, `O_TRUNC`, `O_CREAT`, and create-returned handles as write-capable.
+- If mounted evidence shows `FOPEN_NOFLUSH` does not suppress `FUSE_FLUSH`, a handle-local `flush_needs_sync`/`write_intent` bit may make read-only `flush()` skip `sync_all()`. This must be based only on the handle's open/create intent and must not skip `release()` cleanup.
+- Write-capable handles keep existing `flush()` and `release(flush=true)` sync behavior. Explicit `fsync()`/`fdatasync()` remains honored for all handles.
+- `sync_release_flush` remains a known mounted measurement gap when the kernel does not send `release(flush=true)`; do not claim release-flush improvement from a run where `file_sync.release_flush` is zero.
+
+Evidence required for this follow-up:
+
+- Before/after `directory-surface` benchmark under `fast-path-cache-eligible` and a glob/hidden-heavy policy row, with `readdir_basic` and `readdirplus_basic` p50/p95/p99 plus directory split counters.
+- Read-only and write-capable open/close workloads or equivalent artifacts that report `fuse_op.flush`, `file_sync.flush`, `fuse_op.release`, `file_sync.fsync`, and read-only/write p50/p95/p99.
+- Correctness coverage for visibility filtering, bridge-visible page boundaries, stable cookies across pages, returned-page-only `readdirplus` lookup refs, directory handle invalidation, read-only release cleanup, write/create flush behavior, and explicit fsync.
+
 ### 4. Directory entry attr cost
 
 `readdirplus`는 entry마다 metadata/attr 생성을 요구하므로 큰 directory에서 비쌀 수 있다.
