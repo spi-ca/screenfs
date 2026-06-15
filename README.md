@@ -120,6 +120,15 @@ mutability:
 
 ![ScreenFS system context](docs/diagrams/system-context.svg)
 
+## Performance artifacts
+
+Checked-in performance evidence lives under `docs/artifacts/**` and should be read as machine-local, warm-cache evidence unless the artifact records stronger cache controls.
+
+- Perf-counter smoke result: [`current-perf-counter-benchmark-result.md`](docs/artifacts/current-perf-counter-benchmark-result.md), [`json`](docs/artifacts/current-perf-counter-benchmark-result.json), [`svg`](docs/artifacts/current-perf-counter-benchmark-result.svg). This artifact records the formal harness command line, workload ratios, and raw ScreenFS perf counters.
+- Supplemental fio attribution: [`managed-fio-attribution-summary.md`](docs/artifacts/managed-fio-attribution-summary.md), [`perf-split json`](docs/artifacts/managed-fio-attribution-perf-split.json), [`boxplot svg`](docs/artifacts/managed-fio-attribution-boxplot.svg), [`boxplot png`](docs/artifacts/managed-fio-attribution-boxplot.png). This compares native, minimal managed passthrough, and ScreenFS fio latency attribution; it is attribution evidence, not claim-grade before/after evidence.
+
+![Managed fio attribution boxplot](docs/artifacts/managed-fio-attribution-boxplot.svg)
+
 ## Evidence
 
 Recorded verification/evidence는 [`docs/operations.md`](docs/operations.md)와 `docs/artifacts/**`를 따른다. 문서상 목표 계약과 recorded artifact 상태를 구분하고, current contract evidence만 baseline으로 사용한다.
