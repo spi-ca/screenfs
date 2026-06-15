@@ -15,7 +15,9 @@ import html
 import json
 import os
 import platform
+import random
 import shutil
+from collections.abc import Callable as AbcCallable
 import shlex
 import signal
 import statistics
@@ -29,6 +31,127 @@ from typing import Any, Callable
 
 
 MiB = 1024 * 1024
+RANDOM_4K_BLOCK_SIZE = 4096
+POLICY_OPTION_FLAGS = frozenset(
+    {
+        "--visibility-default",
+        "--hidden",
+        "--visible",
+        "--mutability-default",
+        "--readonly",
+        "--writable",
+    }
+)
+POLICY_SHAPING_EXTRA_ARG_FLAGS = frozenset({*POLICY_OPTION_FLAGS, "--config"})
+HIDDEN_STAT_MISS_TARGET = "/.screenfs-bench/hidden"
+POLICY_PRESETS: dict[str, dict[str, Any]] = {
+    "fallback-unsafe-policy": {
+        "bucket": "fallback-unsafe-policy",
+        "description": "Historical default visible/writable policy with hidden and readonly carve-outs.",
+        "screenfs_args": [
+            "--visibility-default",
+            "visible",
+            "--hidden",
+            "/.screenfs-bench/hidden",
+            "--mutability-default",
+            "writable",
+            "--readonly",
+            "/.screenfs-bench/readonly",
+        ],
+    },
+    "fast-path-cache-eligible": {
+        "bucket": "fast-path-cache-eligible",
+        "description": "Default visible/writable policy with no hidden or readonly carve-outs.",
+        "screenfs_args": [
+            "--visibility-default",
+            "visible",
+            "--mutability-default",
+            "writable",
+        ],
+    },
+}
+DEFAULT_COMPARABLE_WORKLOADS = [
+    "seq_read",
+    "seq_write",
+    "small_read",
+    "small_write",
+    "write_fsync_close",
+    "small_stat_open_read",
+    "readdir_lstat",
+    "symlink_open_read",
+]
+PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS = [
+    "rand_read_4k",
+    "rand_write_4k",
+    "sync_write_4k",
+    "small_open_read_close",
+]
+METADATA_OPEN_PATH_COMPARABLE_WORKLOADS = [
+    "metadata_lookup",
+    "metadata_getattr",
+    "metadata_open",
+    "metadata_readlink",
+    "metadata_access",
+    "metadata_statfs",
+]
+SYNC_SURFACE_COMPARABLE_WORKLOADS = [
+    "sync_flush_only",
+    "sync_fsync_only",
+    "sync_release_flush",
+]
+DIRECTORY_SURFACE_COMPARABLE_WORKLOADS = [
+    "readdir_basic",
+    "readdirplus_basic",
+]
+POLICY_HEAVY_COMPARABLE_WORKLOADS = [
+    "metadata_lookup",
+    "metadata_getattr",
+    "metadata_access",
+    "matcher_hidden_stat_miss",
+]
+DEFAULT_SCREENFS_ONLY_WORKLOADS = [
+    "hidden_stat_miss",
+    "matcher_hidden_stat_miss",
+    "symlink_parent_mkdir_rmdir",
+]
+WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
+    "default": {
+        "comparable": list(DEFAULT_COMPARABLE_WORKLOADS),
+        "screenfs_only": list(DEFAULT_SCREENFS_ONLY_WORKLOADS),
+    },
+    "per-open-cache-minimum": {
+        "comparable": list(PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
+    "metadata-open-path": {
+        "comparable": list(METADATA_OPEN_PATH_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
+    "sync-surface": {
+        "comparable": list(SYNC_SURFACE_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
+    "directory-surface": {
+        "comparable": list(DIRECTORY_SURFACE_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
+    "policy-heavy-matrix": {
+        "comparable": ["metadata_lookup", "metadata_getattr", "metadata_access"],
+        "screenfs_only": ["matcher_hidden_stat_miss"],
+    },
+    "all": {
+        "comparable": list(
+            dict.fromkeys(
+                DEFAULT_COMPARABLE_WORKLOADS
+                + PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS
+                + METADATA_OPEN_PATH_COMPARABLE_WORKLOADS
+                + SYNC_SURFACE_COMPARABLE_WORKLOADS
+                + DIRECTORY_SURFACE_COMPARABLE_WORKLOADS
+            )
+        ),
+        "screenfs_only": list(DEFAULT_SCREENFS_ONLY_WORKLOADS),
+    },
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +162,11 @@ def parse_args() -> argparse.Namespace:
         help="Path to a prebuilt screenfs binary (default: target/release/screenfs).",
     )
     parser.add_argument(
+        "--screenfs-source-root",
+        type=Path,
+        help="Optional ScreenFS source tree root for provenance when --screenfs-bin points at another checkout. If omitted, the harness tries to infer the source root from the binary path.",
+    )
+    parser.add_argument(
         "--build",
         action="store_true",
         help="Run cargo build --release before benchmarking. Build time is not measured.",
@@ -47,13 +175,52 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmups", type=int, default=3, help="Warmup iterations per workload.")
     parser.add_argument("--read-mib", type=int, default=64, help="Sequential read fixture size in MiB.")
     parser.add_argument("--write-mib", type=int, default=64, help="Sequential write size per iteration in MiB.")
-    parser.add_argument("--small-io-bytes", type=int, default=4096, help="Bytes per operation for small-buffer read/write workloads.")
-    parser.add_argument("--small-io-ops", type=int, default=1024, help="Small-buffer read/write operations per iteration.")
+    parser.add_argument(
+        "--small-io-bytes",
+        type=int,
+        default=4096,
+        help="Bytes per operation for small-buffer read/write workloads.",
+    )
+    parser.add_argument(
+        "--small-io-ops",
+        type=int,
+        default=1024,
+        help="Small-buffer read/write operations per iteration.",
+    )
     parser.add_argument("--sync-bytes", type=int, default=4096, help="Bytes written per fsync workload operation.")
     parser.add_argument("--sync-ops", type=int, default=128, help="Open/write/fsync/close operations per iteration.")
     parser.add_argument("--small-files", type=int, default=2000, help="Small files for stat/open/read workload.")
     parser.add_argument("--dir-entries", type=int, default=5000, help="Directory entries for listing workload.")
-    parser.add_argument("--hidden-misses", type=int, default=2000, help="Repeated hidden-path ENOENT checks for the ScreenFS-only workload.")
+    parser.add_argument(
+        "--rand-io-ops",
+        type=int,
+        default=16384,
+        help="4KiB random read/write operations per iteration for rand_*_4k workloads.",
+    )
+    parser.add_argument(
+        "--open-read-close-ops",
+        type=int,
+        default=4096,
+        help="Open/read/close operations per iteration for the small_open_read_close workload.",
+    )
+    parser.add_argument(
+        "--metadata-ops",
+        type=int,
+        default=512,
+        help="Metadata operations per iteration for metadata_* workloads. Keep this below the process file-descriptor limit for metadata_open.",
+    )
+    parser.add_argument(
+        "--sync-4k-fsync-every",
+        type=int,
+        default=32,
+        help="Call fsync after this many 4KiB writes in the sync_write_4k workload.",
+    )
+    parser.add_argument(
+        "--hidden-misses",
+        type=int,
+        default=2000,
+        help="Repeated hidden-path ENOENT checks for the ScreenFS-only workload.",
+    )
     parser.add_argument(
         "--matcher-extra-rules",
         type=int,
@@ -71,6 +238,28 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=2000,
         help="Repeated mkdir/rmdir pairs under a visible symlink parent for the ScreenFS-only workload.",
+    )
+    parser.add_argument(
+        "--policy-preset",
+        choices=sorted(POLICY_PRESETS),
+        default="fallback-unsafe-policy",
+        help="Built-in ScreenFS policy preset. Default preserves the historical hidden/readonly benchmark policy.",
+    )
+    parser.add_argument(
+        "--policy-label",
+        help="Optional provenance label for the selected policy/matrix entry.",
+    )
+    parser.add_argument(
+        "--workload-set",
+        choices=sorted(WORKLOAD_SETS),
+        default="default",
+        help="Named workload set to run when --workload is not specified.",
+    )
+    parser.add_argument(
+        "--workload",
+        action="append",
+        default=[],
+        help="Run only the named workload(s); repeat as needed. Overrides --workload-set.",
     )
     parser.add_argument("--output-json", type=Path, help="Write full benchmark result JSON to this path.")
     parser.add_argument("--output-md", type=Path, help="Write Markdown summary to this path.")
@@ -100,9 +289,45 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+
 def require_positive(name: str, value: int) -> None:
     if value <= 0:
         raise SystemExit(f"{name} must be positive")
+
+
+
+def ordered_unique(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+
+def collect_option_values(argv: list[str], option: str) -> list[str]:
+    values: list[str] = []
+    for index, token in enumerate(argv[:-1]):
+        if token == option:
+            values.append(argv[index + 1])
+    return values
+
+
+
+def path_rule_matches_or_contains(rule: str, target: str) -> bool:
+    normalized_rule = rule.rstrip("/") or "/"
+    normalized_target = target.rstrip("/") or "/"
+    if normalized_rule == "/":
+        return True
+    return normalized_rule == normalized_target or normalized_target.startswith(f"{normalized_rule}/")
+
+
+
+def hidden_paths_support_target(hidden_paths: list[str], target: str) -> bool:
+    return any(path_rule_matches_or_contains(path, target) for path in hidden_paths)
 
 
 
@@ -110,11 +335,13 @@ def run_checked(command: list[str], **kwargs: Any) -> subprocess.CompletedProces
     return subprocess.run(command, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
 
 
-def command_output(command: list[str]) -> str | None:
+
+def command_output(command: list[str], cwd: Path | None = None) -> str | None:
     try:
-        return run_checked(command).stdout.strip()
+        return run_checked(command, cwd=cwd).stdout.strip()
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
+
 
 
 def sha256_file(path: Path) -> str:
@@ -131,6 +358,7 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+
 def summarize_git_status(status: str | None, limit: int = 5) -> str | None:
     if status is None:
         return None
@@ -143,8 +371,56 @@ def summarize_git_status(status: str | None, limit: int = 5) -> str | None:
     return summary
 
 
+
 def shell_join(argv: list[str]) -> str:
     return shlex.join(argv)
+
+
+
+def infer_source_root_from_binary(binary: Path) -> Path | None:
+    try:
+        resolved = binary.resolve()
+    except OSError:
+        resolved = binary
+    for candidate in resolved.parents:
+        if (candidate / "Cargo.toml").is_file():
+            return candidate
+    for candidate in resolved.parents:
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+
+def git_provenance(root: Path | None) -> dict[str, Any]:
+    if root is None:
+        return {
+            "source_root": None,
+            "git_revision": None,
+            "git_status_porcelain": None,
+            "git_worktree_clean": None,
+        }
+    git_status_porcelain = command_output(["git", "status", "--porcelain"], cwd=root)
+    return {
+        "source_root": str(root),
+        "git_revision": command_output(["git", "rev-parse", "HEAD"], cwd=root),
+        "git_status_porcelain": git_status_porcelain,
+        "git_worktree_clean": None if git_status_porcelain is None else git_status_porcelain == "",
+    }
+
+
+
+def resolve_screenfs_source_provenance(screenfs_bin: Path, explicit_root: Path | None) -> dict[str, Any]:
+    if explicit_root is not None:
+        source_root = explicit_root
+        source_root_origin = "cli"
+    else:
+        source_root = infer_source_root_from_binary(screenfs_bin)
+        source_root_origin = "inferred-from-screenfs-bin" if source_root is not None else None
+    provenance = git_provenance(source_root)
+    provenance["source_root_origin"] = source_root_origin
+    return provenance
+
 
 
 def parse_perf_summary(stderr: str) -> dict[str, Any] | None:
@@ -174,11 +450,13 @@ def parse_perf_summary(stderr: str) -> dict[str, Any] | None:
     return {"raw": block, "metrics": metrics}
 
 
+
 def harness_argv() -> list[str]:
     orig_argv = getattr(sys, "orig_argv", None)
     if orig_argv:
         return [str(arg) for arg in orig_argv]
     return [sys.executable, *sys.argv]
+
 
 
 def write_all_fd(fd: int, data: bytes) -> None:
@@ -188,6 +466,7 @@ def write_all_fd(fd: int, data: bytes) -> None:
         if written <= 0:
             raise OSError("short write made no progress")
         view = view[written:]
+
 
 
 def write_bytes(path: Path, size: int, chunk: bytes) -> None:
@@ -204,6 +483,7 @@ def write_bytes(path: Path, size: int, chunk: bytes) -> None:
     actual_size = path.stat().st_size
     if actual_size != size:
         raise RuntimeError(f"fixture size mismatch for {path}: expected {size}, got {actual_size}")
+
 
 
 def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
@@ -254,6 +534,7 @@ def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
     (root / "write-mounted").mkdir()
 
 
+
 def wait_for_mount(mount: Path, proc: subprocess.Popen[str], timeout_sec: float) -> None:
     sentinel = mount / ".screenfs-bench" / "read" / "seq.bin"
     deadline = time.monotonic() + timeout_sec
@@ -268,6 +549,7 @@ def wait_for_mount(mount: Path, proc: subprocess.Popen[str], timeout_sec: float)
             pass
         time.sleep(0.05)
     raise TimeoutError(f"ScreenFS mount did not expose benchmark sentinel within {timeout_sec}s")
+
 
 
 def unmount(mount: Path) -> dict[str, Any]:
@@ -291,6 +573,7 @@ def unmount(mount: Path) -> dict[str, Any]:
     return {"ok": False, "attempts": attempts}
 
 
+
 def seq_read(root: Path, _args: argparse.Namespace, side: str) -> None:
     path = root / ".screenfs-bench" / "read" / "seq.bin"
     total = 0
@@ -304,9 +587,11 @@ def seq_read(root: Path, _args: argparse.Namespace, side: str) -> None:
         raise RuntimeError(f"{side} seq_read read no data")
 
 
+
 def write_output_path(root: Path, side: str, name: str) -> Path:
     write_dir_name = "write-native" if side == "native" else "write-mounted"
     return root / ".screenfs-bench" / write_dir_name / name
+
 
 
 def seq_write(root: Path, args: argparse.Namespace, side: str) -> None:
@@ -319,6 +604,7 @@ def seq_write(root: Path, args: argparse.Namespace, side: str) -> None:
     finally:
         os.close(fd)
     path.unlink(missing_ok=True)
+
 
 
 def small_read(root: Path, args: argparse.Namespace, side: str) -> None:
@@ -340,6 +626,7 @@ def small_read(root: Path, args: argparse.Namespace, side: str) -> None:
         raise RuntimeError(f"{side} small_read read no data")
 
 
+
 def small_write(root: Path, args: argparse.Namespace, side: str) -> None:
     path = write_output_path(root, side, "small-write.bin")
     chunk = b"s" * args.small_io_bytes
@@ -350,6 +637,7 @@ def small_write(root: Path, args: argparse.Namespace, side: str) -> None:
     finally:
         os.close(fd)
     path.unlink(missing_ok=True)
+
 
 
 def write_fsync_close(root: Path, args: argparse.Namespace, side: str) -> None:
@@ -368,6 +656,211 @@ def write_fsync_close(root: Path, args: argparse.Namespace, side: str) -> None:
         path.unlink(missing_ok=True)
 
 
+
+def rand_read_4k(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = root / ".screenfs-bench" / "read" / "seq.bin"
+    size = path.stat().st_size
+    if size < RANDOM_4K_BLOCK_SIZE:
+        raise RuntimeError(f"{side} rand_read_4k fixture is smaller than {RANDOM_4K_BLOCK_SIZE} bytes")
+    block_count = size // RANDOM_4K_BLOCK_SIZE
+    rng = random.Random(0)
+    total = 0
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        for _ in range(args.rand_io_ops):
+            offset = rng.randrange(block_count) * RANDOM_4K_BLOCK_SIZE
+            data = os.pread(fd, RANDOM_4K_BLOCK_SIZE, offset)
+            if len(data) != RANDOM_4K_BLOCK_SIZE:
+                raise RuntimeError(f"{side} rand_read_4k short read at offset {offset}: {len(data)}")
+            total += len(data)
+    finally:
+        os.close(fd)
+    if total == 0:
+        raise RuntimeError(f"{side} rand_read_4k read no data")
+
+
+
+def rand_write_4k(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "rand-write-4k.bin")
+    size = max(args.write_mib * MiB, RANDOM_4K_BLOCK_SIZE)
+    size = (size // RANDOM_4K_BLOCK_SIZE) * RANDOM_4K_BLOCK_SIZE
+    block_count = max(1, size // RANDOM_4K_BLOCK_SIZE)
+    chunk = b"r" * RANDOM_4K_BLOCK_SIZE
+    rng = random.Random(0)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+    try:
+        os.ftruncate(fd, size)
+        for _ in range(args.rand_io_ops):
+            offset = rng.randrange(block_count) * RANDOM_4K_BLOCK_SIZE
+            written = os.pwrite(fd, chunk, offset)
+            if written != RANDOM_4K_BLOCK_SIZE:
+                raise RuntimeError(f"{side} rand_write_4k short write at offset {offset}: {written}")
+    finally:
+        os.close(fd)
+    path.unlink(missing_ok=True)
+
+
+
+def sync_write_4k(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "sync-write-4k.bin")
+    chunk = b"y" * RANDOM_4K_BLOCK_SIZE
+    writes_since_fsync = 0
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+    try:
+        for _ in range(args.sync_ops):
+            write_all_fd(fd, chunk)
+            writes_since_fsync += 1
+            if writes_since_fsync >= args.sync_4k_fsync_every:
+                os.fsync(fd)
+                writes_since_fsync = 0
+        if writes_since_fsync:
+            os.fsync(fd)
+    finally:
+        os.close(fd)
+    path.unlink(missing_ok=True)
+
+
+
+def sync_flush_only(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "sync-flush-only.bin")
+    chunk = b"q" * args.sync_bytes
+    try:
+        for _ in range(args.sync_ops):
+            with path.open("wb", buffering=0) as file:
+                file.write(chunk)
+                file.flush()
+    finally:
+        path.unlink(missing_ok=True)
+
+
+
+def sync_fsync_only(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "sync-fsync-only.bin")
+    chunk = b"z" * args.sync_bytes
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+    try:
+        for _ in range(args.sync_ops):
+            write_all_fd(fd, chunk)
+            os.fsync(fd)
+    finally:
+        os.close(fd)
+        path.unlink(missing_ok=True)
+
+
+
+def sync_release_flush(root: Path, args: argparse.Namespace, side: str) -> None:
+    path = write_output_path(root, side, "sync-release-flush.bin")
+    chunk = b"c" * args.sync_bytes
+    try:
+        for _ in range(args.sync_ops):
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+            try:
+                write_all_fd(fd, chunk)
+            finally:
+                os.close(fd)
+    finally:
+        path.unlink(missing_ok=True)
+
+
+
+def small_open_read_close(root: Path, args: argparse.Namespace, _side: str) -> None:
+    small_dir = root / ".screenfs-bench" / "small-files"
+    total = 0
+    for index in range(args.open_read_close_ops):
+        entry = small_dir / f"file-{index % args.small_files:06d}.txt"
+        with entry.open("rb", buffering=0) as file:
+            total += len(file.read(32))
+    if total == 0:
+        raise RuntimeError("small_open_read_close read no data")
+
+
+
+def metadata_entry(root: Path, index: int) -> Path:
+    return root / ".screenfs-bench" / "small-files" / f"file-{index:06d}.txt"
+
+
+
+def metadata_lookup(root: Path, args: argparse.Namespace, side: str) -> None:
+    small_dir = root / ".screenfs-bench" / "small-files"
+    hits = 0
+    for index in range(args.metadata_ops):
+        if (small_dir / f"missing-{index:06d}.txt").exists():
+            hits += 1
+    if hits:
+        raise RuntimeError(f"{side} metadata_lookup unexpectedly found {hits} missing entries")
+
+
+
+def metadata_getattr(root: Path, args: argparse.Namespace, _side: str) -> None:
+    total = 0
+    for index in range(args.metadata_ops):
+        total += metadata_entry(root, index % args.small_files).stat().st_size
+    if total == 0:
+        raise RuntimeError("metadata_getattr saw no size data")
+
+
+
+def metadata_open(root: Path, args: argparse.Namespace, _side: str) -> AbcCallable[[], None]:
+    try:
+        import resource
+
+        soft_limit, _hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except (ImportError, OSError, ValueError):
+        soft_limit = 1024
+    reserve_fds = 64
+    if args.metadata_ops >= max(1, soft_limit - reserve_fds):
+        raise RuntimeError(
+            f"metadata_open needs one live fd per metadata op to exclude close/release from timing; "
+            f"--metadata-ops={args.metadata_ops} is too high for RLIMIT_NOFILE={soft_limit}"
+        )
+    fds: list[int] = []
+    try:
+        for index in range(args.metadata_ops):
+            fds.append(os.open(metadata_entry(root, index % args.small_files), os.O_RDONLY | os.O_CLOEXEC))
+    except Exception:
+        for fd in fds:
+            os.close(fd)
+        raise
+    if not fds:
+        raise RuntimeError("metadata_open opened no files")
+
+    def cleanup() -> None:
+        for fd in fds:
+            os.close(fd)
+
+    return cleanup
+
+
+
+def metadata_readlink(root: Path, args: argparse.Namespace, _side: str) -> None:
+    link = root / ".screenfs-bench" / "symlinks" / "link.txt"
+    total = 0
+    for _ in range(args.metadata_ops):
+        total += len(os.readlink(link))
+    if total == 0:
+        raise RuntimeError("metadata_readlink read no link targets")
+
+
+
+def metadata_access(root: Path, args: argparse.Namespace, _side: str) -> None:
+    accessible = 0
+    for index in range(args.metadata_ops):
+        if os.access(metadata_entry(root, index % args.small_files), os.R_OK):
+            accessible += 1
+    if accessible != args.metadata_ops:
+        raise RuntimeError(f"metadata_access expected {args.metadata_ops} readable files, saw {accessible}")
+
+
+
+def metadata_statfs(root: Path, args: argparse.Namespace, _side: str) -> None:
+    total = 0
+    for _ in range(args.metadata_ops):
+        total += os.statvfs(root).f_bsize
+    if total == 0:
+        raise RuntimeError("metadata_statfs saw no filesystem block size")
+
+
+
 def small_stat_open_read(root: Path, _args: argparse.Namespace, _side: str) -> None:
     small_dir = root / ".screenfs-bench" / "small-files"
     total = 0
@@ -379,7 +872,21 @@ def small_stat_open_read(root: Path, _args: argparse.Namespace, _side: str) -> N
         raise RuntimeError("small_stat_open_read read no data")
 
 
-def readdir_lstat(root: Path, _args: argparse.Namespace, _side: str) -> None:
+
+def readdir_basic(root: Path, _args: argparse.Namespace, _side: str) -> None:
+    dir_path = root / ".screenfs-bench" / "dir-entries"
+    count = 0
+    with os.scandir(dir_path) as entries:
+        for entry in entries:
+            if not entry.name:
+                raise RuntimeError("readdir_basic saw an empty entry name")
+            count += 1
+    if count == 0:
+        raise RuntimeError("readdir_basic saw no entries")
+
+
+
+def readdirplus_basic(root: Path, _args: argparse.Namespace, _side: str) -> None:
     dir_path = root / ".screenfs-bench" / "dir-entries"
     count = 0
     with os.scandir(dir_path) as entries:
@@ -387,7 +894,13 @@ def readdir_lstat(root: Path, _args: argparse.Namespace, _side: str) -> None:
             entry.stat(follow_symlinks=False)
             count += 1
     if count == 0:
-        raise RuntimeError("readdir_lstat saw no entries")
+        raise RuntimeError("readdirplus_basic saw no entries")
+
+
+
+def readdir_lstat(root: Path, _args: argparse.Namespace, _side: str) -> None:
+    readdirplus_basic(root, _args, _side)
+
 
 
 def symlink_open_read(root: Path, _args: argparse.Namespace, _side: str) -> None:
@@ -395,6 +908,7 @@ def symlink_open_read(root: Path, _args: argparse.Namespace, _side: str) -> None
     with path.open("rb", buffering=0) as file:
         if not file.read(64):
             raise RuntimeError("symlink_open_read read no data")
+
 
 
 def hidden_stat_miss(root: Path, args: argparse.Namespace, side: str) -> None:
@@ -408,6 +922,7 @@ def hidden_stat_miss(root: Path, args: argparse.Namespace, side: str) -> None:
             raise
         if side == "mounted":
             raise RuntimeError("hidden_stat_miss expected ENOENT through ScreenFS")
+
 
 
 def matcher_hidden_stat_miss(root: Path, args: argparse.Namespace, side: str) -> None:
@@ -425,6 +940,7 @@ def matcher_hidden_stat_miss(root: Path, args: argparse.Namespace, side: str) ->
             raise
         if side == "mounted":
             raise RuntimeError("matcher_hidden_stat_miss expected ENOENT through ScreenFS")
+
 
 
 def symlink_parent_mkdir_rmdir(root: Path, args: argparse.Namespace, _side: str) -> None:
@@ -464,7 +980,22 @@ WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
     "small_read": small_read,
     "small_write": small_write,
     "write_fsync_close": write_fsync_close,
+    "rand_read_4k": rand_read_4k,
+    "rand_write_4k": rand_write_4k,
+    "sync_write_4k": sync_write_4k,
+    "sync_flush_only": sync_flush_only,
+    "sync_fsync_only": sync_fsync_only,
+    "sync_release_flush": sync_release_flush,
+    "small_open_read_close": small_open_read_close,
+    "metadata_lookup": metadata_lookup,
+    "metadata_getattr": metadata_getattr,
+    "metadata_open": metadata_open,
+    "metadata_readlink": metadata_readlink,
+    "metadata_access": metadata_access,
+    "metadata_statfs": metadata_statfs,
     "small_stat_open_read": small_stat_open_read,
+    "readdir_basic": readdir_basic,
+    "readdirplus_basic": readdirplus_basic,
     "readdir_lstat": readdir_lstat,
     "symlink_open_read": symlink_open_read,
 }
@@ -475,11 +1006,134 @@ SCREENFS_ONLY_WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], Non
 }
 
 
-def time_one(func: Callable[[Path, argparse.Namespace, str], None], root: Path, args: argparse.Namespace, side: str) -> float:
+
+def resolve_policy(args: argparse.Namespace) -> dict[str, Any]:
+    preset = POLICY_PRESETS[args.policy_preset]
+    policy_args = list(preset["screenfs_args"])
+    if args.matcher_extra_rules:
+        for index in range(args.matcher_extra_rules):
+            hidden_path = f"/.screenfs-bench/matcher-heavy/hidden-{index:04d}"
+            readonly_path = f"/.screenfs-bench/matcher-heavy/visible-{index:04d}/readonly-{index:04d}.txt"
+            policy_args.extend(["--hidden", hidden_path, "--readonly", readonly_path])
+
+    hidden_paths = collect_option_values(policy_args, "--hidden")
+    readonly_paths = collect_option_values(policy_args, "--readonly")
+    hidden_paths.extend(collect_option_values(args.extra_screenfs_arg, "--hidden"))
+    readonly_paths.extend(collect_option_values(args.extra_screenfs_arg, "--readonly"))
+
+    manual_policy_override_flags = [arg for arg in args.extra_screenfs_arg if arg in POLICY_SHAPING_EXTRA_ARG_FLAGS]
+    suffixes = []
+    if args.matcher_extra_rules:
+        suffixes.append(f"matcher{args.matcher_extra_rules}")
+    if manual_policy_override_flags:
+        suffixes.append("extra-policy-args")
+    if args.policy_label:
+        label = args.policy_label
+    elif suffixes:
+        label = "-".join([args.policy_preset, *suffixes])
+    else:
+        label = args.policy_preset
+
+    fast_path_cache_eligible = (
+        args.policy_preset == "fast-path-cache-eligible"
+        and args.matcher_extra_rules == 0
+        and not manual_policy_override_flags
+    )
+    if fast_path_cache_eligible:
+        effective_bucket = "fast-path-cache-eligible"
+    elif args.policy_preset == "fallback-unsafe-policy" and args.matcher_extra_rules == 0 and not manual_policy_override_flags:
+        effective_bucket = "fallback-unsafe-policy"
+    else:
+        effective_bucket = "custom-unsafe-policy"
+
+    notes: list[str] = []
+    if args.matcher_extra_rules:
+        notes.append(
+            "matcher_extra_rules appended synthetic hidden/readonly carve-outs and activates matcher_hidden_stat_miss when that workload is selected"
+        )
+    if manual_policy_override_flags:
+        joined = ", ".join(manual_policy_override_flags)
+        notes.append(
+            f"extra_screenfs_arg included policy-shaping flags ({joined}); treat the run as a named custom unsafe matrix entry unless independently reviewed"
+        )
+    if fast_path_cache_eligible:
+        notes.append("effective policy remains cache-eligible for the current per-open read/write fast path")
+
+    return {
+        "requested_preset": args.policy_preset,
+        "requested_bucket": preset["bucket"],
+        "effective_bucket": effective_bucket,
+        "label": label,
+        "description": preset["description"],
+        "built_in_screenfs_args": policy_args,
+        "hidden_paths": hidden_paths,
+        "readonly_paths": readonly_paths,
+        "matcher_extra_rules": args.matcher_extra_rules,
+        "manual_policy_override_flags": manual_policy_override_flags,
+        "extra_screenfs_args": list(args.extra_screenfs_arg),
+        "fast_path_cache_eligible": fast_path_cache_eligible,
+        "supports_hidden_stat_miss": hidden_paths_support_target(hidden_paths, HIDDEN_STAT_MISS_TARGET),
+        "supports_matcher_hidden_stat_miss": args.matcher_extra_rules > 0,
+        "notes": notes,
+    }
+
+
+
+def resolve_workloads(args: argparse.Namespace, policy: dict[str, Any]) -> dict[str, Any]:
+    known_workloads = set(WORKLOADS) | set(SCREENFS_ONLY_WORKLOADS)
+    explicit = bool(args.workload)
+    if explicit:
+        requested_names = ordered_unique(args.workload)
+        unknown = [name for name in requested_names if name not in known_workloads]
+        if unknown:
+            raise SystemExit(f"unknown workload(s): {', '.join(unknown)}")
+        selection_mode = "explicit"
+    else:
+        preset = WORKLOAD_SETS[args.workload_set]
+        requested_names = preset["comparable"] + preset["screenfs_only"]
+        selection_mode = "named-set"
+
+    comparable: list[str] = []
+    screenfs_only: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for name in requested_names:
+        if name in WORKLOADS:
+            comparable.append(name)
+            continue
+        reason: str | None = None
+        if name == "hidden_stat_miss" and not policy["supports_hidden_stat_miss"]:
+            reason = f"{name} requires a hidden /.screenfs-bench/hidden rule in the selected policy"
+        elif name == "matcher_hidden_stat_miss" and not policy["supports_matcher_hidden_stat_miss"]:
+            reason = f"{name} requires --matcher-extra-rules > 0"
+        if reason is not None:
+            if explicit:
+                raise SystemExit(reason)
+            skipped.append({"name": name, "reason": reason})
+            continue
+        screenfs_only.append(name)
+
+    if not comparable and not screenfs_only:
+        raise SystemExit("no workloads selected after applying policy/workload filters")
+
+    return {
+        "mode": selection_mode,
+        "requested_set": None if explicit else args.workload_set,
+        "requested_names": requested_names,
+        "comparable": comparable,
+        "screenfs_only": screenfs_only,
+        "skipped": skipped,
+    }
+
+
+
+def time_one(func: Callable[[Path, argparse.Namespace, str], Any], root: Path, args: argparse.Namespace, side: str) -> float:
     start = time.perf_counter_ns()
-    func(root, args, side)
+    cleanup = func(root, args, side)
     end = time.perf_counter_ns()
+    if callable(cleanup):
+        cleanup()
     return (end - start) / 1_000_000_000
+
 
 
 def percentile(sorted_values: list[float], percent: float) -> float:
@@ -492,6 +1146,7 @@ def percentile(sorted_values: list[float], percent: float) -> float:
     upper = min(lower + 1, len(sorted_values) - 1)
     fraction = position - lower
     return sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * fraction
+
 
 
 def summarize(values: list[float]) -> dict[str, float]:
@@ -511,6 +1166,7 @@ def summarize(values: list[float]) -> dict[str, float]:
     }
 
 
+
 def measure_workload(
     name: str,
     func: Callable[[Path, argparse.Namespace, str], None],
@@ -524,6 +1180,7 @@ def measure_workload(
     return {"name": name, "side": side, "samples_sec": samples, "summary": summarize(samples)}
 
 
+
 def path_fs_info(path: Path) -> dict[str, Any]:
     statvfs = os.statvfs(path)
     return {
@@ -533,6 +1190,7 @@ def path_fs_info(path: Path) -> dict[str, Any]:
         "block_size": statvfs.f_bsize,
         "fragment_size": statvfs.f_frsize,
     }
+
 
 
 def render_box_plot_svg(result: dict[str, Any]) -> str:
@@ -615,20 +1273,141 @@ def render_box_plot_svg(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+
+def benchmark_parameters(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "iterations": args.iterations,
+        "warmups": args.warmups,
+        "read_mib": args.read_mib,
+        "write_mib": args.write_mib,
+        "small_io_bytes": args.small_io_bytes,
+        "small_io_ops": args.small_io_ops,
+        "sync_bytes": args.sync_bytes,
+        "sync_ops": args.sync_ops,
+        "rand_io_ops": args.rand_io_ops,
+        "open_read_close_ops": args.open_read_close_ops,
+        "metadata_ops": args.metadata_ops,
+        "sync_4k_fsync_every": args.sync_4k_fsync_every,
+        "small_files": args.small_files,
+        "dir_entries": args.dir_entries,
+        "hidden_misses": args.hidden_misses,
+        "matcher_extra_rules": args.matcher_extra_rules,
+        "matcher_misses": args.matcher_misses,
+        "symlink_parent_mutations": args.symlink_parent_mutations,
+    }
+
+
+
+def benchmark_environment(
+    source: Path,
+    mounted_filesystem: dict[str, Any],
+    harness_repo_root: Path,
+) -> dict[str, Any]:
+    harness_repo = git_provenance(harness_repo_root)
+    return {
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+        "uname": " ".join(platform.uname()),
+        "harness_repo_root": str(harness_repo_root),
+        "git_revision": harness_repo["git_revision"],
+        "git_status_porcelain": harness_repo["git_status_porcelain"],
+        "git_worktree_clean": harness_repo["git_worktree_clean"],
+        "source_filesystem": path_fs_info(source),
+        "mount_filesystem": mounted_filesystem,
+        "rustc": command_output(["rustc", "--version"]),
+        "cargo": command_output(["cargo", "--version"]),
+        "fusermount3": command_output(["fusermount3", "--version"]),
+    }
+
+
+
+def build_benchmark_result(
+    *,
+    args: argparse.Namespace,
+    timestamp: str,
+    harness_command: list[str],
+    environment: dict[str, Any],
+    workdir: Path,
+    source: Path,
+    mount: Path,
+    policy: dict[str, Any],
+    workloads: dict[str, Any],
+    screenfs_bin: Path,
+    screenfs_binary_sha256: str,
+    screenfs_source: dict[str, Any],
+    command: list[str],
+    stderr_path: Path,
+    screenfs_stderr: str,
+    perf_summary: dict[str, Any] | None,
+    native_results: list[dict[str, Any]],
+    mounted_results: list[dict[str, Any]],
+    screenfs_only: list[dict[str, Any]],
+    comparisons: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": "screenfs-benchmark-v2",
+        "timestamp": timestamp,
+        "harness": {
+            "argv": harness_command,
+            "command_line": shell_join(harness_command),
+        },
+        "environment": environment,
+        "parameters": benchmark_parameters(args),
+        "paths": {"workdir": str(workdir), "source": str(source), "mount": str(mount)},
+        "policy": policy,
+        "workloads": workloads,
+        "screenfs": {
+            "binary": str(screenfs_bin),
+            "binary_sha256": screenfs_binary_sha256,
+            "source": screenfs_source,
+            "command": command,
+            "stderr_log": str(stderr_path),
+            "stderr_preview": screenfs_stderr[-4000:],
+            "perf_counters_enabled": args.perf_counters,
+            "perf_summary": perf_summary,
+        },
+        "native": native_results,
+        "mounted": mounted_results,
+        "screenfs_only": screenfs_only,
+        "comparisons": comparisons,
+    }
+
+
+
 def markdown_report(result: dict[str, Any]) -> str:
     environment = result["environment"]
     screenfs = result["screenfs"]
+    source_info = screenfs.get("source") or {}
     git_dirty_status = summarize_git_status(environment.get("git_status_porcelain"))
+    source_dirty_status = summarize_git_status(source_info.get("git_status_porcelain"))
+    policy = result["policy"]
+    workloads = result["workloads"]
+
+    comparable_names = ", ".join(workloads["comparable"]) if workloads["comparable"] else "(none)"
+    screenfs_only_names = ", ".join(workloads["screenfs_only"]) if workloads["screenfs_only"] else "(none)"
 
     lines = [
         "# ScreenFS benchmark result",
         "",
         f"- timestamp: `{result['timestamp']}`",
         f"- harness_command_line: `{result['harness']['command_line']}`",
+        f"- harness_repo_root: `{environment.get('harness_repo_root') or 'unknown'}`",
         f"- git: `{environment.get('git_revision') or 'unknown'}`",
         f"- git_worktree_clean: `{environment['git_worktree_clean']}`",
         f"- screenfs_bin: `{screenfs['binary']}`",
         f"- screenfs_bin_sha256: `{screenfs['binary_sha256']}`",
+        f"- screenfs_source_root: `{source_info.get('source_root') or 'unknown'}`",
+        f"- screenfs_source_root_origin: `{source_info.get('source_root_origin') or 'unknown'}`",
+        f"- screenfs_source_git: `{source_info.get('git_revision') or 'unknown'}`",
+        f"- screenfs_source_git_worktree_clean: `{source_info.get('git_worktree_clean') if source_info.get('git_worktree_clean') is not None else 'unknown'}`",
+        f"- policy_preset: `{policy['requested_preset']}`",
+        f"- policy_bucket: `{policy['effective_bucket']}`",
+        f"- policy_label: `{policy['label']}`",
+        f"- fast_path_cache_eligible: `{policy['fast_path_cache_eligible']}`",
+        f"- workload_selection: `{workloads['mode']}`",
+        f"- workload_set: `{workloads['requested_set'] or 'explicit'}`",
+        f"- comparable_workloads: `{comparable_names}`",
+        f"- screenfs_only_workloads: `{screenfs_only_names}`",
         f"- iterations: `{result['parameters']['iterations']}`, warmups: `{result['parameters']['warmups']}`",
         "",
         "## Comparable workloads",
@@ -637,7 +1416,11 @@ def markdown_report(result: dict[str, Any]) -> str:
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     if git_dirty_status is not None:
-        lines.insert(5, f"- git_dirty_status: `{git_dirty_status}`")
+        lines.insert(6, f"- git_dirty_status: `{git_dirty_status}`")
+    if source_dirty_status is not None:
+        lines.insert(12, f"- screenfs_source_git_dirty_status: `{source_dirty_status}`")
+    if policy["notes"]:
+        lines.insert(len(lines) - 8, f"- policy_notes: `{' ; '.join(policy['notes'])}`")
 
     comparable = result["comparisons"]
     for name, comparison in comparable.items():
@@ -656,6 +1439,10 @@ def markdown_report(result: dict[str, Any]) -> str:
     for item in result["screenfs_only"]:
         summary = item["summary"]
         lines.append(f"| {item['name']} | {summary['median_sec']:.6f} | {summary['p90_sec']:.6f} | {summary['p95_sec']:.6f} | {summary['p99_sec']:.6f} |")
+    if workloads["skipped"]:
+        lines.extend(["", "## Skipped workloads", ""])
+        for skipped in workloads["skipped"]:
+            lines.append(f"- `{skipped['name']}`: {skipped['reason']}")
     perf_summary = screenfs.get("perf_summary")
     lines.extend(["", "## Perf counters", ""])
     if perf_summary:
@@ -687,6 +1474,7 @@ def markdown_report(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+
 def main() -> int:
     args = parse_args()
     for name in [
@@ -700,6 +1488,10 @@ def main() -> int:
         "sync_ops",
         "small_files",
         "dir_entries",
+        "rand_io_ops",
+        "open_read_close_ops",
+        "metadata_ops",
+        "sync_4k_fsync_every",
         "hidden_misses",
         "matcher_misses",
         "symlink_parent_mutations",
@@ -708,9 +1500,11 @@ def main() -> int:
     if args.matcher_extra_rules < 0:
         raise SystemExit("matcher_extra_rules must be non-negative")
 
-
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         raise SystemExit("do not run this benchmark as root or with sudo; ScreenFS evidence must be non-root FUSE evidence")
+
+    policy = resolve_policy(args)
+    workload_selection = resolve_workloads(args, policy)
 
     if args.build:
         build_command = ["cargo", "build", "--release"]
@@ -723,6 +1517,9 @@ def main() -> int:
     if not screenfs_bin.exists():
         raise SystemExit(f"screenfs binary not found: {screenfs_bin}; run with --build or pass --screenfs-bin")
     screenfs_binary_sha256 = sha256_file(screenfs_bin)
+    harness_repo_root_text = command_output(["git", "rev-parse", "--show-toplevel"])
+    harness_repo_root = Path(harness_repo_root_text) if harness_repo_root_text else Path(__file__).resolve().parent.parent
+    screenfs_source = resolve_screenfs_source_provenance(screenfs_bin, args.screenfs_source_root)
     if shutil.which("fusermount3") is None:
         raise SystemExit("fusermount3 not found; ScreenFS benchmark requires non-root FUSE3 cleanup")
 
@@ -739,23 +1536,9 @@ def main() -> int:
         str(screenfs_bin),
         str(source),
         str(mount),
-        "--visibility-default",
-        "visible",
-        "--hidden",
-        "/.screenfs-bench/hidden",
-        "--mutability-default",
-        "writable",
-        "--readonly",
-        "/.screenfs-bench/readonly",
+        *policy["built_in_screenfs_args"],
+        *args.extra_screenfs_arg,
     ]
-    for index in range(args.matcher_extra_rules):
-        command.extend([
-            "--hidden",
-            f"/.screenfs-bench/matcher-heavy/hidden-{index:04d}",
-            "--readonly",
-            f"/.screenfs-bench/matcher-heavy/visible-{index:04d}/readonly-{index:04d}.txt",
-        ])
-    command.extend(args.extra_screenfs_arg)
 
     proc: subprocess.Popen[str] | None = None
     unmount_result: dict[str, Any] = {"ok": False, "attempts": []}
@@ -763,14 +1546,17 @@ def main() -> int:
         proc = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=stderr_file)
         wait_for_mount(mount, proc, args.timeout_sec)
 
-        native_results = [measure_workload(name, func, source, args, "native") for name, func in WORKLOADS.items()]
-        mounted_results = [measure_workload(name, func, mount, args, "mounted") for name, func in WORKLOADS.items()]
-        screenfs_only_workloads = dict(SCREENFS_ONLY_WORKLOADS)
-        if args.matcher_extra_rules == 0:
-            screenfs_only_workloads.pop("matcher_hidden_stat_miss", None)
+        native_results = [
+            measure_workload(name, WORKLOADS[name], source, args, "native")
+            for name in workload_selection["comparable"]
+        ]
+        mounted_results = [
+            measure_workload(name, WORKLOADS[name], mount, args, "mounted")
+            for name in workload_selection["comparable"]
+        ]
         screenfs_only = [
-            measure_workload(name, func, mount, args, "mounted")
-            for name, func in screenfs_only_workloads.items()
+            measure_workload(name, SCREENFS_ONLY_WORKLOADS[name], mount, args, "mounted")
+            for name in workload_selection["screenfs_only"]
         ]
 
         mounted_filesystem = path_fs_info(mount)
@@ -816,59 +1602,29 @@ def main() -> int:
         if args.perf_counters and perf_summary is None:
             raise RuntimeError("--perf-counters was enabled but no 'screenfs perf counters:' summary was captured from ScreenFS stderr")
 
-        git_status_porcelain = command_output(["git", "status", "--porcelain"])
         harness_command = harness_argv()
-        result = {
-            "schema": "screenfs-benchmark-v1",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "harness": {
-                "argv": harness_command,
-                "command_line": shell_join(harness_command),
-            },
-            "environment": {
-                "platform": platform.platform(),
-                "python": sys.version.split()[0],
-                "uname": " ".join(platform.uname()),
-                "git_revision": command_output(["git", "rev-parse", "HEAD"]),
-                "git_status_porcelain": git_status_porcelain,
-                "git_worktree_clean": git_status_porcelain == "",
-                "source_filesystem": path_fs_info(source),
-                "mount_filesystem": mounted_filesystem,
-                "rustc": command_output(["rustc", "--version"]),
-                "cargo": command_output(["cargo", "--version"]),
-                "fusermount3": command_output(["fusermount3", "--version"]),
-            },
-            "parameters": {
-                "iterations": args.iterations,
-                "warmups": args.warmups,
-                "read_mib": args.read_mib,
-                "write_mib": args.write_mib,
-                "small_io_bytes": args.small_io_bytes,
-                "small_io_ops": args.small_io_ops,
-                "sync_bytes": args.sync_bytes,
-                "sync_ops": args.sync_ops,
-                "small_files": args.small_files,
-                "dir_entries": args.dir_entries,
-                "hidden_misses": args.hidden_misses,
-                "matcher_extra_rules": args.matcher_extra_rules,
-                "matcher_misses": args.matcher_misses,
-                "symlink_parent_mutations": args.symlink_parent_mutations,
-            },
-            "paths": {"workdir": str(workdir), "source": str(source), "mount": str(mount)},
-            "screenfs": {
-                "binary": str(screenfs_bin),
-                "binary_sha256": screenfs_binary_sha256,
-                "command": command,
-                "stderr_log": str(stderr_path),
-                "stderr_preview": screenfs_stderr[-4000:],
-                "perf_counters_enabled": args.perf_counters,
-                "perf_summary": perf_summary,
-            },
-            "native": native_results,
-            "mounted": mounted_results,
-            "screenfs_only": screenfs_only,
-            "comparisons": comparisons,
-        }
+        result = build_benchmark_result(
+            args=args,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            harness_command=harness_command,
+            environment=benchmark_environment(source, mounted_filesystem, harness_repo_root),
+            workdir=workdir,
+            source=source,
+            mount=mount,
+            policy=policy,
+            workloads=workload_selection,
+            screenfs_bin=screenfs_bin,
+            screenfs_binary_sha256=screenfs_binary_sha256,
+            screenfs_source=screenfs_source,
+            command=command,
+            stderr_path=stderr_path,
+            screenfs_stderr=screenfs_stderr,
+            perf_summary=perf_summary,
+            native_results=native_results,
+            mounted_results=mounted_results,
+            screenfs_only=screenfs_only,
+            comparisons=comparisons,
+        )
 
         if args.output_json:
             args.output_json.parent.mkdir(parents=True, exist_ok=True)
