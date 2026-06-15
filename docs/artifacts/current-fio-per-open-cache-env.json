@@ -1,0 +1,60 @@
+{
+  "kind": "fio per-open cache perf-counter smoke, ScreenFS default visible/writable policy",
+  "timestamp_utc": "2026-06-15T02:34:01Z",
+  "workdir_template": "/tmp/screenfs-fio-peropen.* (removed after run)",
+  "source_root": "/tmp/screenfs-fio-peropen.LJsM6Z/source",
+  "native_directory": "/tmp/screenfs-fio-peropen.LJsM6Z/source/native",
+  "screenfs_directory": "/tmp/screenfs-fio-peropen.LJsM6Z/mount/screenfs",
+  "job_file": "docs/artifacts/current-fio-attribution.job",
+  "screenfs_command": [
+    "/home/spi-ca/Codebase/screenfs/target/release/screenfs",
+    "/tmp/screenfs-fio-peropen.LJsM6Z/source",
+    "/tmp/screenfs-fio-peropen.LJsM6Z/mount",
+    "--visibility-default",
+    "visible",
+    "--mutability-default",
+    "writable"
+  ],
+  "cache_assumption": "warm-cache/buffered local run; no cache dropping; fio direct=0 ioengine=sync",
+  "screenfs_bin": "/home/spi-ca/Codebase/screenfs/target/release/screenfs",
+  "screenfs_bin_sha256": "6cbc30137108ace1e7df09c285534465afa74d61b7b2a9bc88e54cf63198aff6",
+  "screenfs_features": "perf-counters",
+  "fio_version": "fio-3.42-64-g19a6",
+  "fusermount3_version": "fusermount3 version: 3.18.2",
+  "rustc_version": "rustc 1.94.0 (4a4ef493e 2026-03-02)",
+  "cargo_version": "cargo 1.94.0 (85eff7c80 2026-01-15)",
+  "kernel": "7.1.0-rc7-1-spica-git",
+  "platform": "Linux-7.1.0-rc7-1-spica-git-x86_64-with-glibc2.43",
+  "backing_fs_type": "tmpfs",
+  "screenfs_mount_fs_type": "fuse",
+  "git_head": "03bfdeb82ced3041e5876436794d7d5adeda42c8",
+  "git_status_short": "M docs/architecture.md\n M docs/benchmarks.md\n M docs/design.md\n M docs/performance-roadmap.md\n M src/fs.rs\n M src/fs/perf.rs\n M src/fs/state.rs\n M src/fs/tests.rs\n M src/fs/tests/data_mutations.rs\n M src/fs/tests/mutability.rs\n M src/fs/tests/perf.rs\n M src/fs/tests/symlinks_access_create.rs\n?? docs/artifacts/current-fio-attribution-env.json\n?? docs/artifacts/current-fio-attribution-native.json\n?? docs/artifacts/current-fio-attribution-passthrough-fstype.txt\n?? docs/artifacts/current-fio-attribution-passthrough.json\n?? docs/artifacts/current-fio-attribution-passthrough.stderr.log\n?? docs/artifacts/current-fio-attribution-perf-split.json\n?? docs/artifacts/current-fio-attribution-screenfs-fstype.txt\n?? docs/artifacts/current-fio-attribution-screenfs.json\n?? docs/artifacts/current-fio-attribution-screenfs.stderr.log\n?? docs/artifacts/current-fio-attribution-summary.md\n?? docs/artifacts/current-fio-attribution-summary.png\n?? docs/artifacts/current-fio-attribution-summary.svg\n?? docs/artifacts/current-fio-attribution.job\n?? docs/artifacts/current-fio-mounted.json\n?? docs/artifacts/current-fio-native.json\n?? docs/artifacts/current-fio-per-open-cache-env.json\n?? docs/artifacts/current-fio-per-open-cache-native.json\n?? docs/artifacts/current-fio-per-open-cache-perf-split.json\n?? docs/artifacts/current-fio-per-open-cache-screenfs-fstype.txt\n?? docs/artifacts/current-fio-per-open-cache-screenfs.json\n?? docs/artifacts/current-fio-per-open-cache-screenfs.stderr.log\n?? docs/artifacts/current-fio-per-open-cache-summary.md\n?? docs/artifacts/current-fio-per-open-cache-summary.png\n?? docs/artifacts/current-fio-per-open-cache-summary.svg\n?? docs/artifacts/current-fio-rawlat-boxplot-stats.json\n?? docs/artifacts/current-fio-rawlat-boxplot.png\n?? docs/artifacts/current-fio-rawlat-boxplot.svg\n?? docs/artifacts/current-fio-rawlat-mounted.json\n?? docs/artifacts/current-fio-rawlat-mounted_clat.1.log.gz\n?? docs/artifacts/current-fio-rawlat-mounted_clat.2.log.gz\n?? docs/artifacts/current-fio-rawlat-mounted_clat.3.log.gz\n?? docs/artifacts/current-fio-rawlat-mounted_clat.4.log.gz\n?? docs/artifacts/current-fio-rawlat-mounted_clat.5.log.gz\n?? docs/artifacts/current-fio-rawlat-native.json\n?? docs/artifacts/current-fio-rawlat-native_clat.1.log.gz\n?? docs/artifacts/current-fio-rawlat-native_clat.2.log.gz\n?? docs/artifacts/current-fio-rawlat-native_clat.3.log.gz\n?? docs/artifacts/current-fio-rawlat-native_clat.4.log.gz\n?? docs/artifacts/current-fio-rawlat-native_clat.5.log.gz\n?? docs/artifacts/current-fio-rawlat-screenfs-env.json\n?? docs/artifacts/current-fio-rawlat-screenfs-mount-fstype.txt\n?? docs/artifacts/current-fio-rawlat-screenfs-mount.stderr.log\n?? docs/artifacts/current-fio-rawlat-screenfs.job\n?? docs/artifacts/current-fio-rawlat-summary.md\n?? docs/artifacts/current-fio-screenfs-boxplot.png\n?? docs/artifacts/current-fio-screenfs-boxplot.svg\n?? docs/artifacts/current-fio-screenfs-env.json\n?? docs/artifacts/current-fio-screenfs-mount-fstype.txt\n?? docs/artifacts/current-fio-screenfs-mount.stderr.log\n?? docs/artifacts/current-fio-screenfs-result.png\n?? docs/artifacts/current-fio-screenfs-result.svg\n?? docs/artifacts/current-fio-screenfs-summary.md\n?? docs/artifacts/current-fio-screenfs.job",
+  "commands": {
+    "native": [
+      "fio",
+      "--directory",
+      "/tmp/screenfs-fio-peropen.LJsM6Z/source/native",
+      "--output-format=json",
+      "--output",
+      "docs/artifacts/current-fio-per-open-cache-native.json",
+      "docs/artifacts/current-fio-attribution.job"
+    ],
+    "screenfs_fio": [
+      "fio",
+      "--directory",
+      "/tmp/screenfs-fio-peropen.LJsM6Z/mount/screenfs",
+      "--output-format=json",
+      "--output",
+      "docs/artifacts/current-fio-per-open-cache-screenfs.json",
+      "docs/artifacts/current-fio-attribution.job"
+    ]
+  },
+  "git_worktree_clean": false,
+  "generated_outputs": [
+    "docs/artifacts/current-fio-per-open-cache-perf-split.json",
+    "docs/artifacts/current-fio-per-open-cache-summary.md",
+    "docs/artifacts/current-fio-per-open-cache-summary.png",
+    "docs/artifacts/current-fio-per-open-cache-summary.svg"
+  ],
+  "rendered_png": "2x render from SVG via rsvg-convert --zoom=2"
+}

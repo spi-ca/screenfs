@@ -84,6 +84,7 @@ Visibility와 mutability 축 상세 흐름:
 - Directory listing은 FUSE `size` budget에 맞는 bounded page를 반환한다.
 - `readdirplus` lookup ref는 실제 반환 page의 child에만 증가시킨다.
 - full-directory child attr/inode snapshot cache나 stable listing result cache는 current contract가 아니다.
+- current per-open data-path cache는 열린 file handle에 붙는 handle-local `read`/`write` fast path에만 한정되며, cache-eligible `visible`/`writable` policy에서만 반복 guard를 생략한다. hidden/visible carve-out, readonly/writable carve-out, symlink target 재검증처럼 current-path proof가 다시 필요한 policy shape는 계속 full guard path를 재실행한다. broad path/global authorization cache로 확대하지 않는다.
 - State는 inode/path identity, refcount, handle table, directory cookie, mutation invalidation을 한 consistency domain으로 다룬다.
 - current lock stance는 single `RwLock<State>`다. lock split은 contention evidence와 lock-order design 없이 하지 않는다.
 - Host I/O와 blocking sync syscall은 state lock 밖에서 수행한다.
@@ -93,7 +94,10 @@ Visibility와 mutability 축 상세 흐름:
 - Host access는 `source_root` 밖 escape를 허용하지 않는다.
 - 가능한 operation은 fd 또는 dirfd-relative syscall로 위임한다.
 - Mutation 직전 opened parent dirfd가 요청된 virtual parent path에 남아 있는지 best-effort로 재확인한다.
-- 외부 same-UID actor가 validation 이후 pin된 inode를 이동/삭제하면 Linux/POSIX fd lifetime semantics를 따른다.
+- current per-open read/write cache도 hidden `ENOENT`, readonly `EROFS`, symlink target revalidation, source-root confinement/`openat2` proof를 유지하며 cached path reopen을 허용하지 않는다. unsafe policy shape는 계속 full guard path를 재실행한다.
+- hidden/readonly/symlink-target concern이 있는 unsafe policy shape에서는 rename/unlink/symlink retarget/ancestor change 뒤 stale authorization을 기존 per-I/O fail-closed revalidation으로 막는다. cache-eligible default `visible`/`writable` shape는 숨기거나 readonly로 막을 target authorization concern이 없으므로 already-open fd에 대해 documented pinned-fd behavior를 유지한다.
+- 현재 focused evidence는 [`../src/fs/tests/perf.rs`](../src/fs/tests/perf.rs) (`perf_counters_record_data_path_splits_on_success`, `perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe`, `perf_counters_record_data_path_splits_on_snapshot_guard_and_io_failures`, `perf_counters_keep_fallocate_and_copy_file_range_on_per_call_policy_path`), [`../src/fs/tests/data_mutations.rs`](../src/fs/tests/data_mutations.rs) (`cache_eligible_opened_file_read_write_keep_pinned_fd_after_host_rename`, `cache_eligible_opened_file_read_write_keep_pinned_fd_after_ancestor_rename`, `cache_eligible_opened_file_read_write_keep_pinned_fd_after_unlink`, `opened_file_read_keeps_pinned_fd_after_host_rename_but_write_fails_closed`, `opened_file_read_write_fail_closed_after_host_rename_into_hidden_subtree`), [`../src/fs/tests/symlinks_access_create.rs`](../src/fs/tests/symlinks_access_create.rs) (`cache_eligible_opened_symlink_read_keeps_pinned_fd_after_final_retarget`, `cache_eligible_opened_symlink_read_keeps_pinned_fd_after_ancestor_retarget`, `opened_symlink_read_revalidates_hidden_target_after_retarget`), [`../src/fs/tests/mutability.rs`](../src/fs/tests/mutability.rs) (`opened_symlink_write_revalidates_readonly_target_after_retarget`), [`artifacts/current-fio-per-open-cache-summary.md`](artifacts/current-fio-per-open-cache-summary.md)와 companion `current-fio-per-open-cache-*` smoke artifact다.
+- 외부 same-UID actor가 validation 이후 pin된 inode를 이동/삭제하면 policy shape에 따라 문서화된 Linux/POSIX fd lifetime semantics를 따른다.
 - 이 stance는 path 재해석 race를 줄이지만, validation과 syscall 사이 current virtual path membership을 원자적으로 보장하지는 않는다.
 
 ## 8. Verification questions
@@ -109,6 +113,8 @@ Visibility와 mutability 축 상세 흐름:
 - shared matcher가 exact/subtree, direct-child, recursive non-visible, recursive literal non-visible family를 분리해 다루는가?
 - state lock이 host I/O 또는 blocking syscall 구간에 잡히지 않는가?
 - `source_root` confinement와 fd/dirfd-relative delegation이 유지되는가?
+- current per-open cache hit이 hidden `ENOENT`, readonly `EROFS`, symlink target revalidation, no-reopen-by-path 규칙을 우회하지 않는가?
+- `fallocate`/`copy_file_range`가 현재도 per-call policy path에 남아 있는가?
 
 ## 9. Diagram contract
 

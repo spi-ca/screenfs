@@ -50,14 +50,71 @@ FUSE_OVER_IO_URING
 - concurrent reader/writer에서 handle snapshot 비용이 실제 병목인지
 - host-side offload 또는 io_uring 검토가 필요한 수준의 data-path 병목이 있는지
 
+### Per-open read/write handle cache (implemented conservative fast path)
+
+현재 상태:
+
+- 초기 conservative per-open handle cache는 이미 열린 regular-file handle의 `read`/`write` fast path에 구현돼 있다.
+- handle에는 `read`/`write` fast path용 cache bit만 붙고, cache hit으로 반복 guard를 생략하는 범위는 cache-eligible `visible`/`writable` policy로 제한된다. hidden carve-out, visible carve-out, readonly/writable carve-out, symlink target revalidation처럼 current-path proof가 다시 필요한 policy shape는 계속 기존 per-I/O guard를 재실행한다.
+- scope는 handle-local fast path뿐이다. broad path cache, global authorization cache, negative cache, symlink decision cache, stable listing cache는 포함하지 않는다.
+- data I/O는 기존 opened fd로 계속 수행하고 cached path로 reopen하지 않는다.
+- `fallocate`와 `copy_file_range`는 현재 구현 범위 밖이며 계속 per-call guard path를 탄다.
+
+현재 evidence:
+
+- 구현 source: [`../src/fs.rs`](../src/fs.rs) (`open_file_io_guard_cache()`, `open()`, `read()`, `write()`), [`../src/fs/state.rs`](../src/fs/state.rs) (`FileIoGuardCache`, opened file-handle snapshot state)
+- supplemental managed attribution: [`artifacts/managed-fio-attribution-summary.md`](artifacts/managed-fio-attribution-summary.md), [`artifacts/managed-fio-attribution-perf-split.json`](artifacts/managed-fio-attribution-perf-split.json), [`artifacts/managed-fio-attribution-env.json`](artifacts/managed-fio-attribution-env.json). 이 rerun은 non-root `fusermount3` mount에서 `/hidden` + `/readonly` carve-out을 쓰는 `custom-unsafe-policy` / `managed-fio-root-carveouts` shape와 `current-fio-attribution.job` fio workload를 사용한 warm-cache attribution이며, official harness `fallback-unsafe-policy` preset도 claim-grade before/after pair도 아니다.
+- 현재 claim-grade before/after artifact: [`artifacts/per-open-cache-claim/summary.md`](artifacts/per-open-cache-claim/summary.md)와 companion [`artifacts/per-open-cache-claim/before-03bfdeb82ced-fast-path-cache-eligible-per-open-cache-minimum.json`](artifacts/per-open-cache-claim/before-03bfdeb82ced-fast-path-cache-eligible-per-open-cache-minimum.json), [`artifacts/per-open-cache-claim/after-worktree-03bfdeb82ced-fast-path-cache-eligible-per-open-cache-minimum.json`](artifacts/per-open-cache-claim/after-worktree-03bfdeb82ced-fast-path-cache-eligible-per-open-cache-minimum.json), 대응 Markdown/SVG/PNG. 이 pair는 `--policy-preset fast-path-cache-eligible --workload-set per-open-cache-minimum --iterations 10 --warmups 3`를 사용했고, JSON provenance에 ScreenFS source provenance, dirty worktree 상태, `fusermount3`/kernel/filesystem 메타데이터가 들어 있다.
+- 현재 smoke artifact: [`artifacts/current-fio-per-open-cache-summary.md`](artifacts/current-fio-per-open-cache-summary.md)와 companion [`artifacts/current-fio-per-open-cache-native.json`](artifacts/current-fio-per-open-cache-native.json), [`artifacts/current-fio-per-open-cache-screenfs.json`](artifacts/current-fio-per-open-cache-screenfs.json), [`artifacts/current-fio-per-open-cache-env.json`](artifacts/current-fio-per-open-cache-env.json), [`artifacts/current-fio-per-open-cache-perf-split.json`](artifacts/current-fio-per-open-cache-perf-split.json), [`artifacts/current-fio-per-open-cache-screenfs.stderr.log`](artifacts/current-fio-per-open-cache-screenfs.stderr.log), [`artifacts/current-fio-per-open-cache-screenfs-fstype.txt`](artifacts/current-fio-per-open-cache-screenfs-fstype.txt). 이들은 split counter smoke 확인용으로만 읽고 claim-grade pair와 섞지 않는다.
+- 현재 official harness는 `--policy-preset`, `--policy-label`, `--workload-set`를 제공하지만, 기본 mounted policy는 여전히 hidden/readonly rule을 함께 주입하는 `fallback-unsafe-policy`다. per-open cache claim-grade 비교에서는 `fast-path-cache-eligible` preset과 별도 named unsafe matrix entry를 분리해서 사용해야 한다.
+- managed contrib helper provenance는 [`artifacts/managed-fio-attribution-env.json`](artifacts/managed-fio-attribution-env.json)에 기록돼 있다.
+- focused regression/perf tests: [`../src/fs/tests/perf.rs`](../src/fs/tests/perf.rs) (`perf_counters_record_data_path_splits_on_success`, `perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe`, `perf_counters_record_data_path_splits_on_snapshot_guard_and_io_failures`, `perf_counters_keep_fallocate_and_copy_file_range_on_per_call_policy_path`)
+- focused correctness tests: [`../src/fs/tests/data_mutations.rs`](../src/fs/tests/data_mutations.rs) (`cache_eligible_opened_file_read_write_keep_pinned_fd_after_host_rename`, `cache_eligible_opened_file_read_write_keep_pinned_fd_after_ancestor_rename`, `cache_eligible_opened_file_read_write_keep_pinned_fd_after_unlink`, `opened_file_read_keeps_pinned_fd_after_host_rename_but_write_fails_closed`, `opened_file_read_write_fail_closed_after_host_rename_into_hidden_subtree`), [`../src/fs/tests/symlinks_access_create.rs`](../src/fs/tests/symlinks_access_create.rs) (`cache_eligible_opened_symlink_read_keeps_pinned_fd_after_final_retarget`, `cache_eligible_opened_symlink_read_keeps_pinned_fd_after_ancestor_retarget`, `opened_symlink_read_revalidates_hidden_target_after_retarget`), [`../src/fs/tests/mutability.rs`](../src/fs/tests/mutability.rs) (`opened_symlink_write_revalidates_readonly_target_after_retarget`)
+
+지속 제약:
+
+- hidden `ENOENT` precedence, readonly `EROFS`, symlink target revalidation, source-root confinement/`openat2` proof를 유지한다.
+- cache hit은 policy shape가 hidden/readonly/symlink-target authorization concern을 제거한 cache-eligible default `visible`/`writable` case로만 제한한다. 이 case에서는 already-open fd에 대해 documented POSIX pinned-fd lifetime semantics를 유지하고 cached path로 reopen하지 않는다.
+- hidden/visible carve-out, readonly/writable carve-out, symlink target authorization concern이 있는 unsafe policy shape에서는 cache hit이 current-path proof를 대체하지 않으며 기존 per-I/O fail-closed revalidation path를 계속 사용한다.
+- documented POSIX fd lifetime boundary를 강화하거나 약화하지 않는다.
+
+남은 질문:
+
+- 이 구현에 대한 user-visible speedup 설명은 여전히 [`benchmarks.md`](benchmarks.md)의 claim-grade before/after pair와 별도 correctness validation(`cargo test --all-targets --all-features` 등) 없이는 할 수 없다.
+- claim-grade artifact는 `current-fio-per-open-cache-*`를 덮어쓰지 말고 `before|after + rev + policy-preset + workload-set` provenance를 분리한 이름/layout으로 남겨야 한다. 현재 checked-in pair는 [`artifacts/per-open-cache-claim/`](artifacts/per-open-cache-claim/) 아래 그 규칙을 따른다.
+- 첫 before/after matrix의 최소 workload set은 harness `--workload-set per-open-cache-minimum`(`rand_read_4k`, `rand_write_4k`, `sync_write_4k`, `small_open_read_close`)이고, 이후 open/stat-heavy, `readdir`/`readdirplus`, policy-heavy case로 확장해야 한다.
+- cache-eligible policy와 fallback policy 각각에서 small-I/O/tail-latency variance가 어떻게 나타나는지
+- 현재 focused coverage 외에 더 복잡한 multi-actor mounted workload에서 추가 artifact나 회귀 테스트를 더 남길 필요가 있는지
+
+### Active next candidate: metadata/open-path fixed overhead
+
+per-open cache claim-grade pair가 이미 체크인된 현재 기준에서, 다음 implementation candidate는 `lookup`/`getattr`/`open`/`readlink`/`access` 중심의 metadata/open-path fixed overhead 축소다. `statfs`는 improvement target이라기보다 non-regression guardrail로 유지한다. 현재 `small_stat_open_read`만으로는 이 surface를 claim-grade로 분리할 수 없으므로, 구현이나 측정 주장보다 먼저 split workload contract와 artifact naming을 고정한다.
+
+문서 gate와 acceptance 기준:
+
+- claim-grade 측정 전제는 [`benchmarks.md`](benchmarks.md)의 새 `metadata/open-path fixed overhead` contract다. 현재 harness는 `metadata_lookup`, `metadata_getattr`, `metadata_open`, `metadata_readlink`, `metadata_access`, `metadata_statfs`, `sync_flush_only`, `sync_fsync_only`, `sync_release_flush`, `readdir_basic`, `readdirplus_basic` workload names를 제공한다. 향후 이 중 하나라도 실제 path를 분리하지 못하면 먼저 harness gap으로 기록하고, 그 전까지는 exploratory smoke만 허용한다.
+- artifact는 `docs/artifacts/metadata-open-path-claim/` 아래 `before|after-<rev>-<policy-label>-<workload>.*`와 `env-before|after-...json` 형식으로 남긴다. native/passthrough/ScreenFS raw-lat floor artifact도 같은 stem을 공유하고 side suffix를 붙인다.
+- policy matrix는 최소 `fast-path-cache-eligible`, `fallback-unsafe-policy`, 그리고 explicit `--policy-label` + `--matcher-extra-rules >= 32`를 포함한 readonly/carve-out-heavy row를 요구한다. `--matcher-extra-rules`를 썼으면 policy label과 filename stem에 `matcher<N>`를 포함해 matcher-rich/read-only-heavy provenance가 사람이 읽히도록 남긴다.
+- acceptance는 target policy row에서 primary metadata workloads 5개 중 최소 4개가 after/before `<= 0.90x` median, `<= 0.95x` p95/p99를 만족하고, 남은 1개와 `metadata_statfs`는 `<= 1.05x` median / `<= 1.10x` p99 안에 머무를 때만 통과로 읽는다.
+- sync surface는 `write_fsync_close` 하나로 대체하지 않는다. `flush`, `fsync`, `release(flush=true)`는 각각 `sync_flush_only`, `sync_fsync_only`, `sync_release_flush`로 분리해 p95/p99까지 기록하고, metadata/open-path candidate 단계에서는 각 workload가 `<= 1.05x` median / `<= 1.10x` p95/p99 non-regression budget 안에 남아야 한다.
+- `readdir`와 `readdirplus`도 분리해서 본다. `readdirplus` acceptance 또는 non-regression 판정은 `fuse_op.readdirplus`, `readdirplus_directory_scan`, `readdirplus_attr_generation_scan`, `readdirplus_attr_generation_entries`, `readdirplus_candidate_selection`, `readdirplus_page_commit`이 모두 non-zero일 때만 유효하다. `readdir` acceptance 또는 non-regression 판정도 `fuse_op.readdir`가 0이거나 대응 `readdir_*` split counter가 모두 0이면 workload miss로 처리하고, [`benchmarks.md`](benchmarks.md)의 source-of-truth gate와 동일하게 판단한다.
+- native/passthrough/ScreenFS floor comparison은 같은 raw-sample metric을 써야 한다. 현재 fio supplemental raw-lat 계열을 refresh할 때도 `clat` raw samples를 세 side 모두에서 유지하고, percentile bucket이나 `lat` 혼합으로 fixed-overhead gap을 주장하지 않는다.
+
+현재 측정 plumbing/evidence:
+
+- next-candidate measurement bundle: [`artifacts/metadata-open-path-claim/summary.md`](artifacts/metadata-open-path-claim/summary.md)와 companion JSON/Markdown/SVG/PNG. 이 bundle은 현재 worktree의 metadata/open-path, sync surface, directory surface, policy-heavy matrix row를 측정한 attribution evidence이며 before/after optimization claim은 아니다. 현재 mounted `sync_release_flush` workload는 kernel이 `release(flush=true)`를 실제로 주지 않아 `file_sync.release_flush`를 태우지 못한 known measurement gap으로 남기고, 해당 counter 자체는 focused Rust perf test로 검증한다.
+- raw three-way FUSE fixed-overhead floor: [`artifacts/rawlat-three-way/summary.md`](artifacts/rawlat-three-way/summary.md), [`artifacts/rawlat-three-way/boxplot-stats.json`](artifacts/rawlat-three-way/boxplot-stats.json), [`artifacts/rawlat-three-way/boxplot.svg`](artifacts/rawlat-three-way/boxplot.svg), [`artifacts/rawlat-three-way/boxplot.png`](artifacts/rawlat-three-way/boxplot.png). 이 artifact는 native/passthrough/ScreenFS 모두에서 fio raw `clat` sample metric을 사용한다.
+
+이 candidate는 correctness guardrail을 바꾸지 않는다. hidden `ENOENT`, bridge-visible ancestor semantics, symlink target fully-visible gate, `openat2` confinement, readonly `EROFS`, stable resume cookie/shared cookie domain, returned-page-only `readdirplus` lookup-ref pinning은 그대로 유지한다.
+
 ### Sync surface
 
 `flush`, `fsync`, `release(flush=true)`는 이미 [`../src/fs.rs`](../src/fs.rs)의 `flush()`/`release()`/`fsync()`에서 file-handle snapshot/removal 뒤 state lock 밖으로 sync syscall을 offload한다.
 
 현재 evidence:
 
-- 구현: [`../src/fs.rs`](../src/fs.rs) (`flush()`, `release()`, `fsync()`, `offload_file_sync()`)
-- 회귀 테스트: [`../src/fs/tests/data_mutations.rs`](../src/fs/tests/data_mutations.rs) (`flush_and_fsync_complete_under_compio_runtime`, `release_flush_true_completes_under_compio_runtime_and_removes_handle`, `offload_file_sync_preserves_closure_errno`, `offload_file_sync_completes_without_ambient_compio_runtime`, `offload_file_sync_maps_closure_panic_to_eio`)
+- 구현: [`../src/fs.rs`](../src/fs.rs) (`flush()`, `release()`, `fsync()`, `offload_file_sync()`), [`../src/fs/perf.rs`](../src/fs/perf.rs) (`file_sync.flush`, `file_sync.fsync`, `file_sync.release_flush` attribution counters)
+- 회귀 테스트: [`../src/fs/tests/data_mutations.rs`](../src/fs/tests/data_mutations.rs) (`flush_and_fsync_complete_under_compio_runtime`, `release_flush_true_completes_under_compio_runtime_and_removes_handle`, `offload_file_sync_preserves_closure_errno`, `offload_file_sync_completes_without_ambient_compio_runtime`, `offload_file_sync_maps_closure_panic_to_eio`), [`../src/fs/tests/perf.rs`](../src/fs/tests/perf.rs) (`perf_counters_record_file_sync_splits`)
 - sync surface 범위/후속 조건: [`artifacts/current-file-data-path-async-feasibility.md`](artifacts/current-file-data-path-async-feasibility.md)
 - 설계/락 규칙: [`artifacts/current-state-lock-concurrency-evidence.md`](artifacts/current-state-lock-concurrency-evidence.md)
 
@@ -92,7 +149,7 @@ FUSE_OVER_IO_URING
 - 현재 변경은 semantics-preserving refactor/reuse, canonical source-root reuse, 또는 attribution split로만 문서화한다.
 - `resolved_virtual_path` hot path claim은 retained aggregate `resolved_virtual_path` line만 단독으로 인용하지 말고 `source_root_path`, `resolved_virtual_path_from_path`, `resolved_virtual_path_from_open_fd`와 함께 남긴다. 현재 `resolved_virtual_path_from_path_*` 하위 counter를 쓸 때도 component walk, canonicalize, confinement, virtual conversion 중 무엇을 인용했는지 명시하고 additive partition처럼 과장하지 않는다.
 - correctness evidence에는 [`../src/path_tests.rs`](../src/path_tests.rs) (`rejects_following_symlinks_outside_source_root_but_allows_link_itself`)와 [`../src/fs/tests/symlinks_access_create.rs`](../src/fs/tests/symlinks_access_create.rs) (`symlink_to_outside_source_root_stays_visible_but_following_ops_return_enoent`, `symlink_directory_escape_rejects_opendir_access_and_create_before_side_effects`)가 포함돼야 한다.
-- helper attribution evidence에는 [`../src/fs/tests/perf.rs`](../src/fs/tests/perf.rs) (`perf_counters_split_resolved_virtual_path_sources` for the split and detailed counters, 필요 시 `perf_counters_record_data_size_buckets`)가 포함돼야 한다.
+- helper attribution evidence에는 [`../src/fs/tests/perf.rs`](../src/fs/tests/perf.rs) (`perf_counters_split_resolved_virtual_path_sources` for the split and detailed counters, 필요 시 `perf_counters_record_data_path_splits_on_success`)가 포함돼야 한다.
 - `scripts/bench-screenfs.py`의 `symlink_parent_mkdir_rmdir`는 이 surface 주변의 symlink-parent mutation guard/path-resolution path를 겨냥한 ScreenFS-only mounted workload/probe지만, counter/trace 없이 live FUSE request가 특정 내부 helper를 탔다고 증명하지는 못한다.
 - user-visible speedup 주장은 [`benchmarks.md`](benchmarks.md)의 claim-grade bar(최소 `--iterations 10 --warmups 3`)를 만족하는 같은 machine/policy/workload의 before/after benchmark artifact와, 필요 시 perf counter·trace·microbenchmark가 함께 나온 뒤에만 한다.
 - broad mounted-vs-native harness 결과만으로 이 미세 최적화 효과를 단정하지 않는다.
@@ -330,7 +387,8 @@ userspace path resolution cache로 confinement 대체
 - aggregate `resolved_virtual_path` count/latency (retained sum of `resolved_virtual_path_from_path` + `resolved_virtual_path_from_open_fd`)
 - `resolved_virtual_path_from_path` / `resolved_virtual_path_from_open_fd` count/latency
 - `resolved_virtual_path_from_path_component_walk`, `_canonicalize`, `_source_root_confinement`, `_virtual_conversion`
-- `read_size_bucket.<bucket>` / `write_size_bucket.<bucket>` count/latency
+- data-path split `read_handle_snapshot`, `read_guard_path`, `read_io`, `write_handle_snapshot`, `write_guard_mutation`, `write_io`
+- `read_size_bucket.<bucket>` / `write_size_bucket.<bucket>` count/latency for the timed `read_io`/`write_io` segment only
 - `readdir_directory_scan`, attr-build-only `readdir_attr_generation_scan` plus `readdir_attr_generation_entries`, `readdir_symlink_visibility`, `readdir_candidate_selection`, `readdir_page_commit`
 - `readdirplus_directory_scan`, attr-build-only `readdirplus_attr_generation_scan` plus `readdirplus_attr_generation_entries`, `readdirplus_symlink_visibility`, `readdirplus_candidate_selection`, `readdirplus_page_commit`
 - mutation invalidation count, invalidated entries, evicted entries
@@ -345,22 +403,23 @@ userspace path resolution cache로 confinement 대체
 
 ## Measurement-guided optimization notes
 
-Perf-enabled benchmark evidence should drive optimization order. The historical smoke baseline summarized in [`artifacts/current-perf-counter-baseline-summary.md`](artifacts/current-perf-counter-baseline-summary.md) showed aggregate `resolved_virtual_path` attribution (`count=145166`, `total_ns=394848335`) and `policy_decision` (`count=171732`, `total_ns=183484872`) as broader hot surfaces than `open_confined_openat2` (`count=98298`, `total_ns=47566036`). That baseline was enough to justify deeper attribution, not a user-visible speedup claim. Current code still retains aggregate `resolved_virtual_path`, additionally emits `source_root_path`, `resolved_virtual_path_from_path`, `resolved_virtual_path_from_open_fd`, `resolved_virtual_path_from_path_*` sub-counters, matcher family/`matcher_candidate_order` counters, and split `readdir`/`readdirplus` attr/symlink/candidate-selection/page-commit buckets. It also uses request-local canonical source-root reuse in `ScreenFs::resolved_virtual_path()`/`RequestPathResolver` via `resolve_host_path_from_canonical_source_root()` so per-call `source_root.canonicalize()` is avoided without changing confinement or `ENOENT` semantics; the path-walk cleanup keeps iterator-based component traversal rather than materializing a component `Vec`. The next step remains measurement-first: read the expanded attribution surface, regenerate smoke artifacts when they predate the current counter surface, and still require claim-grade before/after benchmark pairs before describing any speedup. The checked-in current smoke artifacts remain smoke-only evidence, not claim evidence: [`artifacts/current-perf-counter-benchmark-result.json`](artifacts/current-perf-counter-benchmark-result.json), [`artifacts/current-perf-counter-benchmark-result.md`](artifacts/current-perf-counter-benchmark-result.md), and [`artifacts/current-perf-counter-benchmark-result.svg`](artifacts/current-perf-counter-benchmark-result.svg).
+Perf-enabled benchmark evidence should drive optimization order. The historical smoke baseline summarized in [`artifacts/current-perf-counter-baseline-summary.md`](artifacts/current-perf-counter-baseline-summary.md) showed aggregate `resolved_virtual_path` attribution (`count=145166`, `total_ns=394848335`) and `policy_decision` (`count=171732`, `total_ns=183484872`) as broader hot surfaces than `open_confined_openat2` (`count=98298`, `total_ns=47566036`). That baseline was enough to justify deeper attribution, not a user-visible speedup claim. Current code still retains aggregate `resolved_virtual_path`, additionally emits `source_root_path`, `resolved_virtual_path_from_path`, `resolved_virtual_path_from_open_fd`, `resolved_virtual_path_from_path_*` sub-counters, matcher family/`matcher_candidate_order` counters, read/write data-path split counters, and split `readdir`/`readdirplus` attr/symlink/candidate-selection/page-commit buckets. It also uses request-local canonical source-root reuse in `ScreenFs::resolved_virtual_path()`/`RequestPathResolver` via `resolve_host_path_from_canonical_source_root()` so per-call `source_root.canonicalize()` is avoided without changing confinement or `ENOENT` semantics; the path-walk cleanup keeps iterator-based component traversal rather than materializing a component `Vec`. The next step remains measurement-first: read the expanded attribution surface, regenerate smoke artifacts when they predate the current counter surface, and still require claim-grade before/after benchmark pairs before describing any speedup. The checked-in smoke artifacts remain smoke-only evidence, not claim evidence, while [`artifacts/per-open-cache-claim/summary.md`](artifacts/per-open-cache-claim/summary.md) is the current claim-grade pair for the active per-open-cache goal. [`artifacts/current-perf-counter-benchmark-result.json`](artifacts/current-perf-counter-benchmark-result.json), [`artifacts/current-perf-counter-benchmark-result.md`](artifacts/current-perf-counter-benchmark-result.md), and [`artifacts/current-perf-counter-benchmark-result.svg`](artifacts/current-perf-counter-benchmark-result.svg) predate the read/write data-path split counters; use [`artifacts/managed-fio-attribution-summary.md`](artifacts/managed-fio-attribution-summary.md), [`artifacts/managed-fio-attribution-perf-split.json`](artifacts/managed-fio-attribution-perf-split.json), and [`artifacts/managed-fio-attribution-screenfs.stderr.log`](artifacts/managed-fio-attribution-screenfs.stderr.log) for current supplemental data-path split attribution evidence.
 
 ## Recommended order
 
 ```text
 1. 문서/상태 정합성을 유지한다
-2. claim-grade before/after benchmark pair가 필요한 surface와 workload를 먼저 정한다 (`--matcher-extra-rules` 같은 focused policy knobs 포함)
-3. opt-in perf counter와 benchmark surface를 유지·확장하고 현재 expanded attribution(`source_root_path`, `resolved_virtual_path_from_path_*`, `matcher_family_candidates.*`, `matcher_candidate_order.*`, `readdir*`/`readdirplus*` split buckets)을 먼저 읽는다
-4. 현재 checked-in smoke/benchmark artifact가 필요한 counter surface를 못 담으면 재생성 계획부터 세운다
-5. policy/matcher hot path와 state lock hold time을 계측한다
-6. read/write buffer size와 concurrency benchmark를 보강한다
+2. active next candidate인 metadata/open-path fixed-overhead contract부터 고정한다 (split workload additions, policy matrix, artifact naming, raw-sample metric contract)
+3. claim-grade before/after benchmark pair가 필요한 metadata/open-path + sync + `readdir`/`readdirplus` workload를 먼저 채운다 (`--matcher-extra-rules` 같은 focused policy knobs 포함)
+4. opt-in perf counter와 benchmark surface를 유지·확장하고 현재 expanded attribution(`source_root_path`, `resolved_virtual_path_from_path_*`, `matcher_family_candidates.*`, `matcher_candidate_order.*`, `readdir*`/`readdirplus*` split buckets)을 먼저 읽는다
+5. 현재 checked-in smoke/benchmark artifact가 필요한 counter surface를 못 담으면 재생성 계획부터 세운다
+6. policy/matcher hot path와 state lock hold time을 계측한다
 7. request-local canonical source-root reuse 결과를 mounted probe workload와 before/after 비교로 계측한다
-8. readdir vs readdirplus attr 비용과 open_confined/openat2 호출 빈도/latency를 측정한다
-9. invalidate_after_mutation 범위와 evicted entry 수를 측정한다
-10. current counters로도 부족한 경우에만 더 세분화한 trace/counter를 추가한다
-11. evidence가 쌓인 뒤에만 negative/hidden path cache, state lock split, host-side io_uring를 검토한다
+8. read/write buffer size와 concurrency benchmark를 보강한다
+9. readdir vs readdirplus attr 비용과 open_confined/openat2 호출 빈도/latency를 측정한다
+10. invalidate_after_mutation 범위와 evicted entry 수를 측정한다
+11. current counters로도 부족한 경우에만 더 세분화한 trace/counter를 추가한다
+12. evidence가 쌓인 뒤에만 negative/hidden path cache, state lock split, host-side io_uring를 검토한다
 ```
 
 ## Non-goals

@@ -1,0 +1,69 @@
+mounting screenfs: source=/tmp/screenfs-rawlat3.q8xYiy/source mount=/tmp/screenfs-rawlat3.q8xYiy/screenfs-mount visibility-default=visible visibility-source=cli hidden-rules=1 visible-rules=0 mutability-default=writable mutability-source=cli readonly-rules=1 writable-rules=0 io_uring=required
+screenfs perf counters:
+  fuse_op.access: count=1 total_ns=93696 avg_ns=93696 max_ns=93696
+  fuse_op.create: count=3 total_ns=279043 avg_ns=93014 max_ns=102759
+  fuse_op.fallocate: count=3 total_ns=1983552 avg_ns=661184 max_ns=935055
+  fuse_op.flush: count=8 total_ns=426857 avg_ns=53357 max_ns=126745
+  fuse_op.fsync: count=34 total_ns=551339 avg_ns=16215 max_ns=198203
+  fuse_op.getattr: count=81430 total_ns=1035148219 avg_ns=12712 max_ns=332060
+  fuse_op.getxattr: count=73541 total_ns=968986617 avg_ns=13176 max_ns=1317035
+  fuse_op.lookup: count=76 total_ns=2956611 avg_ns=38902 max_ns=174053
+  fuse_op.open: count=5 total_ns=214338 avg_ns=42867 max_ns=53784
+  fuse_op.read: count=81347 total_ns=1078112320 avg_ns=13253 max_ns=328238
+  fuse_op.release: count=8 total_ns=16921 avg_ns=2115 max_ns=4151
+  fuse_op.statfs: count=1 total_ns=2735 avg_ns=2735 max_ns=2735
+  fuse_op.write: count=73538 total_ns=1326562491 avg_ns=18039 max_ns=313947
+  policy_decision: count=1224052 total_ns=342394319 avg_ns=279 max_ns=277860
+  matcher_candidates: count=0
+  matcher_family_candidates.direct_child_glob: count=0
+  matcher_family_candidates.recursive: count=0
+  matcher_family_candidates.subtree: count=0
+  matcher_candidate_order.descendant: count=1076955 total_ns=94401916 avg_ns=87 max_ns=271907
+  matcher_candidate_order.path: count=3525059 total_ns=382326553 avg_ns=108 max_ns=251215
+  matcher_candidate_order_duplicates: count=0
+  matcher_candidate_order_duplicates.descendant: count=0
+  matcher_candidate_order_duplicates.path: count=0
+  matcher_candidate_order_seen_slots: count=1224052
+  matcher_candidate_order_seen_slots.descendant: count=0
+  matcher_candidate_order_seen_slots.path: count=1224052
+  matcher_candidate_order_ancestor_steps: count=12239462
+  matcher_candidate_order_ancestor_steps.descendant: count=2839223
+  matcher_candidate_order_ancestor_steps.path: count=9400239
+  state_read_lock_wait: count=309986 total_ns=5787700 avg_ns=18 max_ns=2804
+  state_read_lock_hold: count=309986 total_ns=19664351 avg_ns=63 max_ns=97643
+  state_write_lock_wait: count=76 total_ns=3483 avg_ns=45 max_ns=182
+  state_write_lock_hold: count=76 total_ns=70744 avg_ns=930 max_ns=4350
+  open_confined_openat2: count=465018 total_ns=173536598 avg_ns=373 max_ns=317177
+  source_root_path: count=929852 total_ns=1016725633 avg_ns=1093 max_ns=332604
+  resolved_virtual_path: count=929842 total_ns=1129461039 avg_ns=1214 max_ns=318760
+  resolved_virtual_path_from_path: count=309937 total_ns=666003763 avg_ns=2148 max_ns=280123
+  resolved_virtual_path_from_path_component_walk: count=309937 total_ns=587713547 avg_ns=1896 max_ns=279863
+  resolved_virtual_path_from_path_canonicalize: count=619813 total_ns=479243960 avg_ns=773 max_ns=279336
+  resolved_virtual_path_from_path_source_root_confinement: count=619813 total_ns=54937614 avg_ns=88 max_ns=35722
+  resolved_virtual_path_from_path_virtual_conversion: count=309937 total_ns=62402528 avg_ns=201 max_ns=45992
+  resolved_virtual_path_from_open_fd: count=619905 total_ns=463457276 avg_ns=747 max_ns=318760
+  read_handle_snapshot: count=81347 total_ns=15042355 avg_ns=184 max_ns=97857
+  read_guard_path: count=81347 total_ns=981787594 avg_ns=12069 max_ns=326907
+  read_io: count=81347 total_ns=67102680 avg_ns=824 max_ns=247859
+  write_handle_snapshot: count=73538 total_ns=13455274 avg_ns=182 max_ns=258217
+  write_guard_mutation: count=73538 total_ns=1212928443 avg_ns=16493 max_ns=312726
+  write_io: count=73538 total_ns=88565756 avg_ns=1204 max_ns=88763
+  file_sync.flush: count=8 total_ns=415546 avg_ns=51943 max_ns=123430
+  file_sync.fsync: count=34 total_ns=536007 avg_ns=15764 max_ns=195391
+  read_size_bucket.0_4k: count=81283 total_ns=64358359 avg_ns=791 max_ns=247859
+  read_size_bucket.64k_1m: count=64 total_ns=2744321 avg_ns=42880 max_ns=101740
+  write_size_bucket.0_4k: count=73410 total_ns=84517854 avg_ns=1151 max_ns=88763
+  write_size_bucket.64k_1m: count=128 total_ns=4047902 avg_ns=31624 max_ns=57540
+  readdir_directory_scan: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdir_attr_generation_scan: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdir_attr_generation_entries: count=0
+  readdir_symlink_visibility: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdir_candidate_selection: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdir_page_commit: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdirplus_directory_scan: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdirplus_attr_generation_scan: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdirplus_attr_generation_entries: count=0
+  readdirplus_symlink_visibility: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdirplus_candidate_selection: count=0 total_ns=0 avg_ns=0 max_ns=0
+  readdirplus_page_commit: count=0 total_ns=0 avg_ns=0 max_ns=0
+  invalidations: count=3 invalidated_entries=0 evicted_entries=0

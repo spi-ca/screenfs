@@ -135,6 +135,7 @@ Conflict and fail-fast:
 - state lock을 host filesystem I/O나 blocking syscall 구간에 잡고 있지 않는다.
 - `readdirplus` lookup ref 증가는 실제 반환 page child에만, returned-page commit과 같은 write-lock transaction에서 수행한다.
 - request-local resolved-target reuse는 허용하지만 cross-request symlink decision cache나 stable listing snapshot cache는 current contract가 아니다.
+- current per-open cache는 열린 file handle에 붙는 handle-local `read`/`write` fast path 범위로만 제한하며, cache-eligible `visible`/`writable` policy에서만 반복 guard를 생략한다. hidden/visible carve-out, readonly/writable carve-out, symlink target 재검증처럼 current-path proof가 다시 필요한 policy shape는 계속 full guard path를 재실행한다. broad path/global authorization cache나 negative cache로 확대하지 않는다.
 
 ## 8. FUSE and host delegation boundary
 
@@ -142,8 +143,12 @@ Conflict and fail-fast:
 - backing filesystem access는 `source_root` confinement와 fd/dirfd-relative syscall을 우선한다.
 - Raw symlink target이 lexical visibility 기준으로 fully visible하지만 host resolution에서 `source_root` 밖으로 escape하면 `readlink`는 raw target을 반환할 수 있고, dereference/open/access는 confinement 단계에서 `ENOENT`로 실패한다. 이 정보노출 경계는 current contract로 문서화한다.
 - open target과 mutation parent는 fd로 pin하고, mutation 직전 opened parent dirfd가 요청된 virtual parent path에 남아 있는지 best-effort로 재확인한다.
-- 외부 same-UID actor가 validation 이후 이미 pin된 object를 rename/unlink하면 POSIX fd lifetime semantics를 따른다. ScreenFS는 current virtual path membership을 원자적으로 보장하지 않는다.
-- `flush`/`fsync`/`release(flush)` offload는 state lock 밖 blocking pool로 sync syscall 실행 위치만 옮기는 low-risk cleanup이다. `read`/`write`는 `FileExt::read_at`/`write_at` 경로를 유지한다.
+- current per-open read/write cache도 hidden `ENOENT`, readonly `EROFS`, symlink target revalidation, source-root confinement/`openat2` proof를 생략하지 않는다. unsafe policy shape는 계속 full guard path를 재실행한다.
+- hidden/readonly/symlink-target concern이 있는 unsafe policy shape에서는 rename/unlink/symlink retarget/ancestor change 뒤 stale authorization이 남지 않도록 기존 per-I/O fail-closed revalidation path를 유지한다.
+- cache-eligible default `visible`/`writable` shape에는 숨기거나 readonly로 막을 target authorization concern이 없으므로, 이미 열린 fd의 data I/O는 documented POSIX pinned-fd lifetime semantics를 따른다. 이 경우에도 cached path로 reopen하지 않는다.
+- 외부 same-UID actor가 validation 이후 이미 pin된 object를 rename/unlink하면 해당 policy shape의 pinned-fd semantics를 따른다. ScreenFS는 current virtual path membership을 원자적으로 보장하지 않는다.
+- `flush`/`fsync`/`release(flush)` offload는 state lock 밖 blocking pool로 sync syscall 실행 위치만 옮기는 low-risk cleanup이다. `read`/`write`는 `FileExt::read_at`/`write_at` 경로를 유지한다. `fallocate`/`copy_file_range`는 current per-open cache 범위에 포함되지 않는다.
+- 현재 이 surface의 focused evidence는 [`../src/fs/tests/perf.rs`](../src/fs/tests/perf.rs) (`perf_counters_record_data_path_splits_on_success`, `perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe`, `perf_counters_record_data_path_splits_on_snapshot_guard_and_io_failures`, `perf_counters_keep_fallocate_and_copy_file_range_on_per_call_policy_path`), [`../src/fs/tests/data_mutations.rs`](../src/fs/tests/data_mutations.rs) (`cache_eligible_opened_file_read_write_keep_pinned_fd_after_host_rename`, `cache_eligible_opened_file_read_write_keep_pinned_fd_after_ancestor_rename`, `cache_eligible_opened_file_read_write_keep_pinned_fd_after_unlink`, `opened_file_read_keeps_pinned_fd_after_host_rename_but_write_fails_closed`, `opened_file_read_write_fail_closed_after_host_rename_into_hidden_subtree`), [`../src/fs/tests/symlinks_access_create.rs`](../src/fs/tests/symlinks_access_create.rs) (`cache_eligible_opened_symlink_read_keeps_pinned_fd_after_final_retarget`, `cache_eligible_opened_symlink_read_keeps_pinned_fd_after_ancestor_retarget`, `opened_symlink_read_revalidates_hidden_target_after_retarget`), [`../src/fs/tests/mutability.rs`](../src/fs/tests/mutability.rs) (`opened_symlink_write_revalidates_readonly_target_after_retarget`), [`artifacts/current-fio-per-open-cache-summary.md`](artifacts/current-fio-per-open-cache-summary.md)와 companion `current-fio-per-open-cache-*` smoke artifact다.
 
 ## 9. Validation strategy
 
@@ -154,5 +159,6 @@ Conflict and fail-fast:
 - FUSE smoke: real listing/direct access/mutation behavior, mount-root exclusion, whole-root/chroot baseline
 - System smoke: `/dev/fuse`, `fusermount3`, FUSE/io_uring environment, unmount cleanup
 - Performance: [`benchmarks.md`](benchmarks.md)의 harness와 claim bar
+- Per-open read/write cache evidence: focused regression/perf tests와 [`artifacts/current-fio-per-open-cache-summary.md`](artifacts/current-fio-per-open-cache-summary.md) + `current-fio-per-open-cache-*` smoke artifact로 fast path exercised 여부를 확인하되, user-visible speedup claim은 여전히 claim-grade before/after benchmark pair 없이는 하지 않는다.
 
 다이어그램 source of truth는 `docs/diagrams/*.mmd`이고 렌더링 계약은 [`diagrams/README.md`](diagrams/README.md)를 따른다.
