@@ -1,3 +1,8 @@
+//! Request-time policy guards for FUSE operations.
+//!
+//! Guards evaluate visibility before mutability, resolve symlink targets at the
+//! point of use, and classify multi-path mutation coordinates.
+
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::os::fd::AsRawFd;
@@ -12,6 +17,7 @@ use crate::path::VirtualPath;
 #[cfg(feature = "perf-counters")]
 use std::time::Instant;
 
+// One mutation coordinate carries both direct-path and resolved-target decisions.
 #[derive(Debug, Clone)]
 struct MutationCoordinateEvaluation<'a> {
     path: &'a VirtualPath,
@@ -21,6 +27,7 @@ struct MutationCoordinateEvaluation<'a> {
     resolved: Option<VirtualPath>,
 }
 
+// Request-local resolver avoids repeating source-root canonicalization inside one operation.
 pub(super) struct RequestPathResolver<'a> {
     fs: &'a ScreenFs,
     source_root: Option<PathBuf>,
@@ -107,6 +114,7 @@ impl<'a> RequestPathResolver<'a> {
     }
 }
 
+// Lazy resolution lets read-only checks avoid symlink work until a target decision is needed.
 impl<'a> MutationCoordinateEvaluation<'a> {
     fn resolved_path<'b>(
         &'b mut self,
@@ -143,6 +151,7 @@ fn virtual_path_from_source_path_with_metrics(
     (result, start.elapsed())
 }
 
+// Guard entry points used by FUSE handlers; each returns a policy errno on denial.
 impl ScreenFs {
     fn visible_for_entry_with_known_attr(
         &self,

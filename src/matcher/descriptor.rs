@@ -1,8 +1,14 @@
+//! Rule descriptors and specificity ordering for policy matching.
+//!
+//! Descriptors describe normalized anchors and match families; specificity keeps
+//! most-specific-rule-wins behavior stable across visibility and mutability axes.
+
 use std::cmp::Ordering;
 use std::path::{Component, Path};
 
 use crate::path::VirtualPath;
 
+// Specificity is the sortable representation of most-specific-rule-wins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuleSpecificity {
     prefix_components: usize,
@@ -36,6 +42,7 @@ struct RuleSpecificitySortKey {
     tail_len: usize,
 }
 
+// Constructors keep each matcher family comparable without exposing sort internals.
 impl RuleSpecificity {
     pub(super) fn exact_or_prefix(path: &VirtualPath, exact: bool) -> Self {
         Self {
@@ -147,6 +154,7 @@ impl PartialOrd for RuleSpecificity {
     }
 }
 
+// Descriptors pair a normalized anchor with the match family used by the index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleDescriptor {
     pub(super) anchor: VirtualPath,
@@ -271,6 +279,7 @@ impl GlobPattern {
     }
 }
 
+// Descriptor methods answer match, containment, and overlap questions for config validation.
 impl RuleDescriptor {
     pub fn anchor(&self) -> &VirtualPath {
         &self.anchor
@@ -471,6 +480,7 @@ fn subtree_is_inside_glob(
     }
 }
 
+// Recursive literal helpers preserve conservative containment checks for shorthand forms.
 pub(super) fn glob_contains_recursive_literal_subtree(
     glob_anchor: &VirtualPath,
     recursive: bool,

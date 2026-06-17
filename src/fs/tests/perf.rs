@@ -1,8 +1,11 @@
+//! Perf-counter feature tests for data-path and state/matcher attribution.
+
 use super::*;
 use fractal_fuse::abi::FOPEN_NOFLUSH;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 
+// Small accessors keep assertions focused on the perf split being tested.
 fn file_sync_count(snapshot: &PerfSnapshot, label: &'static str) -> u64 {
     snapshot
         .file_sync
@@ -10,6 +13,7 @@ fn file_sync_count(snapshot: &PerfSnapshot, label: &'static str) -> u64 {
         .map_or(0, |counter| counter.count)
 }
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn perf_counters_are_enabled_by_feature() {
     let source = test_dir("perf-enabled-by-feature");

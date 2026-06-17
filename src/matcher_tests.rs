@@ -1,7 +1,10 @@
+//! Regression tests for path-rule matcher grammar, specificity, and indexing.
+
 use super::*;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn matches_exact_rules_directory_prefixes_and_cwd_anchored_recursive_globs() {
     let root = test_dir();

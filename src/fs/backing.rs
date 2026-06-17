@@ -1,3 +1,8 @@
+//! Backing filesystem delegation under the configured source root.
+//!
+//! Helpers here translate virtual paths into confined fd/dirfd-relative host
+//! operations while preserving host errno where policy has already allowed access.
+
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fs::File;
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
@@ -31,6 +36,7 @@ pub(super) struct PreparedReadlinkChild {
     name: CString,
 }
 
+// ScreenFs methods in this module wrap host access with perf attribution when enabled.
 impl ScreenFs {
     pub(super) fn open_confined(
         &self,
@@ -70,6 +76,7 @@ pub(super) fn cstring_path(path: &Path) -> Result<CString, i32> {
     CString::new(path.as_os_str().as_bytes()).map_err(|_| libc::EINVAL)
 }
 
+// Sanitize caller-provided FUSE flags before passing them to host `openat`.
 pub(super) fn sanitize_open_flags(flags: u32, creating: bool) -> i32 {
     let mut sanitized = (flags as i32) & libc::O_ACCMODE;
     for allowed in [
@@ -114,6 +121,7 @@ pub(super) fn open_child_at(
     }
 }
 
+// Open through the source-root fd so host delegation cannot escape the backing tree.
 pub(super) fn open_beneath_source_root(
     source_root: &File,
     path: &VirtualPath,
@@ -235,6 +243,7 @@ pub(super) fn source_root_statfs(source_root: &File) -> Result<ReplyStatfs, i32>
     })
 }
 
+// Attribute mutation helpers operate on already-authorized/pinned host fds.
 pub(super) fn apply_setattr(file: &File, set_attr: SetAttr) -> Result<(), i32> {
     let fd = file.as_raw_fd();
     if let Some(mode) = set_attr.mode {
@@ -309,6 +318,7 @@ pub(super) struct DirEntryInfo {
     pub(super) is_symlink: bool,
 }
 
+// Directory-child helpers prepare bounded lookup/listing/readlink work for FUSE replies.
 impl ScreenFs {
     pub(super) fn open_parent_dir(
         &self,
@@ -512,6 +522,7 @@ fn synthetic_attr_for_dirent(kind: FileType, ino: u64) -> FileAttr {
     }
 }
 
+// Directory scanning streams entries and lets callers apply visibility filtering.
 pub(super) fn visit_dir_entries(
     dir: File,
     base: &VirtualPath,
@@ -595,6 +606,7 @@ fn errno_reset() {
     }
 }
 
+// Xattr reads are split from policy checks; callers pass only authorized fds here.
 pub(super) fn read_xattr_reply(
     size: u32,
     probe_len: impl FnOnce() -> Result<usize, i32>,

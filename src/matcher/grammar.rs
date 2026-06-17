@@ -1,9 +1,15 @@
+//! Supported rule grammar parsing for path matchers.
+//!
+//! This module recognizes exact/subtree, direct-child glob, recursive glob, and
+//! recursive literal subtree forms before descriptors are indexed.
+
 use crate::path::{RuleNormalizationContext, VirtualPath, normalize_rule_path};
 
 use super::descriptor::{
     GlobPattern, LiteralPathTail, RuleDescriptor, RuleSpecificity, RuleTarget,
 };
 
+// CompiledGlob keeps only the supported glob shapes accepted by the current contract.
 pub(super) enum CompiledGlob {
     Any {
         prefix: Option<VirtualPath>,
@@ -29,6 +35,7 @@ pub(super) enum CompiledGlob {
     },
 }
 
+// Compilation validates syntax and normalizes glob prefixes into virtual anchors.
 impl CompiledGlob {
     pub(super) fn compile(
         rule: &str,
@@ -144,6 +151,7 @@ impl CompiledGlob {
     }
 }
 
+// Lightweight detection lets non-glob exact/subtree rules take the simpler path.
 pub(super) fn looks_like_glob(rule: &str) -> bool {
     rule.contains('*') || rule.contains('?')
 }
@@ -241,6 +249,8 @@ fn split_supported_glob(rule: &str) -> Result<(Option<&str>, &str, bool), String
     Err(format!("unsupported glob: {rule}"))
 }
 
+// Directory shorthand is split before generic glob parsing so recursive literal
+// directories can canonicalize to subtree descriptors.
 pub(super) fn split_supported_subtree_shorthand(rule: &str) -> Option<&str> {
     let prefix = rule.strip_suffix("/**")?;
     if prefix.is_empty()

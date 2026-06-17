@@ -1,3 +1,5 @@
+//! Shared test harness for mount-free filesystem behavior tests.
+
 use super::*;
 use crate::cli::{CliArgs, LaunchArgs, MutabilityDefault};
 use crate::config::RuntimeConfig;
@@ -16,6 +18,7 @@ use std::sync::{
 use std::task::{Context, Poll, Wake, Waker};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// Subtest modules keep large behavior areas readable.
 #[path = "tests/data_mutations.rs"]
 mod data_mutations;
 #[path = "tests/mutability.rs"]

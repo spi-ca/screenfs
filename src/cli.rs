@@ -1,6 +1,12 @@
+//! CLI argument parsing for ScreenFS launch configuration.
+//!
+//! This module keeps command-line syntax, help text, and axis override rules in
+//! one place before `config` turns them into runtime policy state.
+
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+// Default-value enums keep CLI strings and config deserialization aligned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum VisibilityDefault {
@@ -71,6 +77,7 @@ pub struct LaunchArgs {
     pub mutability_default: Option<MutabilityDefault>,
 }
 
+// `CliArgs` owns the legacy-compatible parsing helpers used by tests.
 impl CliArgs {
     #[cfg(test)]
     pub(crate) fn parse_from<I, S>(args: I) -> Result<Self, String>
@@ -128,6 +135,8 @@ impl CliArgs {
     }
 }
 
+// `LaunchArgs` parses the full process argv, including optional config paths
+// and per-axis override defaults.
 impl LaunchArgs {
     const USAGE_LINE: &str = "usage: screenfs <source-root> <mount-root> [--config <path>] [--visibility-default <visible|hidden>] [--hidden <pattern> ...] [--visible <pattern> ...] [--mutability-default <writable|readonly>] [--readonly <pattern> ...] [--writable <pattern> ...]";
 

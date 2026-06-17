@@ -1,7 +1,10 @@
+//! Symlink, access, and create-operation tests for visibility and mutability precedence.
+
 use super::*;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn readonly_write_intent_open_and_opendir_return_erofs_but_hidden_stays_enoent() {
     let dir = test_dir("readonly-open");

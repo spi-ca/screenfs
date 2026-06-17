@@ -1,5 +1,8 @@
+//! Mutability-axis tests for readonly/writable defaults, carve-outs, and symlinks.
+
 use super::*;
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn writable_default_readonly_rules_are_scoped_to_matching_paths() {
     let dir = test_dir("writable-default-readonly-scoped");

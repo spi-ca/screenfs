@@ -1,5 +1,8 @@
+//! State, lookup-ref, directory-cookie, and invalidation behavior tests.
+
 use super::*;
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn failed_lookup_does_not_pin_unknown_inode() {
     let dir = test_dir("failed-lookup-no-pin");

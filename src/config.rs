@@ -1,3 +1,8 @@
+//! Runtime configuration and policy decision assembly.
+//!
+//! This module combines defaults, YAML config, CLI overrides, internal mount-root
+//! exclusion, and compiled matchers into the policy state used by FUSE handlers.
+
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -8,6 +13,7 @@ use crate::cli::{CliArgs, LaunchArgs, MutabilityDefault, VisibilityDefault};
 use crate::matcher::{MatcherScope, PathRuleMatcher, RuleDescriptor, mount_root_internal_prefix};
 use crate::path::{RuleNormalizationContext, VirtualPath};
 
+// Small decision enums make policy outcomes explicit at call sites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PolicySource {
     Default,
@@ -75,6 +81,8 @@ pub struct RuntimeConfig {
     pub entry_ttl: Duration,
 }
 
+// RuntimeConfig construction and query methods are the main bridge from launch
+// inputs to request-time policy decisions.
 impl RuntimeConfig {
     #[cfg(test)]
     pub(crate) fn from_cli(args: CliArgs) -> Result<Self, String> {
@@ -371,6 +379,8 @@ struct ResolvedMutability {
     writable: Vec<String>,
 }
 
+// Launch-time visibility resolution chooses the effective default, source, and
+// rule lists; matcher compilation happens in the next RuntimeConfig step.
 fn resolve_visibility(
     cli: &CliArgs,
     cli_default: Option<VisibilityDefault>,
@@ -407,6 +417,8 @@ fn resolve_visibility(
     }
 }
 
+// Launch-time mutability resolution chooses the effective default, source, and
+// rule lists; matcher compilation happens in the next RuntimeConfig step.
 fn resolve_mutability(
     cli: &CliArgs,
     cli_default: Option<MutabilityDefault>,
@@ -443,6 +455,7 @@ fn resolve_mutability(
     }
 }
 
+// Matcher compilation is shared by all four policy rule lists.
 fn compile_matcher<'a, I>(
     scope: MatcherScope,
     rules: I,
@@ -465,6 +478,8 @@ fn reject_recursive_visible_bridge_discovery(visible: &PathRuleMatcher) -> Resul
     Ok(())
 }
 
+// Cross-polarity conflict validation lives here because it compares the two
+// rule lists that make up one axis.
 fn validate_opposite_rules(
     negative_label: &str,
     negative: &PathRuleMatcher,
@@ -523,6 +538,7 @@ struct MutabilityConfig {
     writable: Vec<String>,
 }
 
+// Config-file loading is intentionally strict so removed or unknown surfaces fail fast.
 fn load_file_config(path: &Path) -> Result<FileConfig, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|err| format!("failed to read config {}: {err}", path.display()))?;

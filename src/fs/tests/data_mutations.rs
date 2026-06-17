@@ -1,7 +1,10 @@
+//! Data and metadata mutation tests for hidden-before-readonly behavior and fd lifetime.
+
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn hidden_xattr_queries_return_enoent() {
     let dir = test_dir("hidden-xattr");

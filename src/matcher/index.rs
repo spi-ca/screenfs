@@ -1,3 +1,8 @@
+//! Candidate index for bounded matcher lookup.
+//!
+//! The index narrows descriptor scans by match family and anchor while preserving
+//! the same winner as full candidate ordering.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -6,6 +11,7 @@ use crate::path::VirtualPath;
 
 use super::descriptor::{RuleDescriptor, RuleTarget};
 
+// Metrics structs expose how much candidate work a policy lookup performed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MatcherCandidateFamilyCounts {
     pub(crate) subtree: usize,
@@ -28,6 +34,7 @@ pub(crate) struct MatcherCandidateMetrics {
     pub(crate) candidate_order: CandidateOrderMetrics,
 }
 
+// The index partitions descriptors by family to avoid whole-list scans on hot paths.
 #[derive(Debug, Clone)]
 pub(super) struct MatcherIndex {
     subtree_by_anchor: BTreeMap<VirtualPath, Vec<usize>>,
@@ -39,6 +46,7 @@ pub(super) struct MatcherIndex {
     pub(super) has_global_descendant_match: bool,
 }
 
+// Query methods preserve full candidate-order semantics while narrowing the search space.
 impl MatcherIndex {
     pub(super) fn build(descriptors: &[RuleDescriptor]) -> Self {
         let mut match_order = (0..descriptors.len()).collect::<Vec<_>>();
@@ -324,6 +332,7 @@ impl MatcherCandidateMetricsResult {
     }
 }
 
+// Ancestor iteration feeds subtree and bridge-candidate lookup.
 fn ancestor_paths(path: &Path) -> AncestorPaths<'_> {
     AncestorPaths {
         current: Some(path),

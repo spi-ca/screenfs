@@ -1,5 +1,8 @@
+//! Regression tests for CLI parsing, help text, and removed-option rejection.
+
 use super::*;
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn parses_positionals_after_binary_name() {
     let args =

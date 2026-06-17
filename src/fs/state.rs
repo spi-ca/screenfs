@@ -1,3 +1,8 @@
+//! In-memory FUSE state for inode/path identity and open handles.
+//!
+//! State keeps inode refs, file and directory handles, directory resume cookies,
+//! and mutation invalidation in one consistency domain.
+
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::fs::File;
@@ -12,6 +17,7 @@ use super::ScreenFs;
 #[cfg(feature = "perf-counters")]
 use super::perf::InvalidationStats;
 
+// State is the single consistency domain for path identity and handle lifetime.
 #[derive(Debug)]
 pub(super) struct State {
     next_ino: u64,
@@ -35,6 +41,7 @@ pub(super) struct FileIoGuardCache {
     pub(super) skip_write_guard: bool,
 }
 
+// Per-open guard cache records only policy shapes that are safe to skip on data I/O.
 impl FileIoGuardCache {
     pub(super) const fn new(skip_read_guard: bool, skip_write_guard: bool) -> Self {
         Self {
@@ -86,6 +93,7 @@ pub(super) struct DirectoryHandle {
     page_cookies: BTreeMap<u64, Vec<u8>>,
 }
 
+// State methods update inodes, refs, handles, and directory cookies together.
 impl State {
     pub(super) fn new() -> Self {
         let root = VirtualPath::root();
@@ -437,6 +445,7 @@ impl State {
     }
 }
 
+// ScreenFs wrappers keep state-lock access patterns centralized.
 impl ScreenFs {
     pub(super) fn path_for_inode(&self, inode: u64) -> Result<VirtualPath, i32> {
         self.with_state_read(|state| state.path_for_inode(inode).ok_or(ENOENT))

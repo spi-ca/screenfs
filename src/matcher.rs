@@ -1,3 +1,10 @@
+//! Shared policy-rule matcher.
+//!
+//! This module owns rule normalization output, specificity comparison,
+//! containment/overlap primitives, and candidate indexing for both visibility
+//! and mutability axes. Cross-polarity conflict validation is assembled in
+//! `config` from these matcher descriptors.
+
 use std::path::{Path, PathBuf};
 
 use crate::path::{
@@ -15,12 +22,14 @@ use index::MatcherIndex;
 
 pub(crate) use index::MatcherCandidateMetrics;
 
+/// Compiled path-rule set used by one policy list.
 #[derive(Debug, Clone)]
 pub struct PathRuleMatcher {
     descriptors: Vec<RuleDescriptor>,
     index: MatcherIndex,
 }
 
+/// Policy list being compiled, used for scope-specific rule validation.
 pub enum MatcherScope {
     Hidden,
     Visible,
@@ -28,6 +37,7 @@ pub enum MatcherScope {
     Writable,
 }
 
+// Scope labels make validation errors point to the policy list being compiled.
 impl MatcherScope {
     fn label(self) -> &'static str {
         match self {
@@ -39,6 +49,7 @@ impl MatcherScope {
     }
 }
 
+// Matcher construction normalizes rules, deduplicates descriptors, and builds the index.
 impl PathRuleMatcher {
     pub fn new<I, P>(
         rules: I,
@@ -217,6 +228,7 @@ impl PathRuleMatcher {
     }
 }
 
+// Internal mount-root exclusion is compiled as a hidden prefix before user rules.
 pub fn mount_root_internal_prefix(source_root: &Path, mount_root: &Path) -> Option<VirtualPath> {
     let source = source_root.canonicalize().ok()?;
     let mount = canonicalize_or_normalize_absolute(mount_root)?;

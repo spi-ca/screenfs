@@ -1,3 +1,8 @@
+//! FUSE filesystem implementation for ScreenFS.
+//!
+//! This module orchestrates FUSE requests, state snapshots, policy guards, and
+//! backing filesystem calls while keeping blocking host I/O outside the state lock.
+
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -51,6 +56,7 @@ macro_rules! fuse_op_timer {
     };
 }
 
+// ScreenFs owns long-lived config, source-root fd, and the single state domain.
 #[derive(Debug)]
 pub struct ScreenFs {
     cfg: RuntimeConfig,
@@ -62,6 +68,7 @@ pub struct ScreenFs {
 
 type BlockingSyncResult = Result<FsResult<()>, Box<dyn Any + Send>>;
 
+// Blocking sync operations are offloaded without holding the filesystem state lock.
 struct ThreadOffload {
     state: Arc<Mutex<ThreadOffloadState>>,
 }
@@ -104,6 +111,7 @@ impl Future for ThreadOffload {
     }
 }
 
+// Construction and shared helpers used by request handlers.
 impl ScreenFs {
     pub fn new(cfg: RuntimeConfig) -> Self {
         crate::ensure_non_root_user().expect("screenfs must be run as a non-root user");
@@ -359,6 +367,7 @@ impl ScreenFs {
 }
 
 #[cfg(feature = "perf-counters")]
+// Drop emits the optional perf summary; normal Rust ownership closes handles.
 impl Drop for ScreenFs {
     fn drop(&mut self) {
         eprint!("{}", self.perf.summary());
@@ -565,6 +574,8 @@ impl ScreenFs {
     }
 }
 
+// FUSE request handlers live here; each method documents its own mix of state,
+// guard, and backing-filesystem work because not all operations need every step.
 impl Filesystem for ScreenFs {
     async fn lookup(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<ReplyEntry> {
         let _timer = fuse_op_timer!(self, "lookup");

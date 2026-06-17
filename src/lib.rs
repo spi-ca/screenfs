@@ -1,3 +1,9 @@
+//! Public crate facade for ScreenFS.
+//!
+//! The binary enters through [`LaunchArgs`], [`RuntimeConfig`], and [`ScreenFs`].
+//! The modules stay public for tests and low-level integration work, but the
+//! reexports below are the intended high-level path through the crate.
+
 pub mod cli;
 pub mod config;
 pub mod errors;
@@ -9,6 +15,7 @@ pub use cli::{LaunchArgs, MutabilityDefault, VisibilityDefault};
 pub use config::{PolicySource, RuntimeConfig, VisibilityDecision};
 pub use fs::ScreenFs;
 
+// Refuse root before any mount attempt; ScreenFS is designed for non-root FUSE use.
 pub fn ensure_non_root_user() -> std::io::Result<()> {
     if is_root_euid(current_euid()) {
         Err(std::io::Error::new(

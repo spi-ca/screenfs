@@ -1,6 +1,9 @@
+//! Regression tests for virtual path normalization, rule rebasing, and confinement helpers.
+
 use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn normalizes_lexical_absolute_virtual_paths() {
     assert_eq!(VirtualPath::new("/a//b/./c").as_path(), Path::new("/a/b/c"));

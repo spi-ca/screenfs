@@ -1,9 +1,17 @@
+//! Virtual path handling for the ScreenFS view.
+//!
+//! Matching and policy decisions use lexical virtual absolute paths, not host
+//! canonical paths. Rule normalization may canonicalize launch-time host paths
+//! to rebase cwd/HOME forms into the virtual view; request-time host paths are
+//! then confined beneath `source_root` before delegation.
+
 use std::borrow::Borrow;
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 #[cfg(feature = "perf-counters")]
 use std::time::{Duration, Instant};
 
+/// Launch-time context used to normalize policy rules into virtual paths.
 #[derive(Debug, Clone)]
 pub struct RuleNormalizationContext {
     source_root: PathBuf,
@@ -11,6 +19,7 @@ pub struct RuleNormalizationContext {
     home_dir: Option<PathBuf>,
 }
 
+/// Lexically normalized absolute path inside the ScreenFS virtual view.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct VirtualPath(PathBuf);
 
@@ -24,6 +33,7 @@ pub(crate) struct ResolveHostPathMetrics {
     pub(crate) source_root_confinement_count: u64,
 }
 
+// VirtualPath methods keep path math lexical and independent from host canonicalization.
 impl VirtualPath {
     pub fn root() -> Self {
         Self(PathBuf::from("/"))
@@ -188,6 +198,7 @@ impl Borrow<Path> for VirtualPath {
     }
 }
 
+// RuleNormalizationContext captures launch environment needed for cwd/HOME rebasing.
 impl RuleNormalizationContext {
     pub fn from_environment(source_root: &Path) -> Result<Self, String> {
         let current_dir = std::env::current_dir()
@@ -230,6 +241,7 @@ impl RuleNormalizationContext {
     }
 }
 
+// Normalize a user-facing policy rule into the virtual path space.
 pub fn normalize_rule_path(
     raw: &str,
     ctx: &RuleNormalizationContext,
@@ -246,6 +258,7 @@ pub fn normalize_rule_path(
         .map_err(|_| format!("rule path resolves outside source_root: {raw}"))
 }
 
+// Expand cwd/HOME-relative rule forms as host paths before rebasing to virtual paths.
 fn expand_rule_host_path(raw: &str, ctx: &RuleNormalizationContext) -> Result<PathBuf, String> {
     if raw == "~" || raw.starts_with("~/") {
         let Some(home_dir) = &ctx.home_dir else {
@@ -277,6 +290,7 @@ fn rebase_host_path_into_virtual(host_path: &Path, source_root: &Path) -> Result
     }
 }
 
+// Lexical normalization clamps parent traversal at the virtual root.
 pub fn normalize_absolute(path: &Path) -> PathBuf {
     normalize_absolute_from(path, Path::new("/"))
 }
@@ -342,6 +356,7 @@ pub(crate) fn process_env_lock() -> &'static std::sync::Mutex<()> {
 }
 
 #[cfg(test)]
+// ProcessEnvGuard serializes environment-sensitive tests that mutate cwd/HOME.
 pub(crate) struct ProcessEnvGuard {
     _lock: std::sync::MutexGuard<'static, ()>,
     original_cwd: PathBuf,

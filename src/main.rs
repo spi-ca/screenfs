@@ -1,6 +1,13 @@
+//! ScreenFS binary entrypoint.
+//!
+//! The binary validates launch inputs, builds runtime config, sets stable FUSE
+//! mount options, and runs the `fractal-fuse` session with no fallback mount path.
+
 use fractal_fuse::{MountOptions, Session};
 use screenfs::{LaunchArgs, RuntimeConfig, ScreenFs, ensure_non_root_user};
 
+// Keep startup validation before mount/session creation so failures are explicit
+// and no partial mount state is left behind.
 fn main() -> std::io::Result<()> {
     let argv = std::env::args_os().collect::<Vec<_>>();
     if LaunchArgs::wants_help(argv.iter().cloned()) {

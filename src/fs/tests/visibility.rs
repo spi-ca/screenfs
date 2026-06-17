@@ -1,6 +1,9 @@
+//! Visibility-axis tests for hidden entries, bridge ancestors, listings, and glob forms.
+
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn hidden_read_and_list_operations_return_enoent_and_filter_entries() {
     let dir = test_dir("hidden-read-list");

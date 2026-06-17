@@ -1,3 +1,8 @@
+//! Optional performance counters for the `perf-counters` feature.
+//!
+//! Counters are grouped by request path, policy/matcher work, state locking, and
+//! backing I/O splits so benchmark artifacts can attribute overhead.
+
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::ops::AddAssign;
@@ -8,6 +13,7 @@ use std::time::{Duration, Instant};
 use crate::matcher::MatcherCandidateMetrics;
 use crate::path::ResolveHostPathMetrics;
 
+// PerfCounters stores raw measurements; formatting into artifacts happens on snapshot output.
 #[derive(Debug, Default)]
 pub(super) struct PerfCounters {
     fuse_operations: LabeledLatencyCounters,
@@ -181,6 +187,7 @@ impl Drop for FuseOpTimer<'_> {
     }
 }
 
+// Recording helpers are intentionally tiny so call sites can mark exact request phases.
 impl PerfCounters {
     pub(super) fn fuse_op_timer(&self, name: &'static str) -> FuseOpTimer<'_> {
         FuseOpTimer::new(self, name)
@@ -663,6 +670,7 @@ impl PerfCounters {
     }
 }
 
+// Counter primitives keep aggregation lock scope small.
 impl LatencyCounter {
     fn record(&self, elapsed: Duration) {
         self.record_many(1, elapsed);
@@ -740,6 +748,7 @@ fn size_bucket(size: usize) -> &'static str {
     }
 }
 
+// Snapshot writers produce stable text blocks for benchmark artifacts.
 fn write_latency(output: &mut String, name: &str, snapshot: LatencySnapshot) {
     let avg_ns = snapshot.total_ns.checked_div(snapshot.count).unwrap_or(0);
     writeln!(

@@ -1,7 +1,10 @@
+//! Regression tests for config loading, rule conflict handling, and policy decisions.
+
 use super::*;
 use crate::path::ProcessEnvGuard;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// Helper builds a full RuntimeConfig while letting each test vary one policy axis.
 fn launch(
     source: &Path,
     visibility_default: Option<VisibilityDefault>,
@@ -35,6 +38,7 @@ fn launch_from_args(args: LaunchArgs) -> Result<RuntimeConfig, String> {
     RuntimeConfig::from_launch(args)
 }
 
+// Test cases are grouped by the behavior named in each function.
 #[test]
 fn defaults_to_visible_and_writable_without_policy() {
     let source = test_dir();
