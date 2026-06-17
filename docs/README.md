@@ -1,20 +1,58 @@
 # Documentation
 
-이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 빠른 진입점은 아래 순서다.
+이 디렉터리는 ScreenFS의 계약, 설계, 운영 evidence를 분리해 관리한다. 이 파일은 처음 읽는 사람이 문서, 저장소 구조, 코드 책임, visibility/mutability 흐름을 한 번에 찾기 위한 출발점이다.
 
 ## Project metadata
 
 - Repository: <https://github.com/spi-ca/screenfs>
 - License: BSD 3-Clause License. See [`../LICENSE`](../LICENSE).
 
-## Core documents
+## Reading path
 
-- [Requirements](requirements.md): 목적, 전제, non-goals, 사용자-facing 요구사항
-- [Design](design.md): visibility/mutability 의미론, rule grammar, operation contract
-- [Architecture](architecture.md): 모듈 경계, request flow, runtime boundary
-- [Operations](operations.md): 검증 명령, smoke/evidence 기록 규칙, current evidence map
-- [Benchmarks](benchmarks.md): formal performance benchmark workflow
-- [Performance roadmap](performance-roadmap.md): measure-first 성능 backlog와 deferred 후보
+처음 읽을 때는 아래 순서가 가장 빠르다.
+
+1. [Project README](../README.md): 프로젝트 요약, CLI/config quick reference, examples
+2. [Requirements](requirements.md): 목적, 전제, non-goals, 사용자-facing 요구사항
+3. [Design](design.md): visibility/mutability 의미론, rule grammar, operation contract
+4. [Architecture](architecture.md): 모듈 경계, request flow, runtime boundary
+5. [Operations](operations.md): 검증 명령, smoke/evidence 기록 규칙, current evidence map
+6. [Benchmarks](benchmarks.md): formal performance benchmark workflow
+7. [Performance roadmap](performance-roadmap.md): measure-first 성능 backlog와 deferred 후보
+
+## Repository map
+
+```text
+screenfs/
+├── README.md        # project entrypoint, CLI/config quick reference
+├── Cargo.toml       # Rust package, features, dependencies
+├── AGENTS.md        # repo-local agent guardrails
+├── src/             # ScreenFS library and binary source
+├── docs/            # contract, architecture, operations, evidence docs
+│   ├── artifacts/   # recorded smoke/benchmark/evidence outputs
+│   └── diagrams/    # Mermaid sources and rendered SVG/PNG
+├── scripts/         # benchmark/test helper scripts
+├── contrib/         # supporting/comparison code
+└── .pi/             # repo-local Pi agents, prompts, skills, settings
+```
+
+## Code map
+
+| Area | Responsibility |
+| --- | --- |
+| `src/main.rs` | binary entrypoint, mount option 구성, `Session::run(ScreenFs::new(cfg))` 진입 |
+| `src/lib.rs` | public module export, non-root 실행 guard |
+| `src/cli.rs` | CLI parsing, config override flags, help/fail-fast surface |
+| `src/config.rs` | runtime config, policy source/precedence, internal mount-root hidden rule, matcher compilation |
+| `src/path.rs` | lexical virtual path normalization, source-root rebasing, symlink target lexical resolution |
+| `src/matcher.rs`, `src/matcher/*` | shared rule grammar, descriptor/specificity/containment, candidate index |
+| `src/errors.rs` | host errno 변환, write-intent 판정 helper |
+| `src/fs.rs` | FUSE operation orchestrator |
+| `src/fs/guards.rs` | visibility/mutability guards, symlink target checks, mutation coordinate checks |
+| `src/fs/backing.rs` | source-root confinement, fd/dirfd-relative host filesystem delegation |
+| `src/fs/state.rs` | inode/path map, refs, file/dir handles, directory cookie state |
+| `src/fs/perf.rs` | optional `perf-counters` feature metrics |
+| `src/*_tests.rs` | CLI/config/path/matcher/errors standalone regression coverage |
+| `src/fs/tests/**` | mount 없는 filesystem behavior regression coverage |
 
 ## Policy model
 
