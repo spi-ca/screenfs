@@ -190,7 +190,7 @@ For host-side async/io_uring experiments, also follow the selective data-path ev
 
 The current implementation is intentionally conservative: only cache-eligible `visible`/`writable` policy shapes skip repeated `read`/`write` guard work. Policy mixes that can still change the current-path proof—such as hidden/visible carve-outs, readonly/writable carve-outs, or symlink-target-sensitive paths—continue to re-run guards, and `fallocate`/`copy_file_range` remain on the per-call policy path. This is a handle-local fast path only; it is not a broad/global authorization cache, negative cache, or reopen-by-cached-path scheme.
 
-Treat [`artifacts/managed-fio-attribution-summary.md`](artifacts/managed-fio-attribution-summary.md), [`artifacts/managed-fio-attribution-env.json`](artifacts/managed-fio-attribution-env.json), and the checked-in `managed-fio-attribution-*` companions as supplemental warm-cache attribution evidence only. That rerun uses an explicit custom unsafe policy shape (`--visibility-default visible --hidden /hidden --mutability-default writable --readonly /readonly`), not the official harness `fallback-unsafe-policy` preset, plus the `docs/artifacts/current-fio-attribution.job` fio workload under non-root `fusermount3` semantics. The env JSON records the custom policy label, dirty worktree, helper binary SHA256, and ScreenFS binary SHA256 provenance. Use it to inspect native vs managed passthrough vs ScreenFS floor attribution and the split-counter shape (`read_guard_path` 91.2% of `fuse_op.read`, `write_guard_mutation` 90.8% of `fuse_op.write` in the checked-in summary), not as a before/after optimization claim.
+Treat [`artifacts/managed-fio-attribution-summary.md`](artifacts/managed-fio-attribution-summary.md), [`artifacts/managed-fio-attribution-env.json`](artifacts/managed-fio-attribution-env.json), and the checked-in `managed-fio-attribution-*` companions as supplemental warm-cache attribution evidence only. That rerun uses an explicit custom unsafe policy shape (`--visibility-default visible --hidden /hidden --mutability-default writable --readonly /readonly`), not the official harness `fallback-unsafe-policy` preset, plus the `docs/artifacts/current-fio-attribution.job` fio workload under non-root `fusermount3` semantics. The env JSON records the custom policy label, dirty worktree, helper binary SHA256, and ScreenFS binary SHA256 provenance. Use it to inspect native vs managed passthrough vs ScreenFS floor attribution and the split-counter shape (`read_guard_path` 95.3% of `fuse_op.read`, `write_guard_mutation` 94.8% of `fuse_op.write` in the checked-in summary), not as a before/after optimization claim.
 
 For the active per-open-cache goal, the checked-in claim-grade before/after pair is [`artifacts/per-open-cache-claim/summary.md`](artifacts/per-open-cache-claim/summary.md) with the `before-*` / `after-*` JSON, Markdown, SVG, and PNG companions in [`artifacts/per-open-cache-claim/`](artifacts/per-open-cache-claim/). That pair measures `--policy-preset fast-path-cache-eligible --workload-set per-open-cache-minimum --iterations 10 --warmups 3` under the same non-root `fusermount3` FUSE contract, and each JSON captures dirty-worktree status, ScreenFS source provenance, command line, filesystem/kernel notes, and binary SHA256 provenance. Read the checked-in pair as workload-scoped rather than a blanket win: the current p50 summary reports after/before `0.832x` for `rand_read_4k`, `0.714x` for `rand_write_4k`, `0.738x` for `sync_write_4k`, and `0.996x` for `small_open_read_close`.
 
@@ -234,9 +234,9 @@ When updating this surface or claiming a speedup on it, record dedicated correct
 
 The current repo-local benchmark harness does not directly exercise all of those post-open mutation semantics, so dedicated regression tests are required; benchmark wins alone are insufficient.
 
-### Next active candidate after per-open cache: metadata/open-path fixed overhead
+### Metadata/open-path umbrella contract after per-open cache
 
-After the current per-open-cache claim closes, the next implementation candidate is fixed-overhead reduction on metadata/open-path operations (`lookup`, `getattr`, `open`, `readlink`, `access`) with `statfs` kept as a non-regression guardrail. Treat the current `small_stat_open_read` comparable workload as exploratory only for this surface: it is not split enough to support claim-grade attribution or acceptance by itself.
+With the current checked-in per-open-cache claim, metadata/open-path fixed overhead remains one current near-term priority row, not the sole follow-up implementation target. The active priority model is the five rows under [`Current next-priority candidate gates`](#current-next-priority-candidate-gates) together with the current evidence snapshot in [`artifacts/current-next-performance-candidates.md`](artifacts/current-next-performance-candidates.md). This section defines the umbrella contract for the metadata/open-path row: fixed-overhead reduction on metadata/open-path operations (`lookup`, `getattr`, `open`, `readlink`, `access`) with `statfs` kept as a non-regression guardrail. Treat the current `small_stat_open_read` comparable workload as exploratory only for this surface: it is not split enough to support claim-grade attribution or acceptance by itself.
 
 The formal harness now exposes separate named workloads for this candidate. Before claiming it, run the workload matrix with these names rather than a mixed aggregate workload:
 
@@ -296,6 +296,106 @@ For any refreshed directory/read-only-close follow-up, claim-grade evidence must
 Directory claims must report `readdir_basic` and `readdirplus_basic` p50/p95/p99 together with `readdir_directory_scan`, `readdir_attr_generation_scan`, `readdir_candidate_selection`, `readdir_page_commit`, `readdirplus_directory_scan`, `readdirplus_attr_generation_scan`, `readdirplus_candidate_selection`, and `readdirplus_page_commit`. If symlink visibility logic changed, the regular-file directory fixture is insufficient; add `--workload-set directory-symlink-surface` or equivalent evidence that exercises `readdir_symlink_visibility` and `readdirplus_symlink_visibility`.
 
 Read-only close claims must report `fuse_op.flush`, `file_sync.flush`, `fuse_op.release`, `file_sync.fsync`, and read-only/write p50/p95/p99. `FOPEN_NOFLUSH` success is a mounted fact, not an assumption: if `fuse_op.flush` does not drop for read-only handles, document that and rely only on a separately verified read-only `flush()` no-op guard. Do not claim `release(flush=true)` improvement from a run where `file_sync.release_flush` is zero.
+
+## Current next-priority candidate gates
+
+The current evidence snapshot and scope labels for these five rows live in [`artifacts/current-next-performance-candidates.md`](artifacts/current-next-performance-candidates.md). Unless a row says otherwise, the minimum claim-grade floor is a same-machine before/after pair with matching cache assumptions and at least:
+
+```text
+--iterations 10
+--warmups 3
+```
+
+Scope labels:
+
+- `smoke`: workload plumbing plus non-zero counters only; not claim-grade
+- `slice`: claim-grade pair proves a narrow helper/workload effect, but not the full candidate
+- `claim`: the full row-specific gates below are satisfied
+- `rejected`: before/after evidence or tail behavior failed the row, so the implementation is not kept
+
+### `readdirplus` page/scan
+
+- Current label: `slice`
+- Required before/after rows:
+  - `--policy-preset fast-path-cache-eligible --workload-set directory-surface`
+  - `--policy-preset fallback-unsafe-policy --matcher-extra-rules 32 --policy-label glob-matcher-heavy --workload-set directory-surface` when claiming directory-hot policy or matcher-adjacent improvements
+  - a focused large-directory `--workload readdirplus_basic` row (for example the existing 20k-entry shape or an explicitly recorded equivalent) for page/scan claims across directory sizes
+  - `--workload-set directory-symlink-surface` if symlink visibility logic changed
+- Required counters:
+  - `fuse_op.readdirplus`, `readdirplus_directory_scan`, `readdirplus_attr_generation_scan`, `readdirplus_attr_generation_entries`, `readdirplus_candidate_selection`, `readdirplus_page_commit`
+  - paired `readdir` non-regression rows must also report `fuse_op.readdir`, `readdir_directory_scan`, `readdir_attr_generation_scan`, `readdir_candidate_selection`, `readdir_page_commit`
+- Claim gate:
+  - every claimed `readdirplus_basic` size/policy row must show after/before `<= 0.90x` median and `<= 0.95x` at p95 and p99
+  - paired `readdir_basic` rows, and any required symlink rows, must stay within `<= 1.05x` median and `<= 1.10x` at p95/p99
+  - attr-only or counter-only movement without those latency rows remains `slice`, not `claim`
+
+### read/write small-I/O guard cost
+
+- Current label: `claim`
+- Checked-in bundle: [`artifacts/read-write-small-io-guard-reuse/summary.md`](artifacts/read-write-small-io-guard-reuse/summary.md). Current claim scope is the `fallback-unsafe-policy` row; the same bundle's `fast-path-cache-eligible` row is context/non-regression only. Companion validation is recorded in [`artifacts/read-write-small-io-guard-reuse/validation.log`](artifacts/read-write-small-io-guard-reuse/validation.log).
+- Required before/after rows:
+  - `--policy-preset fallback-unsafe-policy --workload-set read-write-surface`
+  - `--policy-preset fast-path-cache-eligible --workload-set read-write-surface`
+  - if the change touches the cache-eligible handle fast path, keep `--workload-set per-open-cache-minimum` as a non-regression/context row rather than substituting it for `read-write-surface`
+- Required counters:
+  - `read_handle_snapshot`, `read_guard_path`, `read_io`, `write_handle_snapshot`, `write_guard_mutation`, `write_io`
+  - `read_size_bucket.*` / `write_size_bucket.*`
+- Claim gate:
+  - in the targeted policy row, at least 3 of `small_read`, `small_write`, `rand_read_4k`, `rand_write_4k` must show after/before `<= 0.90x` median and `<= 0.95x` at p95/p99
+  - the remaining small-I/O row, plus `seq_read` and `seq_write`, must stay within `<= 1.05x` median and `<= 1.10x` at p95/p99
+  - if only split counters move but the claim-grade small-I/O matrix is absent, keep the result at `smoke` or `slice`
+- Current checked-in read: the fallback row in [`artifacts/read-write-small-io-guard-reuse/summary.md`](artifacts/read-write-small-io-guard-reuse/summary.md) satisfies the gate with `small_read` `0.552451x`, `small_write` `0.800006x`, and `rand_read_4k` `0.888775x`, while `rand_write_4k` remains within non-regression (`0.905193x` p50, `0.984318x` p95, `1.002145x` p99). Treat the bundle's fast row as context/non-regression rather than a second independent claim.
+
+### mutation invalidation breadth
+
+- Current label: `smoke`
+- Current caveat: treat the checked-in `mutation-invalidation-range-scan` bundle as rejected/stale evidence for the current workload scope. Before another implementation attempt, refresh a focused `subtree_rename_cached_unrelated` baseline on the current workload shape and decide whether the claim is about invalidation breadth only or also about post-`FORGET` eviction breadth.
+- Required before/after rows:
+  - `--workload-set mutation-invalidation`
+  - a fresh focused `--workload subtree_rename_cached_unrelated` row when claiming subtree breadth or ordered-range wins
+  - add a separate mounted driver or equivalent evidence if the claim depends on post-`FORGET` eviction breadth rather than invalidation breadth alone
+- Required counters:
+  - `invalidations.count`, `invalidations.invalidated_entries`, `invalidations.evicted_entries`, `invalidations.scanned_entries`
+  - `state_write_lock_hold`
+  - any workload-specific directory counters needed to prove the mounted row actually exercised the intended listing path (for example `readdirplus_*` in the pinned row)
+- Claim gate:
+  - a breadth optimization must reduce the intended invalidation-breadth counter (`invalidations.scanned_entries` or an explicitly tighter replacement) on the targeted row
+  - at least 2 of `symlink_parent_mkdir_rmdir`, `pinned_symlink_parent_mkdir_rmdir`, and `subtree_rename_cached_unrelated` must show after/before `<= 0.90x` median and `<= 0.95x` at p95/p99, and the remaining row must stay within `<= 1.05x` median and `<= 1.10x` at p95/p99
+  - if counters improve but latency remains inconclusive, keep the result at `slice`; if tails regress materially, mark the experiment `rejected`
+
+### `open_confined` / `openat2` frequency
+
+- Current label: `smoke`
+- Current caveat: the checked-in open-confined smokes are fallback-only, and the rejected [`artifacts/open-confined-frequency/summary.md`](artifacts/open-confined-frequency/summary.md) bundle did not clear the surface gate. The focused `metadata_opendir` smoke isolates the row (`readdir*` counters stay zero), but neither that smoke nor the rejected bundle proves `openat2` dominates the remaining opendir cost or upgrades the row beyond `smoke`.
+- Required before/after rows:
+  - `--policy-preset fallback-unsafe-policy --workload-set open-confined-surface`
+  - `--policy-preset fast-path-cache-eligible --workload-set open-confined-surface`
+  - add explicit `--workload metadata_opendir` when the claim is opendir-specific, and keep `metadata_lookup` / `metadata_getattr` / `metadata_access` rows as non-regression context when the same change also touches broader metadata/open-path guards
+- Required counters:
+  - `open_confined_openat2`, `source_root_path`, `resolved_virtual_path_from_open_fd`
+  - `fuse_op.open`, `fuse_op.opendir`
+  - `readdir*` counters should stay zero on the focused open-confined rows unless the workload definition itself changed
+- Claim gate:
+  - both `metadata_open` and `metadata_opendir` in the targeted row must show after/before `<= 0.90x` median and `<= 0.95x` at p95/p99
+  - companion metadata/open-path rows touched by the same change must stay within `<= 1.05x` median and `<= 1.10x` at p95/p99
+  - a broader metadata/open-path bundle without an independent `open-confined-surface` pair does not elevate this row beyond `smoke` or `slice`
+  - an explicit `metadata_opendir` improvement or counter reduction without a passing `open-confined-surface` pair remains attribution/slice context only; it does not rescue a row where `metadata_open` or `metadata_opendir` fails the surface gate
+
+### matcher-heavy policy path
+
+- Current label: `smoke`
+- Required before/after rows:
+  - `--workload-set policy-heavy-matrix --matcher-extra-rules 32 --policy-label <explicit-matcher32-label>`
+  - `--workload-set directory-surface --matcher-extra-rules 32 --policy-label glob-matcher-heavy` when claiming directory-hot or descendant-policy behavior
+  - add `--workload-set directory-symlink-surface` or an explicitly equivalent row if descendant/symlink visibility logic changed
+- Required counters:
+  - `matcher_candidates`, `matcher_family_candidates.*`, `matcher_candidate_order.path`, `matcher_candidate_order.descendant`, `matcher_candidate_order_duplicates`, `matcher_candidate_order_seen_slots`, `matcher_candidate_order_ancestor_steps`
+  - any targeted `fuse_op.*` rows for the claimed workload family
+- Claim gate:
+  - the matcher-heavy row must show after/before `<= 0.90x` median and `<= 0.95x` at p95/p99 for `matcher_hidden_stat_miss` plus at least one claimed metadata or directory workload in the same policy row
+  - fallback/no-matcher rows and fast-path rows must stay within `<= 1.05x` median and `<= 1.10x` at p95/p99
+  - a descendant-specific claim is invalid if `matcher_candidate_order.descendant` only comes from an empty visible matcher or if the directory rows are missing
+  - a duplicate-removal claim is invalid if `matcher_candidate_order_duplicates` stays zero in the claimed row
 
 ## Current harness coverage limits
 

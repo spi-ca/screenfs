@@ -86,9 +86,11 @@ FUSE_OVER_IO_URING
 - cache-eligible policy와 fallback policy 각각에서 small-I/O/tail-latency variance가 어떻게 나타나는지
 - 현재 focused coverage 외에 더 복잡한 multi-actor mounted workload에서 추가 artifact나 회귀 테스트를 더 남길 필요가 있는지
 
-### Active next candidate: metadata/open-path fixed overhead
+### Active umbrella candidate: metadata/open-path fixed overhead
 
 per-open cache claim-grade pair가 이미 체크인된 현재 기준에서, 다음 implementation candidate는 `lookup`/`getattr`/`open`/`readlink`/`access` 중심의 metadata/open-path fixed overhead 축소다. `statfs`는 improvement target이라기보다 non-regression guardrail로 유지한다. 현재 `small_stat_open_read`만으로는 이 surface를 claim-grade로 분리할 수 없으므로, 구현이나 측정 주장보다 먼저 split workload contract와 artifact naming을 고정한다.
+
+이 section은 metadata/open-path 관련 work의 umbrella contract다. immediate next-priority ordering은 아래 `Current next-priority shortlist`와 [`artifacts/current-next-performance-candidates.md`](artifacts/current-next-performance-candidates.md)를 따른다. 즉, metadata/open-path가 유일한 다음 작업이라는 뜻은 아니며 matcher-heavy policy path도 명시적 priority row로 유지한다.
 
 문서 gate와 acceptance 기준:
 
@@ -225,6 +227,18 @@ Additional evidence for these slices:
 2. `readdir`/`readdirplus`와 mutation invalidation의 write-lock 유지 시간 계측
 3. 이미 가능한 host IO/sync syscall lock-outside 이동이 추가로 남아 있는지 재확인
 
+## Current next-priority shortlist
+
+아래 5개 row가 현재 near-term priority다. scope label 정의와 claim-grade gate는 [`benchmarks.md`](benchmarks.md)의 `Current next-priority candidate gates`가 source of truth이고, current evidence/gap snapshot은 [`artifacts/current-next-performance-candidates.md`](artifacts/current-next-performance-candidates.md)에 정리한다. 현재 evidence 기준 immediate next measure-first pick은 `open_confined` / `openat2` frequency row다. 이유는 checked-in fallback smoke가 여전히 attribution baseline일 뿐이고, rejected [`artifacts/open-confined-frequency/summary.md`](artifacts/open-confined-frequency/summary.md) bundle도 focused `metadata_opendir` improvement/counter reduction은 보여줬지만 claim-gate `open-confined-surface` rows를 통과하지 못해 kept speedup evidence가 아니기 때문이다. 반대로 mutation invalidation은 여전히 smoke/coverage 단계이며 fresh focused subtree baseline + mounted post-`FORGET` driver 또는 explicit scope reduction이 먼저 필요하다.
+
+| candidate | current scope | why this is still next | next gate |
+| --- | --- | --- | --- |
+| `readdirplus` page/scan | `slice` | [`artifacts/readdirplus-deferred-attrs/summary.md`](artifacts/readdirplus-deferred-attrs/summary.md)는 attr-work reduction만 입증하고 20k focused row는 약간 regress한다. [`artifacts/readdirplus-page-scan-path-join/summary.md`](artifacts/readdirplus-page-scan-path-join/summary.md)는 path-join retuning 실험도 5k `readdir_basic`와 20k focused `readdirplus_basic` p50 regression 때문에 rejected였음을 남긴다. page/scan retuning은 아직 미해결이다. | claim-grade `directory-surface` pair + focused large-directory `readdirplus_basic` row |
+| read/write small-I/O guard cost | `claim` | [`artifacts/read-write-small-io-guard-reuse/summary.md`](artifacts/read-write-small-io-guard-reuse/summary.md)는 fallback `read-write-surface` before/after pair에서 `small_read`, `small_write`, `rand_read_4k`가 gate를 충족하고 `rand_write_4k`와 `seq_*`가 non-regression budget 안에 남음을 보여준다. 같은 bundle의 fast row는 context/non-regression이다. | keep fallback claim bundle; any separate fast-policy, larger-IO, storage-backed, or concurrency claim needs its own row/evidence |
+| mutation invalidation breadth | `smoke` | [`artifacts/current-mutation-invalidation-set-smoke.md`](artifacts/current-mutation-invalidation-set-smoke.md)는 `invalidations.scanned_entries` plumbing을 보여주지만 process-lifetime counts에는 warmup/cleanup이 섞여 있다. [`artifacts/mutation-invalidation-range-scan/summary.md`](artifacts/mutation-invalidation-range-scan/summary.md)은 현재 workload scope 기준 rejected/stale evidence이고, 새 implementation candidate로 올리기 전에 fresh focused subtree baseline + mounted post-`FORGET` driver 또는 explicit scope reduction이 먼저 필요하다. | refreshed `mutation-invalidation` pair + focused `subtree_rename_cached_unrelated`/post-`FORGET` isolation |
+| `open_confined` / `openat2` frequency | `smoke` | [`artifacts/current-open-confined-surface-smoke.md`](artifacts/current-open-confined-surface-smoke.md)와 [`artifacts/current-metadata-opendir-smoke.md`](artifacts/current-metadata-opendir-smoke.md)는 attribution coverage를 제공하고, rejected [`artifacts/open-confined-frequency/summary.md`](artifacts/open-confined-frequency/summary.md)는 focused fallback `metadata_opendir` improvement와 counter reduction이 가능함을 보여준다. 하지만 그 bundle도 final fallback `open-confined-surface` regression과 fast-row tail regression 때문에 not kept/rejected였으므로, 여전히 kept claim-grade speedup evidence는 없다. | fresh `open-confined-surface` pair on the candidate under test + explicit `--workload metadata_opendir` attribution/non-regression row when the question is opendir-specific |
+| matcher-heavy policy path | `smoke` | [`artifacts/current-policy-heavy-matrix-smoke.md`](artifacts/current-policy-heavy-matrix-smoke.md)는 metadata-heavy smoke이고 descendant evidence가 약하다. 그래도 deferred가 아니라 explicit priority row로 유지한다. | matcher32 policy row + glob-heavy directory row that actually exercises descendant logic |
+
 ## Measure-first backlog
 
 ### 1. Policy/matcher hot path
@@ -277,6 +291,7 @@ is_fully_visible
 - `small_read`, `small_write`
 - `rand_read_4k`, `rand_write_4k`
 - `--workload-set read-write-surface` combines the above data-path read/write rows. [`artifacts/current-read-write-surface-smoke.md`](artifacts/current-read-write-surface-smoke.md) records a current perf-counter smoke with `--iterations 1 --warmups 1 --read-mib 8 --write-mib 8 --small-io-ops 512 --rand-io-ops 512 --small-io-bytes 1024`; it is measurement coverage, not speedup evidence, and reports non-zero `read_handle_snapshot`, `read_guard_path`, `read_io`, `write_handle_snapshot`, `write_guard_mutation`, `write_io`, and size-bucket counters. Write workload file cleanup is outside timed latency samples, but the process-lifetime perf summary still includes cleanup-side `unlink`/invalidation counters.
+- [`artifacts/read-write-small-io-guard-reuse/summary.md`](artifacts/read-write-small-io-guard-reuse/summary.md) now records the claim-grade fallback + fast before/after matrix with `--iterations 10 --warmups 3`. Current claim scope is the fallback row only: `small_read` `0.552451x`, `small_write` `0.800006x`, and `rand_read_4k` `0.888775x` meet the gate while `rand_write_4k` stays within non-regression (`0.905193x` p50, `0.984318x` p95, `1.002145x` p99); the fast row is kept as context/non-regression rather than a separate fast-policy claim. Companion validation is captured in [`artifacts/read-write-small-io-guard-reuse/validation.log`](artifacts/read-write-small-io-guard-reuse/validation.log).
 
 판단 기준:
 
@@ -297,7 +312,7 @@ is_fully_visible
 - tmpfs 결과를 storage-backed fsync evidence로 일반화하지 않는다.
 
 
-### Current post-metadata status: directory, matcher-descendant, and read-only close
+### Current post-metadata status: directory/read-only-close claim and remaining matcher-descendant gap
 
 The first post-metadata follow-up is implemented and recorded as current evidence rather than a future-only candidate. It reduces directory/read-only-close fixed overhead without weakening hidden filtering, bridge-visible directory-only listing, stable resume cookies, returned-page-only `readdirplus` lookup-ref pinning, or write-capable sync semantics.
 
@@ -306,7 +321,8 @@ Current evidence:
 - 구현 source: [`../src/fs.rs`](../src/fs.rs), [`../src/fs/guards.rs`](../src/fs/guards.rs), [`../src/matcher/index.rs`](../src/matcher/index.rs), [`../src/fs/state.rs`](../src/fs/state.rs)
 - claim-grade-format before/after bundle: [`artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/summary.md`](artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/summary.md) and companion JSON/Markdown/SVG artifacts. 이 bundle은 `--iterations 10 --warmups 3`로 `directory-surface` fast-path-cache-eligible row, glob/matcher-heavy directory row, and `read-only-close-surface` row를 분리해서 측정했다.
 - summary ratios: `readdir_basic` p50 `0.759x` fast-path / `0.781x` glob-heavy, `readdirplus_basic` p50 `0.947x` fast-path / `0.938x` glob-heavy, `read_only_open_close` p50 `0.939x`, `read_only_open_read_close` p50 `0.899x`; write-capable guardrails remained near-neutral (`write_open_write_close` p50 `1.016x`, `write_open_fsync_close` p50 `0.994x`).
-- attribution: `readdir_attr_generation_entries` dropped from `427820` to `0` for `readdir_basic` rows while `readdirplus_attr_generation_entries` remained present, and read-only-close `fuse_op.flush`/`file_sync.flush` counts dropped from `109824` to `3328` while `fuse_op.release` and explicit `file_sync.fsync` counts stayed present.
+- scope caveat: checked-in `glob-matcher-heavy` directory row는 directory-policy non-regression coverage다. 현재 checked-in matcher32 smoke는 metadata-heavy이고 `matcher_candidate_order.descendant`가 empty visible matcher에서 나오므로, 이 row만으로 independent matcher-descendant speedup claim을 만들지 않는다.
+- attribution: `readdir_attr_generation_entries` dropped from `427820` to `0` for `readdir_basic` rows; `readdir_page_commit` stayed non-zero (fast `141389037 -> 137904893`, glob `140169060 -> 141306317`); `readdirplus_directory_scan` stayed non-zero (fast `387971398 -> 393762564`, glob `457180468 -> 494871638`); `readdirplus_attr_generation_scan` stayed non-zero (fast `129102073 -> 129425816`, glob `126184156 -> 144752207`); `readdirplus_page_commit` stayed non-zero (fast `5217738 -> 4690108`, glob `5064312 -> 5362262`). Read-only-close `fuse_op.flush`/`file_sync.flush` counts dropped from `109824` to `3328` while `fuse_op.release` and explicit `file_sync.fsync` counts stayed present.
 - symlink-aware directory smoke: [`artifacts/current-directory-symlink-surface-smoke.md`](artifacts/current-directory-symlink-surface-smoke.md) records `--workload-set directory-symlink-surface --iterations 3 --warmups 1 --dir-entries 200` with visible symlink fixture coverage. It is smoke/coverage evidence, not before/after speedup evidence; the mounted run reports non-zero `fuse_op.readdir`, `fuse_op.readdirplus`, `readdir_symlink_visibility`, and `readdirplus_symlink_visibility` counts and elapsed totals.
 - [`artifacts/directory-symlink-resolver-reuse/summary.md`](artifacts/directory-symlink-resolver-reuse/summary.md) records a rejected request-local resolver reuse experiment for directory symlink target visibility. It reduced `source_root_path.count` but worsened mounted latency (`readdir_symlink_visibility` p50 `1.191x`, `readdirplus_symlink_visibility` p50 `1.455x`), so the implementation is not kept and the bundle is not speedup evidence.
 - current validation for this directory/read-only-close evidence is captured in [`artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/validation-current.log`](artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/validation-current.log). The preceding metadata/open-path guard-context bundle also has its own validation log at [`artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/validation.log`](artifacts/metadata-open-path-claim/guard-context-worktree-19ca971/validation.log); keep these claim scopes separate.
@@ -322,7 +338,8 @@ Current implementation contract:
 
 Remaining follow-up questions:
 
-- `readdirplus_basic` still needs returned attrs. Current follow-up evidence in [`artifacts/readdirplus-deferred-attrs/summary.md`](artifacts/readdirplus-deferred-attrs/summary.md) keeps a scoped attr-work reduction that defers attr generation until after candidate page selection: `readdirplus_attr_generation_entries` dropped from `139868` to `5828` in the 5k directory-surface run and from `327378` to `5082` in the 20k focused run. This is not a broad latency speedup claim across directory sizes: the 5k row improved (`readdirplus_basic` p50 `0.721x`, p95 `0.732x`), but the 20k focused row regressed slightly (`1.028x` p50, `1.022x` p95). Further improvement still needs evidence that page/scan work can move without persistent full-directory caching or stale visibility.
+- `readdirplus_basic` still needs returned attrs. Current follow-up evidence in [`artifacts/readdirplus-deferred-attrs/summary.md`](artifacts/readdirplus-deferred-attrs/summary.md) keeps a scoped attr-work reduction that defers attr generation until after candidate page selection: `readdirplus_attr_generation_entries` dropped from `139868` to `5828` in the 5k directory-surface run and from `327378` to `5082` in the 20k focused run. This is not a broad latency speedup claim across directory sizes: the 5k row improved (`readdirplus_basic` p50 `0.721x`, p95 `0.732x`), but the 20k focused row regressed slightly (`1.028x` p50, `1.022x` p95).
+- [`artifacts/readdirplus-page-scan-path-join/summary.md`](artifacts/readdirplus-page-scan-path-join/summary.md) records a rejected page/scan path-join experiment. Although the focused 20k row improved some tails/counters (`readdirplus_basic` p95 `0.977084x`, p99 `0.975404x`; `readdirplus_directory_scan.total_ns` `1076329283 -> 873491363`), the same bundle regressed badly on 5k `readdir_basic` (`1.557941x` p50) and still regressed on the 20k `readdirplus_basic` p50 (`1.036241x`). The code changes were reverted, so this bundle is rejected evidence for the remaining gap, not speedup evidence. Further improvement still needs evidence that page/scan work can move without persistent full-directory caching or stale visibility.
 - If a future change touches symlink visibility inside directory iteration, the regular-file-only `readdir_basic`/`readdirplus_basic` fixture is not enough; include the `directory-symlink-surface` workload set or equivalent trace that exercises `readdir*_symlink_visibility`. Current smoke coverage exists, but claim-grade before/after evidence is still required for any symlink-visibility performance claim.
 - Claim-grade matcher-descendant work still needs a glob/hidden-heavy directory row that actually exercises descendant candidate logic; do not reuse metadata-only matcher32 evidence when `matcher_candidate_order.descendant` comes from an empty visible matcher.
 
@@ -360,7 +377,20 @@ host read_dir + metadata 수집은 lock 밖에서 수행한다
 
 ### 5. open_confined/openat2 call frequency
 
-`open_confined/openat2`는 confinement correctness 핵심이라 대체하지 않는다. 대신 호출 빈도와 latency를 측정한다. The harness now includes `metadata_opendir` and `--workload-set open-confined-surface` so opendir/open-confined overhead can be separated from directory scan work. [`artifacts/current-open-confined-surface-smoke.md`](artifacts/current-open-confined-surface-smoke.md) records mixed `metadata_open` + `metadata_opendir` perf-counter coverage with `--iterations 3 --warmups 1 --metadata-ops 200`; [`artifacts/current-metadata-opendir-smoke.md`](artifacts/current-metadata-opendir-smoke.md) records a focused `--workload metadata_opendir` smoke. Both are measurement coverage, not speedup evidence, and the focused opendir smoke reports non-zero `fuse_op.opendir`, `open_confined_openat2`, `source_root_path`, and `resolved_virtual_path_from_open_fd` counters without `readdir*` scan counters.
+`open_confined/openat2`는 confinement correctness 핵심이라 대체하지 않는다. 대신 호출 빈도와 latency를 측정한다. The harness now includes `metadata_opendir` and `--workload-set open-confined-surface` so opendir/open-confined overhead can be separated from directory scan work. [`artifacts/current-open-confined-surface-smoke.md`](artifacts/current-open-confined-surface-smoke.md) records mixed `metadata_open` + `metadata_opendir` perf-counter coverage with `--iterations 3 --warmups 1 --metadata-ops 200`; [`artifacts/current-metadata-opendir-smoke.md`](artifacts/current-metadata-opendir-smoke.md) records a focused `--workload metadata_opendir` smoke. Both are measurement coverage, not speedup evidence, and both checked-in smokes are still fallback-only (`policy_preset=fallback-unsafe-policy`, `fast_path_cache_eligible=False`). The focused opendir smoke reports non-zero `fuse_op.opendir`, `open_confined_openat2`, `source_root_path`, and `resolved_virtual_path_from_open_fd` counters without `readdir*` scan counters, but it does **not** prove `openat2` itself dominates: `open_confined_openat2.total_ns=1605973` is lower than `stat_child_no_follow.total_ns=15932049` and `fuse_op.opendir.total_ns=10616895` in that run.
+
+[`artifacts/open-confined-frequency/summary.md`](artifacts/open-confined-frequency/summary.md) now records a rejected before/after experiment across focused fallback `metadata_opendir`, fallback `open-confined-surface`, and fast `open-confined-surface` rows. The focused fallback `metadata_opendir` slice improved (`0.658506x` p50; `open_confined_openat2.total_ns 21589058 -> 9533021`), but the claim-gate rows did not pass: the final fallback `open-confined-surface` run regressed materially (`metadata_open` `1.341903x` p50 / `1.432767x` p95 / `1.450611x` p99; `metadata_opendir` `1.152927x` / `1.111275x` / `1.097032x`), and the fast row kept `metadata_open` tail regressions (`0.959265x` p50 but `1.185284x` p95 / `1.302269x` p99`) with a rerun that regressed both workloads. The implementation was reverted/not kept, so treat that bundle as rejected/slice context rather than speedup evidence.
+
+Future attempts on this row must still clear the same baseline/claim matrix:
+
+```bash
+scripts/bench-screenfs.py --policy-preset fallback-unsafe-policy --workload-set open-confined-surface ...
+scripts/bench-screenfs.py --policy-preset fast-path-cache-eligible --workload-set open-confined-surface ...
+# if the question is specifically opendir-side work, add an explicit focused row on the same policy
+scripts/bench-screenfs.py --policy-preset <same-policy> --workload metadata_opendir ...
+```
+
+Until a kept before/after pair clears that matrix, treat this row as the current next measure-first candidate rather than an implementation candidate.
 
 대상 workload:
 
@@ -399,7 +429,8 @@ Current smoke evidence:
 - 이 run은 claim-grade before/after evidence가 아니라 plumbing/attribution evidence다. It records `invalidations: count=80 invalidated_entries=40 evicted_entries=0 scanned_entries=320`, plus mutation-adjacent `mkdir`/`rmdir`, state lock, `open_confined_openat2`, `resolved_virtual_path_*`, and policy counters.
 - [`artifacts/current-pinned-mutation-invalidation-smoke.md`](artifacts/current-pinned-mutation-invalidation-smoke.md) records a follow-up smoke using `pinned_symlink_parent_mkdir_rmdir`, which pre-stats/lists a fixture sibling and each created child before removal. It records `invalidations: count=80 invalidated_entries=40 evicted_entries=0 scanned_entries=360`, plus non-zero `readdirplus_*` counters from the listing path.
 - [`artifacts/current-mutation-invalidation-set-smoke.md`](artifacts/current-mutation-invalidation-set-smoke.md) records the current combined `--workload-set mutation-invalidation` smoke after adding the scanned-entry counter. It uses `--iterations 1 --warmups 1 --symlink-parent-mutations 20 --small-files 200` and records process-lifetime perf counters (`invalidations: count=164 invalidated_entries=88 evicted_entries=0 scanned_entries=2368`) that include warmup and out-of-timed-section cleanup. Current latency samples keep cleanup outside timed samples for `subtree_rename_cached_unrelated`, and the pinned sibling fixture is prepared before timing.
-- [`artifacts/mutation-invalidation-range-scan/summary.md`](artifacts/mutation-invalidation-range-scan/summary.md) records same-machine before/after runs for a rejected ordered-subtree scan experiment. The mounted smokes did not show a latency win (`symlink_parent_mkdir_rmdir` p50 `1.030x`, `pinned_symlink_parent_mkdir_rmdir` p50 `1.110x`, `subtree_rename_cached_unrelated` p50 `1.212x`; tails worse), so that bundle is not speedup evidence and the experiment is not kept as the current implementation.
+- [`artifacts/mutation-invalidation-range-scan/summary.md`](artifacts/mutation-invalidation-range-scan/summary.md) records same-machine before/after runs for a rejected ordered-subtree scan experiment. The mounted smokes did not show a latency win (`symlink_parent_mkdir_rmdir` p50 `1.030x`, `pinned_symlink_parent_mkdir_rmdir` p50 `1.110x`, `subtree_rename_cached_unrelated` p50 `1.212x`; tails worse), so that bundle is not speedup evidence, is rejected/stale for the current workload scope, and the experiment is not kept as the current implementation.
+- Current implementation triage note: mutation invalidation remains `smoke`. Before another implementation attempt, refresh a focused `subtree_rename_cached_unrelated` baseline on the current workload shape and either add a mounted post-`FORGET` driver for eviction-breadth claims or explicitly narrow the claim scope to invalidation breadth without post-`FORGET` eviction claims.
 - Current implementation note: the default `invalidate_path_tree()` semantics still filter the current `path_inodes` map for subtree descendants. The opt-in perf summary now reports `invalidations.scanned_entries`, so future work can attribute the scan breadth directly before attempting another invalidation optimization.
 - Coverage caveat: mounted smokes still report `evicted_entries=0`. The pinned workload confirms directory/path invalidation plumbing with pre-populated mounted state, but kernel lookup refs can keep invalidated inodes non-evictable until `FORGET`, so mounted smoke alone does not prove eviction breadth minimality.
 - Focused state coverage now includes [`../src/fs/tests/state_cache.rs`](../src/fs/tests/state_cache.rs) (`mutation_invalidation_detaches_path_and_evicts_after_forget_without_touching_sibling`, `rename_invalidation_detaches_subtree_and_keeps_unrelated_sibling_mapping`, `rename_overwrite_invalidates_source_and_target_but_not_sibling`). These prove exact-path, subtree, same-prefix non-descendant, and overwrite target-side invalidation detach only mutated paths, leave unrelated/similar-prefix sibling mappings intact, and evict invalidated inodes after `FORGET` drops lookup refs.
@@ -511,15 +542,16 @@ Perf-enabled benchmark evidence should drive optimization order. The historical 
 ```text
 1. 문서/상태 정합성을 유지한다
 2. completed evidence를 현재 상태로 읽는다: per-open-cache claim, metadata/open-path guard-context claim, post-metadata directory/read-only-close claim을 서로 섞지 않는다
-3. 다음 성능 작업은 measure-first backlog에서 고른다: read/write buffer size와 concurrency, mutation invalidation breadth, readdirplus attr/page work, 또는 open_confined/openat2 frequency 중 하나를 먼저 계측한다
+3. 다음 성능 작업은 measure-first backlog에서 고르되, 현재 evidence 기준 첫 pick은 `open_confined/openat2` frequency baseline completion이다
 4. opt-in perf counter와 benchmark surface를 유지·확장하고 현재 expanded attribution(`stat_child_no_follow`, `source_root_path`, `resolved_virtual_path_from_path_*`, `matcher_family_candidates.*`, `matcher_candidate_order.*`, `readdir*`/`readdirplus*` split buckets, invalidation/eviction/scanned-entry counters)을 먼저 읽는다
 5. 현재 checked-in smoke/benchmark artifact가 필요한 counter surface를 못 담으면 재생성 계획부터 세운다
 6. policy/matcher hot path와 state lock hold time은 claim-grade evidence가 필요할 때만 더 쪼갠다
 7. read/write buffer size와 concurrency benchmark를 보강한다
-8. readdirplus attr/page 비용과 open_confined/openat2 호출 빈도/latency를 측정한다
-9. invalidate_after_mutation 범위와 evicted entry 수를 측정한다
-10. current counters로도 부족한 경우에만 더 세분화한 trace/counter를 추가한다
-11. evidence가 쌓인 뒤에만 negative/hidden path cache, state lock split, host-side io_uring를 검토한다
+8. `open_confined/openat2`는 구현 전에 `--policy-preset fallback-unsafe-policy --workload-set open-confined-surface`, `--policy-preset fast-path-cache-eligible --workload-set open-confined-surface`, 필요 시 explicit `--workload metadata_opendir` baseline을 먼저 채운다
+9. readdirplus attr/page 비용을 그 다음 measure-first row로 유지한다
+10. mutation invalidation은 fresh focused subtree baseline + mounted post-`FORGET` driver 또는 explicit scope reduction이 준비된 뒤에만 다시 implementation candidate로 올린다
+11. current counters로도 부족한 경우에만 더 세분화한 trace/counter를 추가한다
+12. evidence가 쌓인 뒤에만 negative/hidden path cache, state lock split, host-side io_uring를 검토한다
 ```
 
 ## Non-goals

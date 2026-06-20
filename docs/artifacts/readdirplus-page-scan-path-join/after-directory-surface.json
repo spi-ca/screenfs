@@ -1,0 +1,590 @@
+{
+  "comparisons": {
+    "readdir_basic": {
+      "mounted_median_sec": 0.1182007145,
+      "mounted_over_native_median": 61.92889772467689,
+      "mounted_p50_sec": 0.1182007145,
+      "mounted_p90_sec": 0.1204918709,
+      "mounted_p95_sec": 0.12176888495,
+      "mounted_p99_sec": 0.12279049619,
+      "native_median_sec": 0.001908652,
+      "native_p50_sec": 0.001908652,
+      "native_p90_sec": 0.0019957904,
+      "native_p95_sec": 0.0020158217,
+      "native_p99_sec": 0.00203184674
+    },
+    "readdirplus_basic": {
+      "mounted_median_sec": 0.36797943600000005,
+      "mounted_over_native_median": 68.62679270706333,
+      "mounted_p50_sec": 0.36797943600000005,
+      "mounted_p90_sec": 0.3811028841,
+      "mounted_p95_sec": 0.38309519205000003,
+      "mounted_p99_sec": 0.38468903841,
+      "native_median_sec": 0.0053620375,
+      "native_p50_sec": 0.0053620375,
+      "native_p90_sec": 0.0089498454,
+      "native_p95_sec": 0.0089909412,
+      "native_p99_sec": 0.00902381784
+    }
+  },
+  "environment": {
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "fusermount3": "fusermount3 version: 3.18.2",
+    "git_revision": "2bf92b4e94a3118d7066f294515107375a463d34",
+    "git_status_porcelain": "M docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/summary.md\n M docs/artifacts/readdirplus-deferred-attrs/summary.md\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M src/fs.rs\n M src/fs/backing.rs\n M src/fs/guards.rs\n M src/fs/tests/perf.rs\n M src/path.rs\n M src/path_tests.rs\n?? docs/artifacts/current-next-performance-candidates.md\n?? docs/artifacts/current-performance-followup-completion-audit.md\n?? docs/artifacts/read-write-small-io-guard-reuse/\n?? docs/artifacts/readdirplus-page-scan-path-join/",
+    "git_worktree_clean": false,
+    "harness_repo_root": "/home/spi-ca/Codebase/screenfs",
+    "mount_filesystem": {
+      "block_size": 4096,
+      "findmnt": "fuse screenfs rw,nosuid,nodev,relatime,user_id=1000,group_id=1000",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-bkuoaxsl/mount",
+      "stat_f_type": "fuse"
+    },
+    "platform": "Linux-7.1.1-1-spica-stable-git-x86_64-with-glibc2.43",
+    "python": "3.14.6",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "source_filesystem": {
+      "block_size": 4096,
+      "findmnt": "tmpfs tmpfs rw,nosuid,nodev,relatime,lazytime,inode64",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-bkuoaxsl/source",
+      "stat_f_type": "tmpfs"
+    },
+    "uname": "Linux ari14-lin 7.1.1-1-spica-stable-git #1 SMP PREEMPT Sat, 20 Jun 2026 00:06:59 +0000 x86_64 "
+  },
+  "harness": {
+    "argv": [
+      "python3",
+      "scripts/bench-screenfs.py",
+      "--build",
+      "--perf-counters",
+      "--policy-preset",
+      "fast-path-cache-eligible",
+      "--workload-set",
+      "directory-surface",
+      "--iterations",
+      "10",
+      "--warmups",
+      "3",
+      "--output-json",
+      "docs/artifacts/readdirplus-page-scan-path-join/after-directory-surface.json",
+      "--output-md",
+      "docs/artifacts/readdirplus-page-scan-path-join/after-directory-surface.md",
+      "--output-svg",
+      "docs/artifacts/readdirplus-page-scan-path-join/after-directory-surface.svg"
+    ],
+    "command_line": "python3 scripts/bench-screenfs.py --build --perf-counters --policy-preset fast-path-cache-eligible --workload-set directory-surface --iterations 10 --warmups 3 --output-json docs/artifacts/readdirplus-page-scan-path-join/after-directory-surface.json --output-md docs/artifacts/readdirplus-page-scan-path-join/after-directory-surface.md --output-svg docs/artifacts/readdirplus-page-scan-path-join/after-directory-surface.svg"
+  },
+  "mounted": [
+    {
+      "name": "readdir_basic",
+      "samples_sec": [
+        0.113153606,
+        0.119688131,
+        0.112727071,
+        0.123045899,
+        0.12020809,
+        0.117351512,
+        0.119049917,
+        0.115427371,
+        0.119244505,
+        0.117130816
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.123045899,
+        "mean_sec": 0.11770269180000001,
+        "median_sec": 0.1182007145,
+        "min_sec": 0.112727071,
+        "p50_sec": 0.1182007145,
+        "p90_sec": 0.1204918709,
+        "p95_sec": 0.12176888495,
+        "p99_sec": 0.12279049619,
+        "q1_sec": 0.11585323225,
+        "q3_sec": 0.1195772245,
+        "stdev_sec": 0.00323246541116532
+      }
+    },
+    {
+      "name": "readdirplus_basic",
+      "samples_sec": [
+        0.3850875,
+        0.380660149,
+        0.368670372,
+        0.366493169,
+        0.3672885,
+        0.366271635,
+        0.36930874,
+        0.368796106,
+        0.363168173,
+        0.365869499
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.3850875,
+        "mean_sec": 0.3701613843,
+        "median_sec": 0.36797943600000005,
+        "min_sec": 0.363168173,
+        "p50_sec": 0.36797943600000005,
+        "p90_sec": 0.3811028841,
+        "p95_sec": 0.38309519205000003,
+        "p99_sec": 0.38468903841,
+        "q1_sec": 0.3663270185,
+        "q3_sec": 0.3691805815,
+        "stdev_sec": 0.007007866975789686
+      }
+    }
+  ],
+  "native": [
+    {
+      "name": "readdir_basic",
+      "samples_sec": [
+        0.002035853,
+        0.001991339,
+        0.001890114,
+        0.001856267,
+        0.001859709,
+        0.001872124,
+        0.001968744,
+        0.001968635,
+        0.001917408,
+        0.001899896
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.002035853,
+        "mean_sec": 0.0019260089,
+        "median_sec": 0.001908652,
+        "min_sec": 0.001856267,
+        "p50_sec": 0.001908652,
+        "p90_sec": 0.0019957904,
+        "p95_sec": 0.0020158217,
+        "p99_sec": 0.00203184674,
+        "q1_sec": 0.0018766215,
+        "q3_sec": 0.00196871675,
+        "stdev_sec": 6.163018391169122e-05
+      }
+    },
+    {
+      "name": "readdirplus_basic",
+      "samples_sec": [
+        0.009032037,
+        0.008940713,
+        0.007883162,
+        0.006512929,
+        0.00547008,
+        0.005253995,
+        0.005166402,
+        0.005158892,
+        0.00517093,
+        0.005188529
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.009032037,
+        "mean_sec": 0.0063777669,
+        "median_sec": 0.0053620375,
+        "min_sec": 0.005158892,
+        "p50_sec": 0.0053620375,
+        "p90_sec": 0.0089498454,
+        "p95_sec": 0.0089909412,
+        "p99_sec": 0.00902381784,
+        "q1_sec": 0.00517532975,
+        "q3_sec": 0.00754060375,
+        "stdev_sec": 0.0016264783871946197
+      }
+    }
+  ],
+  "parameters": {
+    "dir_entries": 5000,
+    "hidden_misses": 2000,
+    "iterations": 10,
+    "matcher_extra_rules": 0,
+    "matcher_misses": 2000,
+    "metadata_ops": 512,
+    "open_read_close_ops": 4096,
+    "rand_io_ops": 16384,
+    "read_mib": 64,
+    "small_files": 2000,
+    "small_io_bytes": 4096,
+    "small_io_ops": 1024,
+    "symlink_parent_mutations": 2000,
+    "sync_4k_fsync_every": 32,
+    "sync_bytes": 4096,
+    "sync_ops": 128,
+    "warmups": 3,
+    "write_mib": 64
+  },
+  "paths": {
+    "mount": "/tmp/screenfs-bench-bkuoaxsl/mount",
+    "source": "/tmp/screenfs-bench-bkuoaxsl/source",
+    "workdir": "/tmp/screenfs-bench-bkuoaxsl"
+  },
+  "policy": {
+    "built_in_screenfs_args": [
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "description": "Default visible/writable policy with no hidden or readonly carve-outs.",
+    "effective_bucket": "fast-path-cache-eligible",
+    "extra_screenfs_args": [],
+    "fast_path_cache_eligible": true,
+    "hidden_paths": [],
+    "label": "fast-path-cache-eligible",
+    "manual_policy_override_flags": [],
+    "matcher_extra_rules": 0,
+    "notes": [
+      "effective policy remains cache-eligible for the current per-open read/write fast path"
+    ],
+    "readonly_paths": [],
+    "requested_bucket": "fast-path-cache-eligible",
+    "requested_preset": "fast-path-cache-eligible",
+    "supports_hidden_stat_miss": false,
+    "supports_matcher_hidden_stat_miss": false
+  },
+  "schema": "screenfs-benchmark-v2",
+  "screenfs": {
+    "binary": "target/release/screenfs",
+    "binary_sha256": "0bc1d6847824d1577f2afe89dbff9b1b480b45217490d51ec480d1e9a6151e40",
+    "command": [
+      "target/release/screenfs",
+      "/tmp/screenfs-bench-bkuoaxsl/source",
+      "/tmp/screenfs-bench-bkuoaxsl/mount",
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "perf_counters_enabled": true,
+    "perf_summary": {
+      "metrics": {
+        "fuse_op.access": {
+          "avg_ns": 74144,
+          "count": 1,
+          "max_ns": 74144,
+          "total_ns": 74144
+        },
+        "fuse_op.getattr": {
+          "avg_ns": 10482,
+          "count": 65027,
+          "max_ns": 122840,
+          "total_ns": 681634034
+        },
+        "fuse_op.lookup": {
+          "avg_ns": 9414,
+          "count": 195057,
+          "max_ns": 340824,
+          "total_ns": 1836292217
+        },
+        "fuse_op.opendir": {
+          "avg_ns": 23843,
+          "count": 26,
+          "max_ns": 47034,
+          "total_ns": 619934
+        },
+        "fuse_op.readdir": {
+          "avg_ns": 9317803,
+          "count": 180,
+          "max_ns": 24599054,
+          "total_ns": 1677204661
+        },
+        "fuse_op.readdirplus": {
+          "avg_ns": 17157655,
+          "count": 31,
+          "max_ns": 27491120,
+          "total_ns": 531887310
+        },
+        "fuse_op.releasedir": {
+          "avg_ns": 671178,
+          "count": 26,
+          "max_ns": 935826,
+          "total_ns": 17450644
+        },
+        "fuse_op.statfs": {
+          "avg_ns": 3451,
+          "count": 2,
+          "max_ns": 3539,
+          "total_ns": 6902
+        },
+        "invalidations": {
+          "count": 0,
+          "evicted_entries": 0,
+          "invalidated_entries": 0,
+          "scanned_entries": 0
+        },
+        "matcher_candidate_order.descendant": {
+          "avg_ns": 183,
+          "count": 1099907,
+          "max_ns": 32427,
+          "total_ns": 201495295
+        },
+        "matcher_candidate_order.path": {
+          "avg_ns": 188,
+          "count": 3299721,
+          "max_ns": 61565,
+          "total_ns": 621951272
+        },
+        "matcher_candidate_order_ancestor_steps": {
+          "count": 14971860
+        },
+        "matcher_candidate_order_ancestor_steps.descendant": {
+          "count": 3742965
+        },
+        "matcher_candidate_order_ancestor_steps.path": {
+          "count": 11228895
+        },
+        "matcher_candidate_order_duplicates": {
+          "count": 0
+        },
+        "matcher_candidate_order_duplicates.descendant": {
+          "count": 0
+        },
+        "matcher_candidate_order_duplicates.path": {
+          "count": 0
+        },
+        "matcher_candidate_order_seen_slots": {
+          "count": 0
+        },
+        "matcher_candidate_order_seen_slots.descendant": {
+          "count": 0
+        },
+        "matcher_candidate_order_seen_slots.path": {
+          "count": 0
+        },
+        "matcher_candidates": {
+          "count": 0
+        },
+        "matcher_family_candidates.direct_child_glob": {
+          "count": 0
+        },
+        "matcher_family_candidates.recursive": {
+          "count": 0
+        },
+        "matcher_family_candidates.subtree": {
+          "count": 0
+        },
+        "open_confined_openat2": {
+          "avg_ns": 561,
+          "count": 266229,
+          "max_ns": 28174,
+          "total_ns": 149595960
+        },
+        "policy_decision": {
+          "avg_ns": 516,
+          "count": 1099907,
+          "max_ns": 35393,
+          "total_ns": 568464682
+        },
+        "read_guard_path": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "read_handle_snapshot": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "read_io": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdir_attr_generation_entries": {
+          "count": 0
+        },
+        "readdir_attr_generation_scan": {
+          "avg_ns": 0,
+          "count": 180,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdir_candidate_selection": {
+          "avg_ns": 538280,
+          "count": 180,
+          "max_ns": 1624830,
+          "total_ns": 96890478
+        },
+        "readdir_directory_scan": {
+          "avg_ns": 8008911,
+          "count": 180,
+          "max_ns": 22725283,
+          "total_ns": 1441604026
+        },
+        "readdir_page_commit": {
+          "avg_ns": 1135151,
+          "count": 180,
+          "max_ns": 5137226,
+          "total_ns": 204327309
+        },
+        "readdir_symlink_visibility": {
+          "avg_ns": 0,
+          "count": 180,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdirplus_attr_generation_entries": {
+          "count": 5828
+        },
+        "readdirplus_attr_generation_scan": {
+          "avg_ns": 12204,
+          "count": 5859,
+          "max_ns": 63194,
+          "total_ns": 71503347
+        },
+        "readdirplus_candidate_selection": {
+          "avg_ns": 939040,
+          "count": 31,
+          "max_ns": 1550274,
+          "total_ns": 29110242
+        },
+        "readdirplus_directory_scan": {
+          "avg_ns": 14025689,
+          "count": 31,
+          "max_ns": 22833086,
+          "total_ns": 434796375
+        },
+        "readdirplus_page_commit": {
+          "avg_ns": 237429,
+          "count": 31,
+          "max_ns": 364049,
+          "total_ns": 7360319
+        },
+        "readdirplus_symlink_visibility": {
+          "avg_ns": 0,
+          "count": 31,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "resolved_virtual_path": {
+          "avg_ns": 1419,
+          "count": 532218,
+          "max_ns": 42814,
+          "total_ns": 755457813
+        },
+        "resolved_virtual_path_from_open_fd": {
+          "avg_ns": 1003,
+          "count": 266228,
+          "max_ns": 41275,
+          "total_ns": 267236026
+        },
+        "resolved_virtual_path_from_path": {
+          "avg_ns": 1835,
+          "count": 265990,
+          "max_ns": 42814,
+          "total_ns": 488221787
+        },
+        "resolved_virtual_path_from_path_canonicalize": {
+          "avg_ns": 953,
+          "count": 336765,
+          "max_ns": 28772,
+          "total_ns": 321130858
+        },
+        "resolved_virtual_path_from_path_component_walk": {
+          "avg_ns": 1512,
+          "count": 265990,
+          "max_ns": 42258,
+          "total_ns": 402323225
+        },
+        "resolved_virtual_path_from_path_source_root_confinement": {
+          "avg_ns": 125,
+          "count": 336765,
+          "max_ns": 40119,
+          "total_ns": 42349331
+        },
+        "resolved_virtual_path_from_path_virtual_conversion": {
+          "avg_ns": 265,
+          "count": 265990,
+          "max_ns": 12793,
+          "total_ns": 70704780
+        },
+        "source_root_path": {
+          "avg_ns": 1630,
+          "count": 266202,
+          "max_ns": 42263,
+          "total_ns": 434005293
+        },
+        "stat_child_no_follow": {
+          "avg_ns": 7372,
+          "count": 265991,
+          "max_ns": 110978,
+          "total_ns": 1961137326
+        },
+        "state_read_lock_hold": {
+          "avg_ns": 63,
+          "count": 260322,
+          "max_ns": 9204,
+          "total_ns": 16437602
+        },
+        "state_read_lock_wait": {
+          "avg_ns": 22,
+          "count": 260322,
+          "max_ns": 11104,
+          "total_ns": 5834287
+        },
+        "state_write_lock_hold": {
+          "avg_ns": 1770,
+          "count": 195344,
+          "max_ns": 5136878,
+          "total_ns": 345880824
+        },
+        "state_write_lock_wait": {
+          "avg_ns": 21,
+          "count": 195344,
+          "max_ns": 4365,
+          "total_ns": 4196884
+        },
+        "write_guard_mutation": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "write_handle_snapshot": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "write_io": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        }
+      },
+      "raw": "screenfs perf counters:\n  fuse_op.access: count=1 total_ns=74144 avg_ns=74144 max_ns=74144\n  fuse_op.getattr: count=65027 total_ns=681634034 avg_ns=10482 max_ns=122840\n  fuse_op.lookup: count=195057 total_ns=1836292217 avg_ns=9414 max_ns=340824\n  fuse_op.opendir: count=26 total_ns=619934 avg_ns=23843 max_ns=47034\n  fuse_op.readdir: count=180 total_ns=1677204661 avg_ns=9317803 max_ns=24599054\n  fuse_op.readdirplus: count=31 total_ns=531887310 avg_ns=17157655 max_ns=27491120\n  fuse_op.releasedir: count=26 total_ns=17450644 avg_ns=671178 max_ns=935826\n  fuse_op.statfs: count=2 total_ns=6902 avg_ns=3451 max_ns=3539\n  policy_decision: count=1099907 total_ns=568464682 avg_ns=516 max_ns=35393\n  matcher_candidates: count=0\n  matcher_family_candidates.direct_child_glob: count=0\n  matcher_family_candidates.recursive: count=0\n  matcher_family_candidates.subtree: count=0\n  matcher_candidate_order.descendant: count=1099907 total_ns=201495295 avg_ns=183 max_ns=32427\n  matcher_candidate_order.path: count=3299721 total_ns=621951272 avg_ns=188 max_ns=61565\n  matcher_candidate_order_duplicates: count=0\n  matcher_candidate_order_duplicates.descendant: count=0\n  matcher_candidate_order_duplicates.path: count=0\n  matcher_candidate_order_seen_slots: count=0\n  matcher_candidate_order_seen_slots.descendant: count=0\n  matcher_candidate_order_seen_slots.path: count=0\n  matcher_candidate_order_ancestor_steps: count=14971860\n  matcher_candidate_order_ancestor_steps.descendant: count=3742965\n  matcher_candidate_order_ancestor_steps.path: count=11228895\n  state_read_lock_wait: count=260322 total_ns=5834287 avg_ns=22 max_ns=11104\n  state_read_lock_hold: count=260322 total_ns=16437602 avg_ns=63 max_ns=9204\n  state_write_lock_wait: count=195344 total_ns=4196884 avg_ns=21 max_ns=4365\n  state_write_lock_hold: count=195344 total_ns=345880824 avg_ns=1770 max_ns=5136878\n  open_confined_openat2: count=266229 total_ns=149595960 avg_ns=561 max_ns=28174\n  stat_child_no_follow: count=265991 total_ns=1961137326 avg_ns=7372 max_ns=110978\n  source_root_path: count=266202 total_ns=434005293 avg_ns=1630 max_ns=42263\n  resolved_virtual_path: count=532218 total_ns=755457813 avg_ns=1419 max_ns=42814\n  resolved_virtual_path_from_path: count=265990 total_ns=488221787 avg_ns=1835 max_ns=42814\n  resolved_virtual_path_from_path_component_walk: count=265990 total_ns=402323225 avg_ns=1512 max_ns=42258\n  resolved_virtual_path_from_path_canonicalize: count=336765 total_ns=321130858 avg_ns=953 max_ns=28772\n  resolved_virtual_path_from_path_source_root_confinement: count=336765 total_ns=42349331 avg_ns=125 max_ns=40119\n  resolved_virtual_path_from_path_virtual_conversion: count=265990 total_ns=70704780 avg_ns=265 max_ns=12793\n  resolved_virtual_path_from_open_fd: count=266228 total_ns=267236026 avg_ns=1003 max_ns=41275\n  read_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_guard_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_guard_mutation: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_directory_scan: count=180 total_ns=1441604026 avg_ns=8008911 max_ns=22725283\n  readdir_attr_generation_scan: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_entries: count=0\n  readdir_symlink_visibility: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_candidate_selection: count=180 total_ns=96890478 avg_ns=538280 max_ns=1624830\n  readdir_page_commit: count=180 total_ns=204327309 avg_ns=1135151 max_ns=5137226\n  readdirplus_directory_scan: count=31 total_ns=434796375 avg_ns=14025689 max_ns=22833086\n  readdirplus_attr_generation_scan: count=5859 total_ns=71503347 avg_ns=12204 max_ns=63194\n  readdirplus_attr_generation_entries: count=5828\n  readdirplus_symlink_visibility: count=31 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_candidate_selection: count=31 total_ns=29110242 avg_ns=939040 max_ns=1550274\n  readdirplus_page_commit: count=31 total_ns=7360319 avg_ns=237429 max_ns=364049\n  invalidations: count=0 invalidated_entries=0 evicted_entries=0 scanned_entries=0"
+    },
+    "source": {
+      "git_revision": "2bf92b4e94a3118d7066f294515107375a463d34",
+      "git_status_porcelain": "M docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/summary.md\n M docs/artifacts/readdirplus-deferred-attrs/summary.md\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M src/fs.rs\n M src/fs/backing.rs\n M src/fs/guards.rs\n M src/fs/tests/perf.rs\n M src/path.rs\n M src/path_tests.rs\n?? docs/artifacts/current-next-performance-candidates.md\n?? docs/artifacts/current-performance-followup-completion-audit.md\n?? docs/artifacts/read-write-small-io-guard-reuse/\n?? docs/artifacts/readdirplus-page-scan-path-join/",
+      "git_worktree_clean": false,
+      "source_root": "/home/spi-ca/Codebase/screenfs",
+      "source_root_origin": "inferred-from-screenfs-bin"
+    },
+    "stderr_log": "/tmp/screenfs-bench-bkuoaxsl/screenfs.stderr.log",
+    "stderr_preview": "_ns=10482 max_ns=122840\n  fuse_op.lookup: count=195057 total_ns=1836292217 avg_ns=9414 max_ns=340824\n  fuse_op.opendir: count=26 total_ns=619934 avg_ns=23843 max_ns=47034\n  fuse_op.readdir: count=180 total_ns=1677204661 avg_ns=9317803 max_ns=24599054\n  fuse_op.readdirplus: count=31 total_ns=531887310 avg_ns=17157655 max_ns=27491120\n  fuse_op.releasedir: count=26 total_ns=17450644 avg_ns=671178 max_ns=935826\n  fuse_op.statfs: count=2 total_ns=6902 avg_ns=3451 max_ns=3539\n  policy_decision: count=1099907 total_ns=568464682 avg_ns=516 max_ns=35393\n  matcher_candidates: count=0\n  matcher_family_candidates.direct_child_glob: count=0\n  matcher_family_candidates.recursive: count=0\n  matcher_family_candidates.subtree: count=0\n  matcher_candidate_order.descendant: count=1099907 total_ns=201495295 avg_ns=183 max_ns=32427\n  matcher_candidate_order.path: count=3299721 total_ns=621951272 avg_ns=188 max_ns=61565\n  matcher_candidate_order_duplicates: count=0\n  matcher_candidate_order_duplicates.descendant: count=0\n  matcher_candidate_order_duplicates.path: count=0\n  matcher_candidate_order_seen_slots: count=0\n  matcher_candidate_order_seen_slots.descendant: count=0\n  matcher_candidate_order_seen_slots.path: count=0\n  matcher_candidate_order_ancestor_steps: count=14971860\n  matcher_candidate_order_ancestor_steps.descendant: count=3742965\n  matcher_candidate_order_ancestor_steps.path: count=11228895\n  state_read_lock_wait: count=260322 total_ns=5834287 avg_ns=22 max_ns=11104\n  state_read_lock_hold: count=260322 total_ns=16437602 avg_ns=63 max_ns=9204\n  state_write_lock_wait: count=195344 total_ns=4196884 avg_ns=21 max_ns=4365\n  state_write_lock_hold: count=195344 total_ns=345880824 avg_ns=1770 max_ns=5136878\n  open_confined_openat2: count=266229 total_ns=149595960 avg_ns=561 max_ns=28174\n  stat_child_no_follow: count=265991 total_ns=1961137326 avg_ns=7372 max_ns=110978\n  source_root_path: count=266202 total_ns=434005293 avg_ns=1630 max_ns=42263\n  resolved_virtual_path: count=532218 total_ns=755457813 avg_ns=1419 max_ns=42814\n  resolved_virtual_path_from_path: count=265990 total_ns=488221787 avg_ns=1835 max_ns=42814\n  resolved_virtual_path_from_path_component_walk: count=265990 total_ns=402323225 avg_ns=1512 max_ns=42258\n  resolved_virtual_path_from_path_canonicalize: count=336765 total_ns=321130858 avg_ns=953 max_ns=28772\n  resolved_virtual_path_from_path_source_root_confinement: count=336765 total_ns=42349331 avg_ns=125 max_ns=40119\n  resolved_virtual_path_from_path_virtual_conversion: count=265990 total_ns=70704780 avg_ns=265 max_ns=12793\n  resolved_virtual_path_from_open_fd: count=266228 total_ns=267236026 avg_ns=1003 max_ns=41275\n  read_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_guard_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_guard_mutation: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_directory_scan: count=180 total_ns=1441604026 avg_ns=8008911 max_ns=22725283\n  readdir_attr_generation_scan: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_entries: count=0\n  readdir_symlink_visibility: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_candidate_selection: count=180 total_ns=96890478 avg_ns=538280 max_ns=1624830\n  readdir_page_commit: count=180 total_ns=204327309 avg_ns=1135151 max_ns=5137226\n  readdirplus_directory_scan: count=31 total_ns=434796375 avg_ns=14025689 max_ns=22833086\n  readdirplus_attr_generation_scan: count=5859 total_ns=71503347 avg_ns=12204 max_ns=63194\n  readdirplus_attr_generation_entries: count=5828\n  readdirplus_symlink_visibility: count=31 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_candidate_selection: count=31 total_ns=29110242 avg_ns=939040 max_ns=1550274\n  readdirplus_page_commit: count=31 total_ns=7360319 avg_ns=237429 max_ns=364049\n  invalidations: count=0 invalidated_entries=0 evicted_entries=0 scanned_entries=0\n"
+  },
+  "screenfs_only": [],
+  "timestamp": "2026-06-20T11:04:47.784508+00:00",
+  "workloads": {
+    "comparable": [
+      "readdir_basic",
+      "readdirplus_basic"
+    ],
+    "mode": "named-set",
+    "requested_names": [
+      "readdir_basic",
+      "readdirplus_basic"
+    ],
+    "requested_set": "directory-surface",
+    "screenfs_only": [],
+    "skipped": []
+  }
+}

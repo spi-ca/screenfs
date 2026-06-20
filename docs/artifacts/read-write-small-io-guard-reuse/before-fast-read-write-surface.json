@@ -1,0 +1,580 @@
+{
+  "comparisons": {
+    "rand_read_4k": {
+      "mounted_median_sec": 0.3030061085,
+      "mounted_over_native_median": 11.370072643355572,
+      "mounted_p50_sec": 0.3030061085,
+      "mounted_p90_sec": 0.3654600822,
+      "mounted_p95_sec": 0.38899784159999995,
+      "mounted_p99_sec": 0.40782804912,
+      "native_median_sec": 0.0266494435,
+      "native_p50_sec": 0.0266494435,
+      "native_p90_sec": 0.027274714000000002,
+      "native_p95_sec": 0.027566548,
+      "native_p99_sec": 0.0278000152
+    },
+    "rand_write_4k": {
+      "mounted_median_sec": 0.3892827005,
+      "mounted_over_native_median": 15.828132126254177,
+      "mounted_p50_sec": 0.3892827005,
+      "mounted_p90_sec": 0.4081694903,
+      "mounted_p95_sec": 0.42817877314999997,
+      "mounted_p99_sec": 0.44418619943,
+      "native_median_sec": 0.024594355,
+      "native_p50_sec": 0.024594355,
+      "native_p90_sec": 0.025794748,
+      "native_p95_sec": 0.025803442,
+      "native_p99_sec": 0.025810397199999998
+    },
+    "seq_read": {
+      "mounted_median_sec": 0.041751451499999995,
+      "mounted_over_native_median": 2.9737460825373523,
+      "mounted_p50_sec": 0.041751451499999995,
+      "mounted_p90_sec": 0.0433086626,
+      "mounted_p95_sec": 0.0434841113,
+      "mounted_p99_sec": 0.04362447026,
+      "native_median_sec": 0.014040019,
+      "native_p50_sec": 0.014040019,
+      "native_p90_sec": 0.015418629199999999,
+      "native_p95_sec": 0.0154575146,
+      "native_p99_sec": 0.01548862292
+    },
+    "seq_write": {
+      "mounted_median_sec": 0.04127362,
+      "mounted_over_native_median": 2.9457881208433734,
+      "mounted_p50_sec": 0.04127362,
+      "mounted_p90_sec": 0.0421549107,
+      "mounted_p95_sec": 0.04247483235,
+      "mounted_p99_sec": 0.042730769669999995,
+      "native_median_sec": 0.014011062,
+      "native_p50_sec": 0.014011062,
+      "native_p90_sec": 0.0144746617,
+      "native_p95_sec": 0.01460910685,
+      "native_p99_sec": 0.01471666297
+    },
+    "small_read": {
+      "mounted_median_sec": 0.017621032000000002,
+      "mounted_over_native_median": 15.271695457586693,
+      "mounted_p50_sec": 0.017621032000000002,
+      "mounted_p90_sec": 0.0178327024,
+      "mounted_p95_sec": 0.0178804132,
+      "mounted_p99_sec": 0.01791858184,
+      "native_median_sec": 0.001153836,
+      "native_p50_sec": 0.001153836,
+      "native_p90_sec": 0.0014463892,
+      "native_p95_sec": 0.0015181516,
+      "native_p99_sec": 0.00157556152
+    },
+    "small_write": {
+      "mounted_median_sec": 0.0270605235,
+      "mounted_over_native_median": 22.16933612479145,
+      "mounted_p50_sec": 0.0270605235,
+      "mounted_p90_sec": 0.02741856,
+      "mounted_p95_sec": 0.027506976,
+      "mounted_p99_sec": 0.0275777088,
+      "native_median_sec": 0.0012206285,
+      "native_p50_sec": 0.0012206285,
+      "native_p90_sec": 0.0014281004,
+      "native_p95_sec": 0.0014489147,
+      "native_p99_sec": 0.0014655661399999998
+    }
+  },
+  "environment": {
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "fusermount3": "fusermount3 version: 3.18.2",
+    "git_revision": "2bf92b4e94a3118d7066f294515107375a463d34",
+    "git_status_porcelain": "M docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/summary.md\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n?? docs/artifacts/current-next-performance-candidates.md\n?? docs/artifacts/read-write-small-io-guard-reuse/",
+    "git_worktree_clean": false,
+    "harness_repo_root": "/home/spi-ca/Codebase/screenfs",
+    "mount_filesystem": {
+      "block_size": 4096,
+      "findmnt": "fuse screenfs rw,nosuid,nodev,relatime,user_id=1000,group_id=1000",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-asawrq1l/mount",
+      "stat_f_type": "fuse"
+    },
+    "platform": "Linux-7.1.1-1-spica-stable-git-x86_64-with-glibc2.43",
+    "python": "3.14.6",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "source_filesystem": {
+      "block_size": 4096,
+      "findmnt": "tmpfs tmpfs rw,nosuid,nodev,relatime,lazytime,inode64",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-asawrq1l/source",
+      "stat_f_type": "tmpfs"
+    },
+    "uname": "Linux ari14-lin 7.1.1-1-spica-stable-git #1 SMP PREEMPT Sat, 20 Jun 2026 00:06:59 +0000 x86_64 "
+  },
+  "harness": {
+    "argv": [
+      "python3",
+      "scripts/bench-screenfs.py",
+      "--build",
+      "--policy-preset",
+      "fast-path-cache-eligible",
+      "--workload-set",
+      "read-write-surface",
+      "--iterations",
+      "10",
+      "--warmups",
+      "3",
+      "--output-json",
+      "docs/artifacts/read-write-small-io-guard-reuse/before-fast-read-write-surface.json",
+      "--output-md",
+      "docs/artifacts/read-write-small-io-guard-reuse/before-fast-read-write-surface.md",
+      "--output-svg",
+      "docs/artifacts/read-write-small-io-guard-reuse/before-fast-read-write-surface.svg"
+    ],
+    "command_line": "python3 scripts/bench-screenfs.py --build --policy-preset fast-path-cache-eligible --workload-set read-write-surface --iterations 10 --warmups 3 --output-json docs/artifacts/read-write-small-io-guard-reuse/before-fast-read-write-surface.json --output-md docs/artifacts/read-write-small-io-guard-reuse/before-fast-read-write-surface.md --output-svg docs/artifacts/read-write-small-io-guard-reuse/before-fast-read-write-surface.svg"
+  },
+  "mounted": [
+    {
+      "name": "seq_read",
+      "samples_sec": [
+        0.04365956,
+        0.040469376,
+        0.042947345,
+        0.041207107,
+        0.039431947,
+        0.035850807,
+        0.039332839,
+        0.042397908,
+        0.043269674,
+        0.042295796
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.04365956,
+        "mean_sec": 0.0410862359,
+        "median_sec": 0.041751451499999995,
+        "min_sec": 0.035850807,
+        "p50_sec": 0.041751451499999995,
+        "p90_sec": 0.0433086626,
+        "p95_sec": 0.0434841113,
+        "p99_sec": 0.04362447026,
+        "q1_sec": 0.039691304250000004,
+        "q3_sec": 0.04280998575,
+        "stdev_sec": 0.002395657169298388
+      }
+    },
+    {
+      "name": "seq_write",
+      "samples_sec": [
+        0.037938732,
+        0.042794754,
+        0.041448128,
+        0.041784728,
+        0.041099112,
+        0.04035872,
+        0.042083817,
+        0.041005393,
+        0.042021688,
+        0.040920244
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.042794754,
+        "mean_sec": 0.0411455316,
+        "median_sec": 0.04127362,
+        "min_sec": 0.037938732,
+        "p50_sec": 0.04127362,
+        "p90_sec": 0.0421549107,
+        "p95_sec": 0.04247483235,
+        "p99_sec": 0.042730769669999995,
+        "q1_sec": 0.04094153125,
+        "q3_sec": 0.041962448,
+        "stdev_sec": 0.0013267874714882803
+      }
+    },
+    {
+      "name": "small_read",
+      "samples_sec": [
+        0.017270781,
+        0.017760829,
+        0.017747338,
+        0.017161859,
+        0.017473992,
+        0.0178221,
+        0.017928124,
+        0.017398168,
+        0.017540936,
+        0.017701128
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.017928124,
+        "mean_sec": 0.0175805255,
+        "median_sec": 0.017621032000000002,
+        "min_sec": 0.017161859,
+        "p50_sec": 0.017621032000000002,
+        "p90_sec": 0.0178327024,
+        "p95_sec": 0.0178804132,
+        "p99_sec": 0.01791858184,
+        "q1_sec": 0.017417124,
+        "q3_sec": 0.017757456249999998,
+        "stdev_sec": 0.00025198279217449667
+      }
+    },
+    {
+      "name": "small_write",
+      "samples_sec": [
+        0.027224169,
+        0.026743783,
+        0.027147345,
+        0.026292141,
+        0.026852568,
+        0.027398912,
+        0.027288511,
+        0.026681217,
+        0.026973702,
+        0.027595392
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.027595392,
+        "mean_sec": 0.027019774,
+        "median_sec": 0.0270605235,
+        "min_sec": 0.026292141,
+        "p50_sec": 0.0270605235,
+        "p90_sec": 0.02741856,
+        "p95_sec": 0.027506976,
+        "p99_sec": 0.0275777088,
+        "q1_sec": 0.02677097925,
+        "q3_sec": 0.027272425500000003,
+        "stdev_sec": 0.0003881115373534891
+      }
+    },
+    {
+      "name": "rand_read_4k",
+      "samples_sec": [
+        0.351690026,
+        0.291036274,
+        0.279050805,
+        0.344064832,
+        0.412535601,
+        0.360229469,
+        0.285718032,
+        0.305846793,
+        0.299656376,
+        0.300165424
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.412535601,
+        "mean_sec": 0.3229993632,
+        "median_sec": 0.3030061085,
+        "min_sec": 0.279050805,
+        "p50_sec": 0.3030061085,
+        "p90_sec": 0.3654600822,
+        "p95_sec": 0.38899784159999995,
+        "p99_sec": 0.40782804912,
+        "q1_sec": 0.2931912995,
+        "q3_sec": 0.3497837275,
+        "stdev_sec": 0.04265264581516998
+      }
+    },
+    {
+      "name": "rand_write_4k",
+      "samples_sec": [
+        0.357774651,
+        0.380461762,
+        0.388336614,
+        0.448188056,
+        0.396808693,
+        0.393791434,
+        0.403722983,
+        0.390228787,
+        0.343599164,
+        0.343425761
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.448188056,
+        "mean_sec": 0.3846337905,
+        "median_sec": 0.3892827005,
+        "min_sec": 0.343425761,
+        "p50_sec": 0.3892827005,
+        "p90_sec": 0.4081694903,
+        "p95_sec": 0.42817877314999997,
+        "p99_sec": 0.44418619943,
+        "q1_sec": 0.36344642875,
+        "q3_sec": 0.39605437825,
+        "stdev_sec": 0.0312719415777217
+      }
+    }
+  ],
+  "native": [
+    {
+      "name": "seq_read",
+      "samples_sec": [
+        0.013742783,
+        0.013601267,
+        0.013429935,
+        0.014280147,
+        0.01479438,
+        0.013650437,
+        0.013799891,
+        0.014522232,
+        0.015409988,
+        0.0154964
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.0154964,
+        "mean_sec": 0.014272746,
+        "median_sec": 0.014040019,
+        "min_sec": 0.013429935,
+        "p50_sec": 0.014040019,
+        "p90_sec": 0.015418629199999999,
+        "p95_sec": 0.0154575146,
+        "p99_sec": 0.01548862292,
+        "q1_sec": 0.0136735235,
+        "q3_sec": 0.014726343,
+        "stdev_sec": 0.0007585061415022733
+      }
+    },
+    {
+      "name": "seq_write",
+      "samples_sec": [
+        0.014444785,
+        0.014141547,
+        0.014743552,
+        0.013804707,
+        0.014001936,
+        0.014092724,
+        0.014020188,
+        0.013632395,
+        0.013847904,
+        0.012732327
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.014743552,
+        "mean_sec": 0.013946206499999999,
+        "median_sec": 0.014011062,
+        "min_sec": 0.012732327,
+        "p50_sec": 0.014011062,
+        "p90_sec": 0.0144746617,
+        "p95_sec": 0.01460910685,
+        "p99_sec": 0.01471666297,
+        "q1_sec": 0.01381550625,
+        "q3_sec": 0.01412934125,
+        "stdev_sec": 0.0005327300007561158
+      }
+    },
+    {
+      "name": "small_read",
+      "samples_sec": [
+        0.001166027,
+        0.001430442,
+        0.001051329,
+        0.000948214,
+        0.000936256,
+        0.001154072,
+        0.001385068,
+        0.001589914,
+        0.0011536,
+        0.001118879
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.001589914,
+        "mean_sec": 0.0011933801,
+        "median_sec": 0.001153836,
+        "min_sec": 0.000936256,
+        "p50_sec": 0.001153836,
+        "p90_sec": 0.0014463892,
+        "p95_sec": 0.0015181516,
+        "p99_sec": 0.00157556152,
+        "q1_sec": 0.0010682165,
+        "q3_sec": 0.00133030775,
+        "stdev_sec": 0.0002123952428717377
+      }
+    },
+    {
+      "name": "small_write",
+      "samples_sec": [
+        0.001212358,
+        0.00115692,
+        0.001171737,
+        0.001171231,
+        0.001423475,
+        0.001388459,
+        0.001273115,
+        0.001228899,
+        0.00116546,
+        0.001469729
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.001469729,
+        "mean_sec": 0.0012661383,
+        "median_sec": 0.0012206285,
+        "min_sec": 0.00115692,
+        "p50_sec": 0.0012206285,
+        "p90_sec": 0.0014281004,
+        "p95_sec": 0.0014489147,
+        "p99_sec": 0.0014655661399999998,
+        "q1_sec": 0.0011713575,
+        "q3_sec": 0.0013596230000000001,
+        "stdev_sec": 0.00011807619131452555
+      }
+    },
+    {
+      "name": "rand_read_4k",
+      "samples_sec": [
+        0.026758312,
+        0.027858382,
+        0.027209862,
+        0.02644364,
+        0.026198389,
+        0.026800036,
+        0.025089029,
+        0.026613911,
+        0.026684976,
+        0.026282145
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.027858382,
+        "mean_sec": 0.0265938682,
+        "median_sec": 0.0266494435,
+        "min_sec": 0.025089029,
+        "p50_sec": 0.0266494435,
+        "p90_sec": 0.027274714000000002,
+        "p95_sec": 0.027566548,
+        "p99_sec": 0.0278000152,
+        "q1_sec": 0.02632251875,
+        "q3_sec": 0.026789605,
+        "stdev_sec": 0.0007147165299131311
+      }
+    },
+    {
+      "name": "rand_write_4k",
+      "samples_sec": [
+        0.02503497,
+        0.025792816,
+        0.023653275,
+        0.025238994,
+        0.023533297,
+        0.022792395,
+        0.022880707,
+        0.02415374,
+        0.025431402,
+        0.025812136
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.025812136,
+        "mean_sec": 0.0244323732,
+        "median_sec": 0.024594355,
+        "min_sec": 0.022792395,
+        "p50_sec": 0.024594355,
+        "p90_sec": 0.025794748,
+        "p95_sec": 0.025803442,
+        "p99_sec": 0.025810397199999998,
+        "q1_sec": 0.0235632915,
+        "q3_sec": 0.025383299999999998,
+        "stdev_sec": 0.001171728710041402
+      }
+    }
+  ],
+  "parameters": {
+    "dir_entries": 5000,
+    "hidden_misses": 2000,
+    "iterations": 10,
+    "matcher_extra_rules": 0,
+    "matcher_misses": 2000,
+    "metadata_ops": 512,
+    "open_read_close_ops": 4096,
+    "rand_io_ops": 16384,
+    "read_mib": 64,
+    "small_files": 2000,
+    "small_io_bytes": 4096,
+    "small_io_ops": 1024,
+    "symlink_parent_mutations": 2000,
+    "sync_4k_fsync_every": 32,
+    "sync_bytes": 4096,
+    "sync_ops": 128,
+    "warmups": 3,
+    "write_mib": 64
+  },
+  "paths": {
+    "mount": "/tmp/screenfs-bench-asawrq1l/mount",
+    "source": "/tmp/screenfs-bench-asawrq1l/source",
+    "workdir": "/tmp/screenfs-bench-asawrq1l"
+  },
+  "policy": {
+    "built_in_screenfs_args": [
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "description": "Default visible/writable policy with no hidden or readonly carve-outs.",
+    "effective_bucket": "fast-path-cache-eligible",
+    "extra_screenfs_args": [],
+    "fast_path_cache_eligible": true,
+    "hidden_paths": [],
+    "label": "fast-path-cache-eligible",
+    "manual_policy_override_flags": [],
+    "matcher_extra_rules": 0,
+    "notes": [
+      "effective policy remains cache-eligible for the current per-open read/write fast path"
+    ],
+    "readonly_paths": [],
+    "requested_bucket": "fast-path-cache-eligible",
+    "requested_preset": "fast-path-cache-eligible",
+    "supports_hidden_stat_miss": false,
+    "supports_matcher_hidden_stat_miss": false
+  },
+  "schema": "screenfs-benchmark-v2",
+  "screenfs": {
+    "binary": "target/release/screenfs",
+    "binary_sha256": "8bd803047ed36d8fdb22742bef56a8a57bf46f033e1fd1d5d3c810c2716c1112",
+    "command": [
+      "target/release/screenfs",
+      "/tmp/screenfs-bench-asawrq1l/source",
+      "/tmp/screenfs-bench-asawrq1l/mount",
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "perf_counters_enabled": false,
+    "perf_summary": null,
+    "source": {
+      "git_revision": "2bf92b4e94a3118d7066f294515107375a463d34",
+      "git_status_porcelain": "M docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/summary.md\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n?? docs/artifacts/current-next-performance-candidates.md\n?? docs/artifacts/read-write-small-io-guard-reuse/",
+      "git_worktree_clean": false,
+      "source_root": "/home/spi-ca/Codebase/screenfs",
+      "source_root_origin": "inferred-from-screenfs-bin"
+    },
+    "stderr_log": "/tmp/screenfs-bench-asawrq1l/screenfs.stderr.log",
+    "stderr_preview": "mounting screenfs: source=/tmp/screenfs-bench-asawrq1l/source mount=/tmp/screenfs-bench-asawrq1l/mount visibility-default=visible visibility-source=cli hidden-rules=0 visible-rules=0 mutability-default=writable mutability-source=cli readonly-rules=0 writable-rules=0 io_uring=required\n"
+  },
+  "screenfs_only": [],
+  "timestamp": "2026-06-20T09:26:29.131800+00:00",
+  "workloads": {
+    "comparable": [
+      "seq_read",
+      "seq_write",
+      "small_read",
+      "small_write",
+      "rand_read_4k",
+      "rand_write_4k"
+    ],
+    "mode": "named-set",
+    "requested_names": [
+      "seq_read",
+      "seq_write",
+      "small_read",
+      "small_write",
+      "rand_read_4k",
+      "rand_write_4k"
+    ],
+    "requested_set": "read-write-surface",
+    "screenfs_only": [],
+    "skipped": []
+  }
+}
