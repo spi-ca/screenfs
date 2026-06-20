@@ -496,6 +496,8 @@ impl ScreenFs {
             .unwrap_or_else(VirtualPath::root)
     }
 
+    // open/opendir time this as the pre-open guard phase; fd-based revalidation
+    // stays in the guard_opened_* helpers below.
     pub(super) fn guard_open_flags_with_resolver(
         &self,
         resolver: &mut RequestPathResolver<'_>,
@@ -509,6 +511,8 @@ impl ScreenFs {
         }
     }
 
+    // access times this as the pre-open guard phase; fd-based revalidation stays
+    // in guard_opened_file_target_with_resolver.
     pub(super) fn guard_access_mask_with_resolver(
         &self,
         resolver: &mut RequestPathResolver<'_>,
@@ -557,6 +561,7 @@ impl ScreenFs {
         self.guard_opened_file_target_with_resolver(&mut resolver, path, file, mutation)
     }
 
+    // open/access time this as the post-open fd revalidation phase.
     pub(super) fn guard_opened_file_target_with_resolver(
         &self,
         resolver: &mut RequestPathResolver<'_>,
@@ -581,6 +586,7 @@ impl ScreenFs {
         self.guard_opened_directory_target_with_resolver(&mut resolver, path, file, mutation)
     }
 
+    // opendir times this as the post-open fd revalidation phase.
     pub(super) fn guard_opened_directory_target_with_resolver(
         &self,
         resolver: &mut RequestPathResolver<'_>,

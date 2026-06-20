@@ -32,6 +32,8 @@ pub(super) struct PerfCounters {
     state_write_wait: LatencyCounter,
     state_write_hold: LatencyCounter,
     open_confined: LatencyCounter,
+    open_like_pre_open_guard: LabeledLatencyCounters,
+    open_like_post_open_revalidation: LabeledLatencyCounters,
     stat_child_no_follow: LatencyCounter,
     source_root_path: LatencyCounter,
     resolved_virtual_path: LatencyCounter,
@@ -110,6 +112,8 @@ pub(crate) struct PerfSnapshot {
     pub(super) state_write_wait: LatencySnapshot,
     pub(super) state_write_hold: LatencySnapshot,
     pub(super) open_confined: LatencySnapshot,
+    pub(super) open_like_pre_open_guard: BTreeMap<&'static str, LatencySnapshot>,
+    pub(super) open_like_post_open_revalidation: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) stat_child_no_follow: LatencySnapshot,
     pub(super) source_root_path: LatencySnapshot,
     pub(super) resolved_virtual_path: LatencySnapshot,
@@ -251,6 +255,23 @@ impl PerfCounters {
 
     pub(super) fn record_open_confined(&self, elapsed: Duration) {
         self.open_confined.record(elapsed);
+    }
+
+    pub(super) fn record_open_like_pre_open_guard(
+        &self,
+        operation: &'static str,
+        elapsed: Duration,
+    ) {
+        self.open_like_pre_open_guard.record(operation, elapsed);
+    }
+
+    pub(super) fn record_open_like_post_open_revalidation(
+        &self,
+        operation: &'static str,
+        elapsed: Duration,
+    ) {
+        self.open_like_post_open_revalidation
+            .record(operation, elapsed);
     }
 
     pub(super) fn record_stat_child_no_follow(&self, elapsed: Duration) {
@@ -405,6 +426,8 @@ impl PerfCounters {
             state_write_wait: self.state_write_wait.snapshot(),
             state_write_hold: self.state_write_hold.snapshot(),
             open_confined: self.open_confined.snapshot(),
+            open_like_pre_open_guard: self.open_like_pre_open_guard.snapshot(),
+            open_like_post_open_revalidation: self.open_like_post_open_revalidation.snapshot(),
             stat_child_no_follow: self.stat_child_no_follow.snapshot(),
             source_root_path: self.source_root_path.snapshot(),
             resolved_virtual_path: self.resolved_virtual_path.snapshot(),
@@ -526,6 +549,16 @@ impl PerfCounters {
             snapshot.state_write_hold,
         );
         write_latency(&mut output, "open_confined_openat2", snapshot.open_confined);
+        write_labeled_latency(
+            &mut output,
+            "open_like.pre_open_guard",
+            &snapshot.open_like_pre_open_guard,
+        );
+        write_labeled_latency(
+            &mut output,
+            "open_like.post_open_revalidation",
+            &snapshot.open_like_post_open_revalidation,
+        );
         write_latency(
             &mut output,
             "stat_child_no_follow",

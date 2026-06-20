@@ -56,6 +56,12 @@ macro_rules! fuse_op_timer {
     };
 }
 
+#[derive(Debug, Clone, Copy)]
+enum OpenLikePhase {
+    PreOpenGuard,
+    PostOpenRevalidation,
+}
+
 // ScreenFs owns long-lived config, source-root fd, and the single state domain.
 #[derive(Debug)]
 pub struct ScreenFs {
@@ -319,6 +325,36 @@ impl ScreenFs {
         let start = Instant::now();
         let result = self.cfg.is_hidden_symlink_target(path, target);
         perf.record_policy_decision(start.elapsed());
+        result
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    fn record_open_like_phase<T>(
+        &self,
+        _operation: &'static str,
+        _phase: OpenLikePhase,
+        f: impl FnOnce() -> Result<T, i32>,
+    ) -> Result<T, i32> {
+        f()
+    }
+
+    #[cfg(feature = "perf-counters")]
+    fn record_open_like_phase<T>(
+        &self,
+        operation: &'static str,
+        phase: OpenLikePhase,
+        f: impl FnOnce() -> Result<T, i32>,
+    ) -> Result<T, i32> {
+        let start = Instant::now();
+        let result = f();
+        match phase {
+            OpenLikePhase::PreOpenGuard => self
+                .perf
+                .record_open_like_pre_open_guard(operation, start.elapsed()),
+            OpenLikePhase::PostOpenRevalidation => self
+                .perf
+                .record_open_like_post_open_revalidation(operation, start.elapsed()),
+        }
         result
     }
 
@@ -646,17 +682,16 @@ impl Filesystem for ScreenFs {
         let _timer = fuse_op_timer!(self, "open");
         let path = self.path_for_inode(inode)?;
         let mut resolver = guards::RequestPathResolver::new(self);
-        self.guard_open_flags_with_resolver(&mut resolver, &path, flags)?;
+        let write_intent = open_has_write_intent(flags);
+        self.record_open_like_phase("open", OpenLikePhase::PreOpenGuard, || {
+            self.guard_open_flags_with_resolver(&mut resolver, &path, flags)
+        })?;
         let open_flags = sanitize_open_flags(flags, false) & !libc::O_TRUNC;
         let file = self.open_confined(&path, open_flags, None)?;
-        self.guard_opened_file_target_with_resolver(
-            &mut resolver,
-            &path,
-            &file,
-            open_has_write_intent(flags),
-        )?;
+        self.record_open_like_phase("open", OpenLikePhase::PostOpenRevalidation, || {
+            self.guard_opened_file_target_with_resolver(&mut resolver, &path, &file, write_intent)
+        })?;
         self.apply_deferred_truncate(&file, flags)?;
-        let write_intent = open_has_write_intent(flags);
         let fh = self.insert_open_file(
             inode,
             path,
@@ -822,9 +857,13 @@ impl Filesystem for ScreenFs {
         let _timer = fuse_op_timer!(self, "opendir");
         let path = self.path_for_inode(inode)?;
         let mut resolver = guards::RequestPathResolver::new(self);
-        self.guard_open_flags_with_resolver(&mut resolver, &path, flags)?;
+        self.record_open_like_phase("opendir", OpenLikePhase::PreOpenGuard, || {
+            self.guard_open_flags_with_resolver(&mut resolver, &path, flags)
+        })?;
         let dir_file = self.open_confined(&path, libc::O_PATH | libc::O_DIRECTORY, None)?;
-        self.guard_opened_directory_target_with_resolver(&mut resolver, &path, &dir_file, false)?;
+        self.record_open_like_phase("opendir", OpenLikePhase::PostOpenRevalidation, || {
+            self.guard_opened_directory_target_with_resolver(&mut resolver, &path, &dir_file, false)
+        })?;
         let fh = self.insert_open_directory(inode, path);
         Ok(ReplyOpen {
             fh,
@@ -888,14 +927,14 @@ impl Filesystem for ScreenFs {
         let _timer = fuse_op_timer!(self, "access");
         let path = self.path_for_inode(inode)?;
         let mut resolver = guards::RequestPathResolver::new(self);
-        self.guard_access_mask_with_resolver(&mut resolver, &path, mask)?;
+        let mutation = mask & libc::W_OK as u32 != 0;
+        self.record_open_like_phase("access", OpenLikePhase::PreOpenGuard, || {
+            self.guard_access_mask_with_resolver(&mut resolver, &path, mask)
+        })?;
         let file = self.open_confined(&path, libc::O_PATH, None)?;
-        self.guard_opened_file_target_with_resolver(
-            &mut resolver,
-            &path,
-            &file,
-            mask & libc::W_OK as u32 != 0,
-        )?;
+        self.record_open_like_phase("access", OpenLikePhase::PostOpenRevalidation, || {
+            self.guard_opened_file_target_with_resolver(&mut resolver, &path, &file, mutation)
+        })?;
         faccessat2_empty(&file, mask)
     }
 

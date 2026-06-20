@@ -13,6 +13,13 @@ fn file_sync_count(snapshot: &PerfSnapshot, label: &'static str) -> u64 {
         .map_or(0, |counter| counter.count)
 }
 
+fn labeled_latency_count(
+    counters: &std::collections::BTreeMap<&'static str, crate::fs::perf::LatencySnapshot>,
+    label: &'static str,
+) -> u64 {
+    counters.get(label).map_or(0, |counter| counter.count)
+}
+
 // Test cases are grouped by the behavior named in each function.
 #[test]
 fn perf_counters_are_enabled_by_feature() {
@@ -178,6 +185,108 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
         "{snapshot:?}"
     );
     assert!(snapshot.readdir_page_commit.count > 0, "{snapshot:?}");
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
+    let source = test_dir("perf-open-like-splits");
+    std::fs::write(source.join("file.txt"), "hello").unwrap();
+    std::fs::create_dir(source.join("dir")).unwrap();
+    let fs = fs_for_perf(&source);
+
+    let file_inode = lookup_root_inode(&fs, "file.txt");
+    let dir_inode = lookup_root_inode(&fs, "dir");
+
+    let before_open = fs.perf_snapshot().expect("perf counters enabled");
+    let file_handle = block_on(fs.open(dummy_req(), file_inode, libc::O_RDWR as u32)).unwrap();
+    let after_open = fs.perf_snapshot().expect("perf counters enabled");
+    assert_eq!(
+        labeled_latency_count(&after_open.open_like_pre_open_guard, "open"),
+        labeled_latency_count(&before_open.open_like_pre_open_guard, "open") + 1,
+        "{before_open:?}\n{after_open:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_open.open_like_post_open_revalidation, "open"),
+        labeled_latency_count(&before_open.open_like_post_open_revalidation, "open") + 1,
+        "{before_open:?}\n{after_open:?}"
+    );
+    assert!(after_open.open_confined.count > before_open.open_confined.count);
+    assert!(
+        after_open.resolved_virtual_path_from_open_fd.count
+            > before_open.resolved_virtual_path_from_open_fd.count,
+        "{before_open:?}\n{after_open:?}"
+    );
+
+    let before_opendir = fs.perf_snapshot().expect("perf counters enabled");
+    let dir_handle = block_on(fs.opendir(dummy_req(), dir_inode, libc::O_RDONLY as u32)).unwrap();
+    let after_opendir = fs.perf_snapshot().expect("perf counters enabled");
+    assert_eq!(
+        labeled_latency_count(&after_opendir.open_like_pre_open_guard, "opendir"),
+        labeled_latency_count(&before_opendir.open_like_pre_open_guard, "opendir") + 1,
+        "{before_opendir:?}\n{after_opendir:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_opendir.open_like_post_open_revalidation, "opendir",),
+        labeled_latency_count(&before_opendir.open_like_post_open_revalidation, "opendir",) + 1,
+        "{before_opendir:?}\n{after_opendir:?}"
+    );
+
+    let before_access = fs.perf_snapshot().expect("perf counters enabled");
+    block_on(fs.access(dummy_req(), file_inode, libc::W_OK as u32)).unwrap();
+    let after_access = fs.perf_snapshot().expect("perf counters enabled");
+    assert_eq!(
+        labeled_latency_count(&after_access.open_like_pre_open_guard, "access"),
+        labeled_latency_count(&before_access.open_like_pre_open_guard, "access") + 1,
+        "{before_access:?}\n{after_access:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_access.open_like_post_open_revalidation, "access"),
+        labeled_latency_count(&before_access.open_like_post_open_revalidation, "access") + 1,
+        "{before_access:?}\n{after_access:?}"
+    );
+
+    let summary = fs.perf.summary();
+    assert!(summary.contains("open_confined_openat2"), "{summary}");
+    assert!(
+        summary.contains("open_like.pre_open_guard.open"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("open_like.post_open_revalidation.open"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("open_like.pre_open_guard.opendir"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("open_like.post_open_revalidation.opendir"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("open_like.pre_open_guard.access"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("open_like.post_open_revalidation.access"),
+        "{summary}"
+    );
+    assert!(
+        after_access.fuse_operations.contains_key("open"),
+        "{after_access:?}"
+    );
+    assert!(
+        after_access.fuse_operations.contains_key("opendir"),
+        "{after_access:?}"
+    );
+    assert!(
+        after_access.fuse_operations.contains_key("access"),
+        "{after_access:?}"
+    );
+
+    block_on(fs.release(dummy_req(), file_inode, file_handle.fh, 0, 0, false, false)).unwrap();
+    block_on(fs.releasedir(dummy_req(), dir_inode, dir_handle.fh, 0)).unwrap();
     std::fs::remove_dir_all(source).unwrap();
 }
 
