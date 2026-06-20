@@ -1,9 +1,11 @@
 #\!/usr/bin/env python3
 import argparse
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 MODULE_PATH = Path(__file__).with_name("bench-screenfs.py")
 spec = importlib.util.spec_from_file_location("bench_screenfs", MODULE_PATH)
@@ -29,6 +31,7 @@ def make_args(**overrides: object) -> argparse.Namespace:
         "small_files": 4,
         "dir_entries": 3,
         "rand_io_ops": 4,
+        "concurrency_workers": 4,
         "open_read_close_ops": 5,
         "metadata_ops": 5,
         "sync_4k_fsync_every": 2,
@@ -37,6 +40,7 @@ def make_args(**overrides: object) -> argparse.Namespace:
         "symlink_parent_mutations": 3,
         "iterations": 1,
         "warmups": 1,
+        "cache_control": "warm",
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -135,9 +139,18 @@ class PolicyResolutionTests(unittest.TestCase):
         self.assertEqual(policy["requested_bucket"], "fallback-unsafe-policy")
         self.assertEqual(policy["effective_bucket"], "custom-unsafe-policy")
         self.assertEqual(policy["label"], "fallback-unsafe-policy-matcher2")
+        self.assertEqual(policy["hidden_paths"], ["/.screenfs-bench/hidden", "/.screenfs-bench/matcher-heavy/descendant-root", "/.screenfs-bench/matcher-heavy/hidden-0000", "/.screenfs-bench/matcher-heavy/hidden-0001"])
+        self.assertEqual(
+            policy["visible_paths"],
+            [
+                "/.screenfs-bench/matcher-heavy/descendant-root/branch-0000/leaf-0000.txt",
+                "/.screenfs-bench/matcher-heavy/descendant-root/branch-0001/leaf-0001.txt",
+            ],
+        )
         self.assertTrue(policy["supports_matcher_hidden_stat_miss"])
+        self.assertTrue(policy["supports_matcher_descendant_directory"])
         self.assertIn(
-            "matcher_extra_rules appended synthetic hidden/readonly carve-outs and activates matcher_hidden_stat_miss when that workload is selected",
+            "matcher_extra_rules appended synthetic hidden/readonly rules plus hidden/visible descendant directory carve-outs for matcher_hidden_stat_miss and matcher_descendant_readdir* attribution workloads",
             policy["notes"],
         )
 
@@ -170,6 +183,7 @@ class WorkloadSelectionTests(unittest.TestCase):
     def test_next_candidate_named_sets_select_expected_workloads(self) -> None:
         cases = {
             "read-write-surface": bench.READ_WRITE_SURFACE_COMPARABLE_WORKLOADS,
+            "read-write-concurrency": bench.READ_WRITE_CONCURRENCY_COMPARABLE_WORKLOADS,
             "metadata-open-path": bench.METADATA_OPEN_PATH_COMPARABLE_WORKLOADS,
             "open-confined-surface": bench.OPEN_CONFINED_SURFACE_COMPARABLE_WORKLOADS,
             "sync-surface": bench.SYNC_SURFACE_COMPARABLE_WORKLOADS,
@@ -213,6 +227,49 @@ class WorkloadSelectionTests(unittest.TestCase):
         self.assertEqual(workloads["screenfs_only"], ["matcher_hidden_stat_miss"])
         self.assertEqual(workloads["skipped"], [])
 
+    def test_all_named_set_skips_matcher_descendant_workloads_without_rules(self) -> None:
+        args = make_args(workload_set="all")
+        policy = bench.resolve_policy(args)
+        workloads = bench.resolve_workloads(args, policy)
+
+        self.assertEqual(
+            workloads["skipped"],
+            [
+                {"name": "matcher_descendant_readdir", "reason": "matcher_descendant_readdir requires --matcher-extra-rules > 0"},
+                {"name": "matcher_descendant_readdirplus", "reason": "matcher_descendant_readdirplus requires --matcher-extra-rules > 0"},
+                {"name": "matcher_hidden_stat_miss", "reason": "matcher_hidden_stat_miss requires --matcher-extra-rules > 0"},
+            ],
+        )
+        self.assertNotIn("matcher_descendant_readdir", workloads["comparable"])
+        self.assertNotIn("matcher_descendant_readdirplus", workloads["comparable"])
+
+    def test_all_named_set_includes_matcher_descendant_workloads_when_rules_exist(self) -> None:
+        args = make_args(workload_set="all", matcher_extra_rules=32)
+        policy = bench.resolve_policy(args)
+        workloads = bench.resolve_workloads(args, policy)
+
+        self.assertEqual(workloads["comparable"], bench.WORKLOAD_SETS["all"]["comparable"])
+        self.assertEqual(workloads["screenfs_only"], bench.DEFAULT_SCREENFS_ONLY_WORKLOADS)
+        self.assertEqual(workloads["skipped"], [])
+        self.assertTrue(
+            all(name in workloads["comparable"] for name in bench.MATCHER_DESCENDANT_DIRECTORY_COMPARABLE_WORKLOADS)
+        )
+
+    def test_matcher_descendant_named_set_requires_matcher_rules(self) -> None:
+        args = make_args(workload_set="matcher-descendant-directory")
+        policy = bench.resolve_policy(args)
+        with self.assertRaisesRegex(SystemExit, "no workloads selected after applying policy/workload filters"):
+            bench.resolve_workloads(args, policy)
+
+    def test_matcher_descendant_named_set_selects_directory_workloads_when_rules_exist(self) -> None:
+        args = make_args(workload_set="matcher-descendant-directory", matcher_extra_rules=32)
+        policy = bench.resolve_policy(args)
+        workloads = bench.resolve_workloads(args, policy)
+
+        self.assertEqual(workloads["comparable"], bench.MATCHER_DESCENDANT_DIRECTORY_COMPARABLE_WORKLOADS)
+        self.assertEqual(workloads["screenfs_only"], [])
+        self.assertEqual(workloads["skipped"], [])
+
     def test_explicit_workloads_preserve_order_and_enable_matcher_when_rules_exist(self) -> None:
         args = make_args(
             matcher_extra_rules=2,
@@ -241,6 +298,11 @@ class WorkloadSelectionTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "hidden_stat_miss requires a hidden /\\.screenfs-bench/hidden rule"):
             bench.resolve_workloads(make_args(policy_preset="fast-path-cache-eligible", workload=["hidden_stat_miss"]), policy)
 
+    def test_explicit_matcher_descendant_workload_without_rules_is_blocked(self) -> None:
+        policy = bench.resolve_policy(make_args())
+        with self.assertRaisesRegex(SystemExit, "matcher_descendant_readdir requires --matcher-extra-rules > 0"):
+            bench.resolve_workloads(make_args(workload=["matcher_descendant_readdir"]), policy)
+
 
 class MarkdownProvenanceTests(unittest.TestCase):
     def test_markdown_report_includes_policy_and_workload_provenance(self) -> None:
@@ -260,7 +322,7 @@ class MarkdownProvenanceTests(unittest.TestCase):
                 "binary_sha256": "sha",
                 "perf_summary": None,
             },
-            "parameters": {"iterations": 1, "warmups": 1},
+            "parameters": {"iterations": 1, "warmups": 1, "concurrency_workers": 4},
             "policy": policy,
             "workloads": workloads,
             "comparisons": {},
@@ -280,6 +342,7 @@ class MarkdownProvenanceTests(unittest.TestCase):
             markdown,
         )
         self.assertIn("- screenfs_only_workloads: `(none)`", markdown)
+        self.assertIn("- concurrency_workers: `4`", markdown)
 
 
 class WorkloadFunctionTests(unittest.TestCase):
@@ -318,7 +381,15 @@ class WorkloadFunctionTests(unittest.TestCase):
                     cleanup()
 
     def test_next_candidate_named_sets_execute_selected_workloads(self) -> None:
-        for workload_set in ("read-write-surface", "metadata-open-path", "open-confined-surface", "sync-surface", "directory-surface", "directory-symlink-surface"):
+        for workload_set in (
+            "read-write-surface",
+            "read-write-concurrency",
+            "metadata-open-path",
+            "open-confined-surface",
+            "sync-surface",
+            "directory-surface",
+            "directory-symlink-surface",
+        ):
             args = make_args(workload_set=workload_set)
             policy = bench.resolve_policy(args)
             workloads = bench.resolve_workloads(args, policy)
@@ -331,6 +402,133 @@ class WorkloadFunctionTests(unittest.TestCase):
                     cleanup = bench.WORKLOADS[workload_name](self.root, args, "native")
                     if callable(cleanup):
                         cleanup()
+
+    def test_read_write_concurrency_workload_uses_per_worker_files_and_cleans_up(self) -> None:
+        args = make_args(workload_set="read-write-concurrency", concurrency_workers=3, rand_io_ops=2)
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            bench.prepare_fixture(root, args)
+            policy = bench.resolve_policy(args)
+            workloads = bench.resolve_workloads(args, policy)
+
+            self.assertEqual(workloads["comparable"], ["concurrent_rand_read_write_4k"])
+            cleanup = bench.WORKLOADS["concurrent_rand_read_write_4k"](root, args, "native")
+            self.assertTrue(callable(cleanup))
+
+            read_root = root / ".screenfs-bench" / "concurrency-read"
+            self.assertEqual(
+                sorted(path.name for path in read_root.iterdir()),
+                ["worker-000000.bin", "worker-000001.bin", "worker-000002.bin"],
+            )
+            self.assertTrue(
+                all(
+                    (root / ".screenfs-bench" / "write-native" / f"concurrent-rand-read-write-4k-worker-{index:06d}.bin").exists()
+                    for index in range(args.concurrency_workers)
+                )
+            )
+
+            cleanup()
+            self.assertTrue(
+                all(
+                    not (root / ".screenfs-bench" / "write-native" / f"concurrent-rand-read-write-4k-worker-{index:06d}.bin").exists()
+                    for index in range(args.concurrency_workers)
+                )
+            )
+
+    def test_matcher_descendant_directory_fixture_and_workloads_run(self) -> None:
+        args = make_args(matcher_extra_rules=3, workload_set="matcher-descendant-directory")
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            bench.prepare_fixture(root, args)
+            policy = bench.resolve_policy(args)
+            workloads = bench.resolve_workloads(args, policy)
+
+            descendant_root = root / ".screenfs-bench" / "matcher-heavy" / "descendant-root"
+            self.assertEqual(sorted(path.name for path in descendant_root.iterdir()), ["branch-0000", "branch-0001", "branch-0002"])
+
+            for workload_name in workloads["comparable"]:
+                with self.subTest(workload=workload_name):
+                    cleanup = bench.WORKLOADS[workload_name](root, args, "native")
+                    if callable(cleanup):
+                        cleanup()
+
+    def test_measure_workload_applies_read_fixture_cache_control_before_each_warmup_and_sample(self) -> None:
+        args = make_args(cache_control="posix-fadvise-read-fixture", warmups=2, iterations=3)
+        calls: list[list[str]] = []
+
+        def workload(_root: Path, _args: argparse.Namespace, _side: str) -> None:
+            return None
+
+        def record(paths: list[Path], stats: dict[str, object]) -> None:
+            calls.append([str(path) for path in paths])
+            stats["applications"] = int(stats.get("applications", 0)) + 1
+
+        with mock.patch.object(bench, "apply_cache_control_to_files", side_effect=record):
+            result = bench.measure_workload(
+                "seq_read",
+                workload,
+                self.root,
+                args,
+                "native",
+                cache_control_source_root=self.root,
+            )
+
+        expected = str(self.root / ".screenfs-bench" / "read" / "seq.bin")
+        self.assertEqual(calls, [[expected], [expected], [expected], [expected], [expected]])
+        self.assertEqual(result["cache_control"]["applications"], 5)
+        self.assertEqual(result["cache_control"]["applied_files"], [expected])
+        self.assertTrue(result["cache_control"]["timing_applied"])
+
+    def test_measure_workload_uses_source_root_for_mounted_cache_control(self) -> None:
+        args = make_args(cache_control="posix-fadvise-read-fixture", warmups=1, iterations=1)
+        mount = self.root / "mount-view"
+        mount.mkdir()
+        calls: list[list[str]] = []
+
+        def workload(_root: Path, _args: argparse.Namespace, _side: str) -> None:
+            return None
+
+        def record(paths: list[Path], stats: dict[str, object]) -> None:
+            calls.append([str(path) for path in paths])
+            stats["applications"] = int(stats.get("applications", 0)) + 1
+
+        with mock.patch.object(bench, "apply_cache_control_to_files", side_effect=record):
+            result = bench.measure_workload(
+                "seq_read",
+                workload,
+                mount,
+                args,
+                "mounted",
+                cache_control_source_root=self.root,
+            )
+
+        expected = str(self.root / ".screenfs-bench" / "read" / "seq.bin")
+        mounted_path = str(mount / ".screenfs-bench" / "read" / "seq.bin")
+        self.assertEqual(calls, [[expected], [expected]])
+        self.assertEqual(result["cache_control"]["applied_files"], [expected])
+        self.assertNotIn(mounted_path, result["cache_control"]["applied_files"])
+
+    def test_select_cache_control_read_fixture_files_excludes_symlinks_non_regular_and_write_outputs(self) -> None:
+        read_root = self.root / ".screenfs-bench" / "concurrency-read"
+        symlink_path = read_root / "worker-999998.bin"
+        os.symlink("worker-000000.bin", symlink_path)
+        non_regular_path = read_root / "worker-999999.bin"
+        non_regular_path.mkdir()
+        write_native = self.root / ".screenfs-bench" / "write-native" / "worker-000000.bin"
+        write_native.write_bytes(b"native-write")
+        write_mounted = self.root / ".screenfs-bench" / "write-mounted" / "worker-000000.bin"
+        write_mounted.write_bytes(b"mounted-write")
+
+        selected, skipped = bench.select_cache_control_read_fixture_files("concurrent_rand_read_write_4k", self.root)
+
+        self.assertTrue(all(path.is_file() for path in selected))
+        self.assertTrue(all(path.parent == read_root for path in selected))
+        self.assertNotIn(write_native, selected)
+        self.assertNotIn(write_mounted, selected)
+        skipped_by_path = {item["path"]: item["reason"] for item in skipped}
+        self.assertEqual(skipped_by_path[str(symlink_path)], "symlink")
+        self.assertEqual(skipped_by_path[str(non_regular_path)], "non-regular")
+        self.assertTrue(any(item["reason"] == "duplicate-inode" for item in skipped))
 
     def test_symlink_parent_mutation_workload_leaves_no_children_behind(self) -> None:
         bench.symlink_parent_mkdir_rmdir(self.root, self.args, "native")

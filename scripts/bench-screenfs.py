@@ -20,10 +20,12 @@ import shutil
 from collections.abc import Callable as AbcCallable
 import shlex
 import signal
+import stat
 import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +46,12 @@ POLICY_OPTION_FLAGS = frozenset(
 )
 POLICY_SHAPING_EXTRA_ARG_FLAGS = frozenset({*POLICY_OPTION_FLAGS, "--config"})
 HIDDEN_STAT_MISS_TARGET = "/.screenfs-bench/hidden"
+CACHE_CONTROL_CHOICES = ("warm", "posix-fadvise-read-fixture")
+CACHE_CONTROL_SCOPES = {
+    "warm": "no explicit cache eviction; existing warm-cache behavior",
+    "posix-fadvise-read-fixture": "requested non-root read-side cold-cache approximation for benchmark-owned source/.screenfs-bench read fixtures",
+}
+READ_SIDE_CACHE_CONTROL_WORKLOADS = frozenset({"seq_read", "small_read", "rand_read_4k", "concurrent_rand_read_write_4k"})
 POLICY_PRESETS: dict[str, dict[str, Any]] = {
     "fallback-unsafe-policy": {
         "bucket": "fallback-unsafe-policy",
@@ -94,6 +102,9 @@ READ_WRITE_SURFACE_COMPARABLE_WORKLOADS = [
     "rand_read_4k",
     "rand_write_4k",
 ]
+READ_WRITE_CONCURRENCY_COMPARABLE_WORKLOADS = [
+    "concurrent_rand_read_write_4k",
+]
 METADATA_OPEN_PATH_COMPARABLE_WORKLOADS = [
     "metadata_lookup",
     "metadata_getattr",
@@ -125,6 +136,10 @@ DIRECTORY_SYMLINK_SURFACE_COMPARABLE_WORKLOADS = [
     "readdir_symlink_visibility",
     "readdirplus_symlink_visibility",
 ]
+MATCHER_DESCENDANT_DIRECTORY_COMPARABLE_WORKLOADS = [
+    "matcher_descendant_readdir",
+    "matcher_descendant_readdirplus",
+]
 POLICY_HEAVY_COMPARABLE_WORKLOADS = [
     "metadata_lookup",
     "metadata_getattr",
@@ -154,6 +169,10 @@ WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
         "comparable": list(READ_WRITE_SURFACE_COMPARABLE_WORKLOADS),
         "screenfs_only": [],
     },
+    "read-write-concurrency": {
+        "comparable": list(READ_WRITE_CONCURRENCY_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
     "metadata-open-path": {
         "comparable": list(METADATA_OPEN_PATH_COMPARABLE_WORKLOADS),
         "screenfs_only": [],
@@ -178,6 +197,10 @@ WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
         "comparable": list(DIRECTORY_SYMLINK_SURFACE_COMPARABLE_WORKLOADS),
         "screenfs_only": [],
     },
+    "matcher-descendant-directory": {
+        "comparable": list(MATCHER_DESCENDANT_DIRECTORY_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
     "policy-heavy-matrix": {
         "comparable": ["metadata_lookup", "metadata_getattr", "metadata_access"],
         "screenfs_only": ["matcher_hidden_stat_miss"],
@@ -192,12 +215,14 @@ WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
                 DEFAULT_COMPARABLE_WORKLOADS
                 + PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS
                 + READ_WRITE_SURFACE_COMPARABLE_WORKLOADS
+                + READ_WRITE_CONCURRENCY_COMPARABLE_WORKLOADS
                 + METADATA_OPEN_PATH_COMPARABLE_WORKLOADS
                 + OPEN_CONFINED_SURFACE_COMPARABLE_WORKLOADS
                 + SYNC_SURFACE_COMPARABLE_WORKLOADS
                 + READ_ONLY_CLOSE_SURFACE_COMPARABLE_WORKLOADS
                 + DIRECTORY_SURFACE_COMPARABLE_WORKLOADS
                 + DIRECTORY_SYMLINK_SURFACE_COMPARABLE_WORKLOADS
+                + MATCHER_DESCENDANT_DIRECTORY_COMPARABLE_WORKLOADS
             )
         ),
         "screenfs_only": list(DEFAULT_SCREENFS_ONLY_WORKLOADS),
@@ -224,6 +249,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--iterations", type=int, default=10, help="Measured iterations per workload.")
     parser.add_argument("--warmups", type=int, default=3, help="Warmup iterations per workload.")
+    parser.add_argument(
+        "--cache-control",
+        choices=CACHE_CONTROL_CHOICES,
+        default="warm",
+        help="Cache handling mode for warmups/measured samples (default: warm). posix-fadvise-read-fixture is a non-root read-side cold-cache approximation, not a strict cold-cache guarantee.",
+    )
     parser.add_argument("--read-mib", type=int, default=64, help="Sequential read fixture size in MiB.")
     parser.add_argument("--write-mib", type=int, default=64, help="Sequential write size per iteration in MiB.")
     parser.add_argument(
@@ -247,6 +278,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=16384,
         help="4KiB random read/write operations per iteration for rand_*_4k workloads.",
+    )
+    parser.add_argument(
+        "--concurrency-workers",
+        type=int,
+        default=4,
+        help="Worker threads per iteration for concurrent_rand_read_write_4k (default: 4).",
     )
     parser.add_argument(
         "--open-read-close-ops",
@@ -276,7 +313,7 @@ def parse_args() -> argparse.Namespace:
         "--matcher-extra-rules",
         type=int,
         default=0,
-        help="Add synthetic hidden/readonly rules and fixture files for matcher-heavy attribution experiments.",
+        help="Add synthetic hidden/readonly rules plus bridge-visible descendant fixture/rules for matcher-heavy attribution experiments.",
     )
     parser.add_argument(
         "--matcher-misses",
@@ -542,7 +579,17 @@ def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
     root.mkdir(parents=True)
 
     chunk = bytes((i % 251 for i in range(MiB)))
-    write_bytes(root / "read" / "seq.bin", args.read_mib * MiB, chunk)
+    read_path = root / "read" / "seq.bin"
+    write_bytes(read_path, args.read_mib * MiB, chunk)
+
+    concurrency_read_dir = root / "concurrency-read"
+    concurrency_read_dir.mkdir()
+    for index in range(args.concurrency_workers):
+        worker_path = concurrency_read_dir / f"worker-{index:06d}.bin"
+        try:
+            os.link(read_path, worker_path)
+        except OSError:
+            shutil.copyfile(read_path, worker_path)
 
     small_dir = root / "small-files"
     small_dir.mkdir()
@@ -566,6 +613,8 @@ def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
     if args.matcher_extra_rules:
         matcher_dir = root / "matcher-heavy"
         matcher_dir.mkdir()
+        descendant_root = matcher_dir / "descendant-root"
+        descendant_root.mkdir()
         for index in range(args.matcher_extra_rules):
             hidden_bucket = matcher_dir / f"hidden-{index:04d}"
             hidden_bucket.mkdir()
@@ -573,6 +622,9 @@ def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
             visible_bucket = matcher_dir / f"visible-{index:04d}"
             visible_bucket.mkdir()
             (visible_bucket / f"readonly-{index:04d}.txt").write_text("readonly matcher payload\n", encoding="utf-8")
+            branch_dir = descendant_root / f"branch-{index:04d}"
+            branch_dir.mkdir()
+            (branch_dir / f"leaf-{index:04d}.txt").write_text("visible descendant matcher payload\n", encoding="utf-8")
 
     symlink_parent_dir = root / "symlink-parent"
     symlink_parent_dir.mkdir()
@@ -760,10 +812,14 @@ def rand_read_4k(root: Path, args: argparse.Namespace, side: str) -> None:
 
 
 
+def aligned_random_io_size(size_mib: int) -> int:
+    return max(RANDOM_4K_BLOCK_SIZE, (size_mib * MiB // RANDOM_4K_BLOCK_SIZE) * RANDOM_4K_BLOCK_SIZE)
+
+
+
 def rand_write_4k(root: Path, args: argparse.Namespace, side: str) -> AbcCallable[[], None]:
     path = write_output_path(root, side, "rand-write-4k.bin")
-    size = max(args.write_mib * MiB, RANDOM_4K_BLOCK_SIZE)
-    size = (size // RANDOM_4K_BLOCK_SIZE) * RANDOM_4K_BLOCK_SIZE
+    size = aligned_random_io_size(args.write_mib)
     block_count = max(1, size // RANDOM_4K_BLOCK_SIZE)
     chunk = b"r" * RANDOM_4K_BLOCK_SIZE
     rng = random.Random(0)
@@ -784,6 +840,89 @@ def rand_write_4k(root: Path, args: argparse.Namespace, side: str) -> AbcCallabl
 
     def cleanup() -> None:
         path.unlink(missing_ok=True)
+
+    return cleanup
+
+
+
+def concurrency_read_path(root: Path, worker_index: int) -> Path:
+    return root / ".screenfs-bench" / "concurrency-read" / f"worker-{worker_index:06d}.bin"
+
+
+
+def concurrency_write_path(root: Path, side: str, worker_index: int) -> Path:
+    return write_output_path(root, side, f"concurrent-rand-read-write-4k-worker-{worker_index:06d}.bin")
+
+
+
+def concurrent_rand_read_write_4k(root: Path, args: argparse.Namespace, side: str) -> AbcCallable[[], None]:
+    read_block_count = max(1, aligned_random_io_size(args.read_mib) // RANDOM_4K_BLOCK_SIZE)
+    write_size = aligned_random_io_size(args.write_mib)
+    write_block_count = max(1, write_size // RANDOM_4K_BLOCK_SIZE)
+    barrier = threading.Barrier(args.concurrency_workers + 1)
+    write_paths = [concurrency_write_path(root, side, index) for index in range(args.concurrency_workers)]
+    errors: list[BaseException] = []
+
+    def worker(worker_index: int, write_path: Path) -> None:
+        read_path = concurrency_read_path(root, worker_index)
+        chunk = bytes((worker_index + offset) % 251 for offset in range(RANDOM_4K_BLOCK_SIZE))
+        rng = random.Random(worker_index)
+        total = 0
+        read_fd: int | None = None
+        write_fd: int | None = None
+        try:
+            read_fd = os.open(read_path, os.O_RDONLY | os.O_CLOEXEC)
+            write_fd = os.open(write_path, os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+            os.ftruncate(write_fd, write_size)
+            barrier.wait()
+            for _ in range(args.rand_io_ops):
+                read_offset = rng.randrange(read_block_count) * RANDOM_4K_BLOCK_SIZE
+                data = os.pread(read_fd, RANDOM_4K_BLOCK_SIZE, read_offset)
+                if len(data) != RANDOM_4K_BLOCK_SIZE:
+                    raise RuntimeError(
+                        f"{side} concurrent_rand_read_write_4k short read for worker {worker_index} at offset {read_offset}: {len(data)}"
+                    )
+                total += len(data)
+                write_offset = rng.randrange(write_block_count) * RANDOM_4K_BLOCK_SIZE
+                written = os.pwrite(write_fd, chunk, write_offset)
+                if written != RANDOM_4K_BLOCK_SIZE:
+                    raise RuntimeError(
+                        f"{side} concurrent_rand_read_write_4k short write for worker {worker_index} at offset {write_offset}: {written}"
+                    )
+            if total == 0:
+                raise RuntimeError(f"{side} concurrent_rand_read_write_4k worker {worker_index} transferred no data")
+        except BaseException as exc:
+            errors.append(exc)
+            barrier.abort()
+        finally:
+            if write_fd is not None:
+                os.close(write_fd)
+            if read_fd is not None:
+                os.close(read_fd)
+
+    threads = [
+        threading.Thread(target=worker, args=(worker_index, write_path), name=f"screenfs-bench-concurrency-{worker_index}")
+        for worker_index, write_path in enumerate(write_paths)
+    ]
+    try:
+        for thread in threads:
+            thread.start()
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            pass
+        for thread in threads:
+            thread.join()
+        if errors:
+            raise RuntimeError(str(errors[0])) from errors[0]
+    except Exception:
+        for write_path in write_paths:
+            write_path.unlink(missing_ok=True)
+        raise
+
+    def cleanup() -> None:
+        for write_path in write_paths:
+            write_path.unlink(missing_ok=True)
 
     return cleanup
 
@@ -1076,6 +1215,50 @@ def readdir_lstat(root: Path, _args: argparse.Namespace, _side: str) -> None:
 
 
 
+def matcher_descendant_directory_root(root: Path) -> Path:
+    return root / ".screenfs-bench" / "matcher-heavy" / "descendant-root"
+
+
+
+def expected_matcher_descendant_directory_names(args: argparse.Namespace) -> set[str]:
+    return {f"branch-{index:04d}" for index in range(args.matcher_extra_rules)}
+
+
+
+def matcher_descendant_readdir(root: Path, args: argparse.Namespace, _side: str) -> None:
+    if args.matcher_extra_rules <= 0:
+        raise RuntimeError("matcher_descendant_readdir requires --matcher-extra-rules > 0")
+    dir_path = matcher_descendant_directory_root(root)
+    names = set()
+    with os.scandir(dir_path) as entries:
+        for entry in entries:
+            if not entry.is_dir(follow_symlinks=False):
+                raise RuntimeError(f"matcher_descendant_readdir expected directory entry: {entry.name}")
+            names.add(entry.name)
+    expected = expected_matcher_descendant_directory_names(args)
+    if names != expected:
+        raise RuntimeError(f"matcher_descendant_readdir saw unexpected entries: {sorted(names)}")
+
+
+
+def matcher_descendant_readdirplus(root: Path, args: argparse.Namespace, _side: str) -> None:
+    if args.matcher_extra_rules <= 0:
+        raise RuntimeError("matcher_descendant_readdirplus requires --matcher-extra-rules > 0")
+    dir_path = matcher_descendant_directory_root(root)
+    seen = set()
+    with os.scandir(dir_path) as entries:
+        for entry in entries:
+            if not entry.stat(follow_symlinks=False).st_mode:
+                raise RuntimeError(f"matcher_descendant_readdirplus could not stat: {entry.name}")
+            if not entry.is_dir(follow_symlinks=False):
+                raise RuntimeError(f"matcher_descendant_readdirplus expected directory entry: {entry.name}")
+            seen.add(entry.name)
+    expected = expected_matcher_descendant_directory_names(args)
+    if seen != expected:
+        raise RuntimeError(f"matcher_descendant_readdirplus saw unexpected entries: {sorted(seen)}")
+
+
+
 def expected_symlink_directory_names(args: argparse.Namespace) -> set[str]:
     return {
         "target.txt",
@@ -1265,6 +1448,7 @@ WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], Any]] = {
     "write_fsync_close": write_fsync_close,
     "rand_read_4k": rand_read_4k,
     "rand_write_4k": rand_write_4k,
+    "concurrent_rand_read_write_4k": concurrent_rand_read_write_4k,
     "sync_write_4k": sync_write_4k,
     "sync_flush_only": sync_flush_only,
     "sync_fsync_only": sync_fsync_only,
@@ -1285,6 +1469,8 @@ WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], Any]] = {
     "readdir_basic": readdir_basic,
     "readdirplus_basic": readdirplus_basic,
     "readdir_lstat": readdir_lstat,
+    "matcher_descendant_readdir": matcher_descendant_readdir,
+    "matcher_descendant_readdirplus": matcher_descendant_readdirplus,
     "readdir_symlink_visibility": readdir_symlink_visibility,
     "readdirplus_symlink_visibility": readdirplus_symlink_visibility,
     "symlink_open_read": symlink_open_read,
@@ -1303,15 +1489,28 @@ def resolve_policy(args: argparse.Namespace) -> dict[str, Any]:
     preset = POLICY_PRESETS[args.policy_preset]
     policy_args = list(preset["screenfs_args"])
     if args.matcher_extra_rules:
+        policy_args.extend(["--hidden", "/.screenfs-bench/matcher-heavy/descendant-root"])
         for index in range(args.matcher_extra_rules):
             hidden_path = f"/.screenfs-bench/matcher-heavy/hidden-{index:04d}"
             readonly_path = f"/.screenfs-bench/matcher-heavy/visible-{index:04d}/readonly-{index:04d}.txt"
-            policy_args.extend(["--hidden", hidden_path, "--readonly", readonly_path])
+            visible_leaf_path = f"/.screenfs-bench/matcher-heavy/descendant-root/branch-{index:04d}/leaf-{index:04d}.txt"
+            policy_args.extend(
+                [
+                    "--hidden",
+                    hidden_path,
+                    "--readonly",
+                    readonly_path,
+                    "--visible",
+                    visible_leaf_path,
+                ]
+            )
 
     hidden_paths = collect_option_values(policy_args, "--hidden")
     readonly_paths = collect_option_values(policy_args, "--readonly")
+    visible_paths = collect_option_values(policy_args, "--visible")
     hidden_paths.extend(collect_option_values(args.extra_screenfs_arg, "--hidden"))
     readonly_paths.extend(collect_option_values(args.extra_screenfs_arg, "--readonly"))
+    visible_paths.extend(collect_option_values(args.extra_screenfs_arg, "--visible"))
 
     manual_policy_override_flags = [arg for arg in args.extra_screenfs_arg if arg in POLICY_SHAPING_EXTRA_ARG_FLAGS]
     suffixes = []
@@ -1341,7 +1540,7 @@ def resolve_policy(args: argparse.Namespace) -> dict[str, Any]:
     notes: list[str] = []
     if args.matcher_extra_rules:
         notes.append(
-            "matcher_extra_rules appended synthetic hidden/readonly carve-outs and activates matcher_hidden_stat_miss when that workload is selected"
+            "matcher_extra_rules appended synthetic hidden/readonly rules plus hidden/visible descendant directory carve-outs for matcher_hidden_stat_miss and matcher_descendant_readdir* attribution workloads"
         )
     if manual_policy_override_flags:
         joined = ", ".join(manual_policy_override_flags)
@@ -1360,12 +1559,14 @@ def resolve_policy(args: argparse.Namespace) -> dict[str, Any]:
         "built_in_screenfs_args": policy_args,
         "hidden_paths": hidden_paths,
         "readonly_paths": readonly_paths,
+        "visible_paths": visible_paths,
         "matcher_extra_rules": args.matcher_extra_rules,
         "manual_policy_override_flags": manual_policy_override_flags,
         "extra_screenfs_args": list(args.extra_screenfs_arg),
         "fast_path_cache_eligible": fast_path_cache_eligible,
         "supports_hidden_stat_miss": hidden_paths_support_target(hidden_paths, HIDDEN_STAT_MISS_TARGET),
         "supports_matcher_hidden_stat_miss": args.matcher_extra_rules > 0,
+        "supports_matcher_descendant_directory": args.matcher_extra_rules > 0,
         "notes": notes,
     }
 
@@ -1389,20 +1590,27 @@ def resolve_workloads(args: argparse.Namespace, policy: dict[str, Any]) -> dict[
     screenfs_only: list[str] = []
     skipped: list[dict[str, str]] = []
     for name in requested_names:
-        if name in WORKLOADS:
-            comparable.append(name)
-            continue
         reason: str | None = None
-        if name == "hidden_stat_miss" and not policy["supports_hidden_stat_miss"]:
-            reason = f"{name} requires a hidden /.screenfs-bench/hidden rule in the selected policy"
-        elif name == "matcher_hidden_stat_miss" and not policy["supports_matcher_hidden_stat_miss"]:
-            reason = f"{name} requires --matcher-extra-rules > 0"
+        if name in WORKLOADS:
+            if name in MATCHER_DESCENDANT_DIRECTORY_COMPARABLE_WORKLOADS and not policy["supports_matcher_descendant_directory"]:
+                reason = f"{name} requires --matcher-extra-rules > 0"
+            elif name in READ_WRITE_CONCURRENCY_COMPARABLE_WORKLOADS and args.concurrency_workers <= 0:
+                reason = f"{name} requires --concurrency-workers > 0"
+            if reason is None:
+                comparable.append(name)
+                continue
+        else:
+            if name == "hidden_stat_miss" and not policy["supports_hidden_stat_miss"]:
+                reason = f"{name} requires a hidden /.screenfs-bench/hidden rule in the selected policy"
+            elif name == "matcher_hidden_stat_miss" and not policy["supports_matcher_hidden_stat_miss"]:
+                reason = f"{name} requires --matcher-extra-rules > 0"
+            if reason is None:
+                screenfs_only.append(name)
+                continue
         if reason is not None:
             if explicit:
                 raise SystemExit(reason)
             skipped.append({"name": name, "reason": reason})
-            continue
-        screenfs_only.append(name)
 
     if not comparable and not screenfs_only:
         raise SystemExit("no workloads selected after applying policy/workload filters")
@@ -1415,6 +1623,149 @@ def resolve_workloads(args: argparse.Namespace, policy: dict[str, Any]) -> dict[
         "screenfs_only": screenfs_only,
         "skipped": skipped,
     }
+
+
+
+def cache_control_scope(method: str) -> str:
+    return CACHE_CONTROL_SCOPES.get(method, "unknown")
+
+
+
+def default_cache_control_stats(method: str) -> dict[str, Any]:
+    return {
+        "method": method,
+        "scope": cache_control_scope(method),
+        "timing_applied": False,
+        "support_checked": method == "warm"
+        or (getattr(os, "posix_fadvise", None) is not None and getattr(os, "POSIX_FADV_DONTNEED", None) is not None),
+        "applications": 0,
+        "applied_files": [],
+        "skipped": [],
+        "errors": [],
+        "notes": [],
+    }
+
+
+
+def ensure_cache_control_supported(args: argparse.Namespace) -> None:
+    if getattr(args, "cache_control", "warm") != "posix-fadvise-read-fixture":
+        return
+    missing: list[str] = []
+    if getattr(os, "posix_fadvise", None) is None:
+        missing.append("os.posix_fadvise")
+    if getattr(os, "POSIX_FADV_DONTNEED", None) is None:
+        missing.append("os.POSIX_FADV_DONTNEED")
+    if missing:
+        raise SystemExit(
+            "--cache-control=posix-fadvise-read-fixture requires "
+            + ", ".join(missing)
+            + "; support must be available before enabling this provenance mode"
+        )
+
+
+
+def cache_control_candidate_paths(name: str, source_root: Path) -> list[Path]:
+    fixture_root = source_root / ".screenfs-bench"
+    if name in {"seq_read", "small_read", "rand_read_4k"}:
+        return [fixture_root / "read" / "seq.bin"]
+    if name == "concurrent_rand_read_write_4k":
+        read_root = fixture_root / "concurrency-read"
+        if not read_root.is_dir():
+            return []
+        return sorted(read_root.glob("worker-*.bin"), key=lambda path: path.name)
+    return []
+
+
+
+def is_write_output_fixture_path(path: Path, source_root: Path) -> bool:
+    try:
+        relative = path.relative_to(source_root / ".screenfs-bench")
+    except ValueError:
+        return False
+    if not relative.parts:
+        return False
+    return relative.parts[0] in {"write-native", "write-mounted"}
+
+
+
+def select_cache_control_read_fixture_files(name: str, source_root: Path) -> tuple[list[Path], list[dict[str, str]]]:
+    selected: list[Path] = []
+    skipped: list[dict[str, str]] = []
+    seen_inodes: set[tuple[int, int]] = set()
+    for path in cache_control_candidate_paths(name, source_root):
+        if is_write_output_fixture_path(path, source_root):
+            skipped.append({"path": str(path), "reason": "write-output"})
+            continue
+        try:
+            status = path.lstat()
+        except OSError as exc:
+            skipped.append({"path": str(path), "reason": f"lstat-failed: {exc}"})
+            continue
+        if stat.S_ISLNK(status.st_mode):
+            skipped.append({"path": str(path), "reason": "symlink"})
+            continue
+        if not stat.S_ISREG(status.st_mode):
+            skipped.append({"path": str(path), "reason": "non-regular"})
+            continue
+        inode_key = (status.st_dev, status.st_ino)
+        if inode_key in seen_inodes:
+            skipped.append({"path": str(path), "reason": "duplicate-inode"})
+            continue
+        seen_inodes.add(inode_key)
+        selected.append(path)
+    return selected, skipped
+
+
+
+def prepare_cache_control_stats(name: str, args: argparse.Namespace, cache_control_source_root: Path | None) -> tuple[list[Path], dict[str, Any]]:
+    stats = default_cache_control_stats(args.cache_control)
+    method = args.cache_control
+    if method == "warm":
+        stats["notes"] = ["warm mode leaves cache state unchanged before warmups and measured samples"]
+        return [], stats
+    if method != "posix-fadvise-read-fixture":
+        stats["notes"] = [f"unrecognized cache-control method: {method}"]
+        return [], stats
+    if name not in READ_SIDE_CACHE_CONTROL_WORKLOADS:
+        stats["notes"] = ["cache control only applies to read-side fixture workloads"]
+        return [], stats
+    if cache_control_source_root is None:
+        stats["notes"] = ["cache control skipped because no backing source root was provided"]
+        return [], stats
+    selected, skipped = select_cache_control_read_fixture_files(name, cache_control_source_root)
+    stats["applied_files"] = [str(path) for path in selected]
+    stats["skipped"] = skipped
+    stats["timing_applied"] = bool(selected)
+    if selected:
+        stats["notes"] = [
+            "apply os.posix_fadvise(..., POSIX_FADV_DONTNEED) to selected backing source fixture files before each warmup and measured sample"
+        ]
+    else:
+        stats["notes"] = ["no regular backing source fixture files were selected for cache control"]
+    return selected, stats
+
+
+
+def apply_cache_control_to_files(paths: list[Path], stats: dict[str, Any]) -> None:
+    if not paths:
+        return
+    stats["applications"] += 1
+    open_flags = os.O_RDONLY | os.O_CLOEXEC
+    open_flags |= getattr(os, "O_NOFOLLOW", 0)
+    for path in paths:
+        fd: int | None = None
+        try:
+            fd = os.open(path, open_flags)
+            descriptor_stat = os.fstat(fd)
+            if not stat.S_ISREG(descriptor_stat.st_mode):
+                raise RuntimeError(f"cache-control target is not a regular file: {path}")
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        except (OSError, RuntimeError) as exc:
+            stats["errors"].append({"path": str(path), "error": str(exc)})
+            raise RuntimeError(f"cache-control failed for {path}: {exc}") from exc
+        finally:
+            if fd is not None:
+                os.close(fd)
 
 
 
@@ -1465,11 +1816,23 @@ def measure_workload(
     root: Path,
     args: argparse.Namespace,
     side: str,
+    cache_control_source_root: Path | None = None,
 ) -> dict[str, Any]:
+    cache_control_paths, cache_control_stats = prepare_cache_control_stats(name, args, cache_control_source_root)
     for _ in range(args.warmups):
+        apply_cache_control_to_files(cache_control_paths, cache_control_stats)
         time_one(func, root, args, side)
-    samples = [time_one(func, root, args, side) for _ in range(args.iterations)]
-    return {"name": name, "side": side, "samples_sec": samples, "summary": summarize(samples)}
+    samples = []
+    for _ in range(args.iterations):
+        apply_cache_control_to_files(cache_control_paths, cache_control_stats)
+        samples.append(time_one(func, root, args, side))
+    return {
+        "name": name,
+        "side": side,
+        "samples_sec": samples,
+        "summary": summarize(samples),
+        "cache_control": cache_control_stats,
+    }
 
 
 
@@ -1527,21 +1890,20 @@ def render_box_plot_svg(result: dict[str, Any]) -> str:
         lines.append(f'<line class="grid" x1="{xpos:.2f}" y1="{top - 10}" x2="{xpos:.2f}" y2="{height - bottom + 10}"/>')
         lines.append(f'<text x="{xpos:.2f}" y="{height - 25}" text-anchor="middle">{value:.4f}</text>')
     lines.append(f'<line class="axis" x1="{left}" y1="{height - bottom + 10}" x2="{width - right}" y2="{height - bottom + 10}"/>')
-
     for index, (name, side, values, color) in enumerate(series):
-        ordered = sorted(values)
-        minimum = ordered[0]
-        q1 = percentile(ordered, 0.25)
-        median = percentile(ordered, 0.50)
-        q3 = percentile(ordered, 0.75)
-        maximum = ordered[-1]
-        p90 = percentile(ordered, 0.90)
-        p95 = percentile(ordered, 0.95)
-        p99 = percentile(ordered, 0.99)
-        cy = top + index * row_height + row_height / 2
+        summary = summarize(values)
+        minimum = summary["min_sec"]
+        q1 = summary["q1_sec"]
+        median = summary["median_sec"]
+        q3 = summary["q3_sec"]
+        maximum = summary["max_sec"]
+        p90 = summary["p90_sec"]
+        p95 = summary["p95_sec"]
+        p99 = summary["p99_sec"]
+        cy = top + row_height * index + row_height / 2
         box_top = cy - 9
         box_height = 18
-        label = f"{name} [{side}]"
+        label = f"{name} ({side})"
         lines.append(f'<text x="12" y="{cy + 4:.2f}">{text(label)}</text>')
         lines.append(f'<line class="whisker" x1="{x(minimum):.2f}" y1="{cy:.2f}" x2="{x(maximum):.2f}" y2="{cy:.2f}"/>')
         lines.append(f'<line class="whisker" x1="{x(minimum):.2f}" y1="{cy - 7:.2f}" x2="{x(minimum):.2f}" y2="{cy + 7:.2f}"/>')
@@ -1568,6 +1930,7 @@ def render_box_plot_svg(result: dict[str, Any]) -> str:
 
 def benchmark_parameters(args: argparse.Namespace) -> dict[str, Any]:
     return {
+        "cache_control": args.cache_control,
         "iterations": args.iterations,
         "warmups": args.warmups,
         "read_mib": args.read_mib,
@@ -1577,6 +1940,7 @@ def benchmark_parameters(args: argparse.Namespace) -> dict[str, Any]:
         "sync_bytes": args.sync_bytes,
         "sync_ops": args.sync_ops,
         "rand_io_ops": args.rand_io_ops,
+        "concurrency_workers": args.concurrency_workers,
         "open_read_close_ops": args.open_read_close_ops,
         "metadata_ops": args.metadata_ops,
         "sync_4k_fsync_every": args.sync_4k_fsync_every,
@@ -1613,6 +1977,50 @@ def benchmark_environment(
 
 
 
+def aggregate_cache_control_summary(method: str, *result_sets: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = default_cache_control_stats(method)
+    result_items = [item for result_set in result_sets for item in result_set]
+    if not result_items:
+        return summary
+    summary["timing_applied"] = any(bool(item.get("cache_control", {}).get("timing_applied")) for item in result_items)
+    summary["applications"] = sum(int(item.get("cache_control", {}).get("applications", 0)) for item in result_items)
+    summary["applied_files"] = sorted(
+        {
+            path
+            for item in result_items
+            for path in item.get("cache_control", {}).get("applied_files", [])
+        }
+    )
+    summary["skipped"] = [
+        {
+            "workload": item["name"],
+            "side": item["side"],
+            **skipped,
+        }
+        for item in result_items
+        for skipped in item.get("cache_control", {}).get("skipped", [])
+    ]
+    summary["errors"] = [
+        {
+            "workload": item["name"],
+            "side": item["side"],
+            **error,
+        }
+        for item in result_items
+        for error in item.get("cache_control", {}).get("errors", [])
+    ]
+    summary["notes"] = list(
+        dict.fromkeys(
+            note
+            for item in result_items
+            for note in item.get("cache_control", {}).get("notes", [])
+            if note
+        )
+    )
+    return summary
+
+
+
 def build_benchmark_result(
     *,
     args: argparse.Namespace,
@@ -1645,6 +2053,7 @@ def build_benchmark_result(
         },
         "environment": environment,
         "parameters": benchmark_parameters(args),
+        "cache_control": aggregate_cache_control_summary(args.cache_control, native_results, mounted_results, screenfs_only),
         "paths": {"workdir": str(workdir), "source": str(source), "mount": str(mount)},
         "policy": policy,
         "workloads": workloads,
@@ -1674,13 +2083,13 @@ def markdown_report(result: dict[str, Any]) -> str:
     source_dirty_status = summarize_git_status(source_info.get("git_status_porcelain"))
     policy = result["policy"]
     workloads = result["workloads"]
+    cache_control = result.get("cache_control") or aggregate_cache_control_summary(result["parameters"].get("cache_control", "warm"))
 
     comparable_names = ", ".join(workloads["comparable"]) if workloads["comparable"] else "(none)"
     screenfs_only_names = ", ".join(workloads["screenfs_only"]) if workloads["screenfs_only"] else "(none)"
+    parameter_cache_control = result["parameters"].get("cache_control", "warm")
 
-    lines = [
-        "# ScreenFS benchmark result",
-        "",
+    provenance_lines = [
         f"- timestamp: `{result['timestamp']}`",
         f"- harness_command_line: `{result['harness']['command_line']}`",
         f"- harness_repo_root: `{environment.get('harness_repo_root') or 'unknown'}`",
@@ -1700,19 +2109,32 @@ def markdown_report(result: dict[str, Any]) -> str:
         f"- workload_set: `{workloads['requested_set'] or 'explicit'}`",
         f"- comparable_workloads: `{comparable_names}`",
         f"- screenfs_only_workloads: `{screenfs_only_names}`",
+        f"- cache_control: `{parameter_cache_control}`",
+        f"- cache_control_scope: `{cache_control['scope']}`",
+        f"- cache_control_timing_applied: `{cache_control['timing_applied']}`",
+        f"- cache_control_applications: `{cache_control.get('applications', 0)}`",
+        f"- concurrency_workers: `{result['parameters']['concurrency_workers']}`",
         f"- iterations: `{result['parameters']['iterations']}`, warmups: `{result['parameters']['warmups']}`",
+    ]
+    if git_dirty_status is not None:
+        provenance_lines.insert(4, f"- git_dirty_status: `{git_dirty_status}`")
+    if source_dirty_status is not None:
+        provenance_lines.insert(11, f"- screenfs_source_git_dirty_status: `{source_dirty_status}`")
+    if policy["notes"]:
+        provenance_lines.insert(16, f"- policy_notes: `{' ; '.join(policy['notes'])}`")
+    if cache_control.get("notes"):
+        provenance_lines.insert(-2, f"- cache_control_notes: `{' ; '.join(cache_control['notes'])}`")
+
+    lines = [
+        "# ScreenFS benchmark result",
+        "",
+        *provenance_lines,
         "",
         "## Comparable workloads",
         "",
         "| workload | native p50 s | mounted p50 s | ratio mounted/native | mounted p90 s | mounted p95 s | mounted p99 s |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
-    if git_dirty_status is not None:
-        lines.insert(6, f"- git_dirty_status: `{git_dirty_status}`")
-    if source_dirty_status is not None:
-        lines.insert(12, f"- screenfs_source_git_dirty_status: `{source_dirty_status}`")
-    if policy["notes"]:
-        lines.insert(len(lines) - 8, f"- policy_notes: `{' ; '.join(policy['notes'])}`")
 
     comparable = result["comparisons"]
     for name, comparison in comparable.items():
@@ -1759,13 +2181,11 @@ def markdown_report(result: dict[str, Any]) -> str:
             "",
             "- Fixture creation, build time, and mount startup are not included in workload timings.",
             "- Native and mounted timings use the same prepared backing fixture; write workloads use separate native/mounted output files and remove them after each iteration. Workloads that return cleanup callbacks run those deletions outside timed latency samples, but perf counters still include cleanup-side `unlink`/invalidation work before unmount.",
-            "- Interpret results as warm-cache local evidence unless the run environment records separate cache-control steps.",
+            "- `--cache-control=posix-fadvise-read-fixture` applies `os.posix_fadvise(..., POSIX_FADV_DONTNEED)` to selected `source/.screenfs-bench` read fixtures before each warmup and measured sample for read-side workloads; mounted runs evict backing source paths rather than mounted view paths.",
             "",
         ]
     )
     return "\n".join(lines)
-
-
 
 def main() -> int:
     args = parse_args()
@@ -1781,6 +2201,7 @@ def main() -> int:
         "small_files",
         "dir_entries",
         "rand_io_ops",
+        "concurrency_workers",
         "open_read_close_ops",
         "metadata_ops",
         "sync_4k_fsync_every",
@@ -1797,6 +2218,7 @@ def main() -> int:
 
     policy = resolve_policy(args)
     workload_selection = resolve_workloads(args, policy)
+    ensure_cache_control_supported(args)
 
     if args.build:
         build_command = ["cargo", "build", "--release"]
@@ -1839,15 +2261,15 @@ def main() -> int:
         wait_for_mount(mount, proc, args.timeout_sec)
 
         native_results = [
-            measure_workload(name, WORKLOADS[name], source, args, "native")
+            measure_workload(name, WORKLOADS[name], source, args, "native", cache_control_source_root=source)
             for name in workload_selection["comparable"]
         ]
         mounted_results = [
-            measure_workload(name, WORKLOADS[name], mount, args, "mounted")
+            measure_workload(name, WORKLOADS[name], mount, args, "mounted", cache_control_source_root=source)
             for name in workload_selection["comparable"]
         ]
         screenfs_only = [
-            measure_workload(name, SCREENFS_ONLY_WORKLOADS[name], mount, args, "mounted")
+            measure_workload(name, SCREENFS_ONLY_WORKLOADS[name], mount, args, "mounted", cache_control_source_root=source)
             for name in workload_selection["screenfs_only"]
         ]
 
