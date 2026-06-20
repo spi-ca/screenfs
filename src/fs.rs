@@ -692,8 +692,11 @@ impl Filesystem for ScreenFs {
         let guard = if io_guard_cache.skip_read_guard {
             Ok(())
         } else {
-            self.guard_read_path(&path)
-                .and_then(|()| self.guard_opened_file_target(&path, &file, false))
+            let mut resolver = guards::RequestPathResolver::new(self);
+            self.guard_read_path_with_resolver(&mut resolver, &path, None)
+                .and_then(|()| {
+                    self.guard_opened_file_target_with_resolver(&mut resolver, &path, &file, false)
+                })
         };
         #[cfg(feature = "perf-counters")]
         self.perf.record_read_guard_path(guard_start.elapsed());
@@ -735,8 +738,11 @@ impl Filesystem for ScreenFs {
         let guard = if io_guard_cache.skip_write_guard {
             Ok(())
         } else {
-            self.guard_mutation_path(&path, true)
-                .and_then(|()| self.guard_opened_file_target(&path, &file, true))
+            let mut resolver = guards::RequestPathResolver::new(self);
+            self.guard_mutation_path_with_resolver(&mut resolver, &path, true)
+                .and_then(|()| {
+                    self.guard_opened_file_target_with_resolver(&mut resolver, &path, &file, true)
+                })
         };
         #[cfg(feature = "perf-counters")]
         self.perf.record_write_guard_mutation(guard_start.elapsed());

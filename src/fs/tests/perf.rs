@@ -387,30 +387,72 @@ fn perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe() {
     assert_eq!(after_read.read_handle_snapshot.count, 1, "{after_read:?}");
     assert_eq!(after_read.read_guard_path.count, 1, "{after_read:?}");
     assert_eq!(after_read.read_io.count, 1, "{after_read:?}");
+    assert_eq!(
+        after_read.source_root_path.count - before_read.source_root_path.count,
+        1,
+        "unsafe read should reuse one request-local resolver across path and opened-fd guards: {before_read:?}\n{after_read:?}"
+    );
+    assert_eq!(
+        after_read.resolved_virtual_path_from_path.count
+            - before_read.resolved_virtual_path_from_path.count,
+        2,
+        "read should still re-resolve both the requested path and the symlink-safe parent walk: {before_read:?}\n{after_read:?}"
+    );
+    assert_eq!(
+        after_read.resolved_virtual_path_from_open_fd.count
+            - before_read.resolved_virtual_path_from_open_fd.count,
+        2,
+        "read should still revalidate both the parent directory fd and the opened file fd: {before_read:?}\n{after_read:?}"
+    );
 
     let write_source = test_dir("perf-data-split-write-guard-fallback");
     std::fs::write(write_source.join("file.txt"), "hello world").unwrap();
-    let write_fs = fs_for_root_readonly(&write_source, vec![]);
+    std::fs::write(write_source.join("hidden.txt"), "secret").unwrap();
+    let write_fs = fs_for_axes(
+        &write_source,
+        None,
+        vec!["/hidden.txt".to_string()],
+        vec![],
+        None,
+        vec![],
+        vec![],
+    );
     let write_inode = lookup_root_inode(&write_fs, "file.txt");
     let write_opened =
-        block_on(write_fs.open(dummy_req(), write_inode, libc::O_RDONLY as u32)).unwrap();
+        block_on(write_fs.open(dummy_req(), write_inode, libc::O_RDWR as u32)).unwrap();
     let before_write = write_fs.perf_snapshot().expect("perf counters enabled");
     assert_eq!(
-        block_on(write_fs.write(dummy_req(), write_inode, write_opened.fh, 0, b"x", 0, 0))
-            .unwrap_err(),
-        libc::EROFS
+        block_on(write_fs.write(dummy_req(), write_inode, write_opened.fh, 0, b"x", 0, 0)).unwrap(),
+        1
     );
     let after_write = write_fs.perf_snapshot().expect("perf counters enabled");
     assert!(
         after_write.policy_decisions.count > before_write.policy_decisions.count,
-        "write guard should still recheck policy when mutability cache is unsafe: {before_write:?}\n{after_write:?}"
+        "write guard should still recheck policy when cache is unsafe: {before_write:?}\n{after_write:?}"
     );
     assert_eq!(
         after_write.write_handle_snapshot.count, 1,
         "{after_write:?}"
     );
     assert_eq!(after_write.write_guard_mutation.count, 1, "{after_write:?}");
-    assert_eq!(after_write.write_io.count, 0, "{after_write:?}");
+    assert_eq!(after_write.write_io.count, 1, "{after_write:?}");
+    assert_eq!(
+        after_write.source_root_path.count - before_write.source_root_path.count,
+        1,
+        "unsafe write should reuse one request-local resolver across path and opened-fd guards: {before_write:?}\n{after_write:?}"
+    );
+    assert_eq!(
+        after_write.resolved_virtual_path_from_path.count
+            - before_write.resolved_virtual_path_from_path.count,
+        2,
+        "write should still re-resolve both the requested path and the symlink-safe parent walk: {before_write:?}\n{after_write:?}"
+    );
+    assert_eq!(
+        after_write.resolved_virtual_path_from_open_fd.count
+            - before_write.resolved_virtual_path_from_open_fd.count,
+        2,
+        "write should still revalidate both the parent directory fd and the opened file fd: {before_write:?}\n{after_write:?}"
+    );
 
     std::fs::remove_dir_all(read_source).unwrap();
     std::fs::remove_dir_all(write_source).unwrap();

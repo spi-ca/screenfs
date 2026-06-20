@@ -153,14 +153,15 @@ fn virtual_path_from_source_path_with_metrics(
 
 // Guard entry points used by FUSE handlers; each returns a policy errno on denial.
 impl ScreenFs {
-    fn visible_for_entry_with_known_attr(
+    fn visible_for_entry_with_known_attr_with_resolver(
         &self,
+        resolver: &mut RequestPathResolver<'_>,
         path: &VirtualPath,
         known_child_attr: Option<&FileAttr>,
     ) -> bool {
         match known_child_attr {
             Some(attr) => self.entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR),
-            None => match self.stat_child_no_follow(path, 0) {
+            None => match self.stat_child_no_follow_with_resolver(resolver, path, 0) {
                 Ok(attr) => {
                     self.entry_is_readable(path, (attr.mode & libc::S_IFMT) == libc::S_IFDIR)
                 }
@@ -178,7 +179,17 @@ impl ScreenFs {
         path: &VirtualPath,
         known_child_attr: Option<&FileAttr>,
     ) -> Result<(), i32> {
-        if self.visible_for_entry_with_known_attr(path, known_child_attr) {
+        let mut resolver = RequestPathResolver::new(self);
+        self.guard_hidden_path_with_known_attr_with_resolver(&mut resolver, path, known_child_attr)
+    }
+
+    fn guard_hidden_path_with_known_attr_with_resolver(
+        &self,
+        resolver: &mut RequestPathResolver<'_>,
+        path: &VirtualPath,
+        known_child_attr: Option<&FileAttr>,
+    ) -> Result<(), i32> {
+        if self.visible_for_entry_with_known_attr_with_resolver(resolver, path, known_child_attr) {
             Ok(())
         } else {
             Err(ENOENT)
@@ -247,7 +258,7 @@ impl ScreenFs {
         path: &VirtualPath,
         known_child_attr: Option<&FileAttr>,
     ) -> Result<(), i32> {
-        self.guard_hidden_path_with_known_attr(path, known_child_attr)?;
+        self.guard_hidden_path_with_known_attr_with_resolver(resolver, path, known_child_attr)?;
         self.guard_resolved_target_visibility_if_needed_with_resolver(resolver, path)
     }
 
@@ -278,7 +289,7 @@ impl ScreenFs {
         path: &'a VirtualPath,
         follow_final_symlink: bool,
     ) -> Result<MutationCoordinateEvaluation<'a>, i32> {
-        self.guard_hidden_path(path)?;
+        self.guard_hidden_path_with_known_attr_with_resolver(resolver, path, None)?;
         let path_visibility = self.visibility_decision(path);
         let path_mutability = self.mutability_decision(path);
         let mut coordinate = MutationCoordinateEvaluation {
@@ -369,7 +380,7 @@ impl ScreenFs {
         self.guard_mutation_path_with_resolver(&mut resolver, path, follow_final_symlink)
     }
 
-    fn guard_mutation_path_with_resolver(
+    pub(super) fn guard_mutation_path_with_resolver(
         &self,
         resolver: &mut RequestPathResolver<'_>,
         path: &VirtualPath,
