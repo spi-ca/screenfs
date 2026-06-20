@@ -3,7 +3,7 @@
 Baseline: detached `HEAD` (`3cb95ba`) build from `/tmp/screenfs-before-postmeta-3cb95ba`.
 Candidate: current worktree build with directory `d_type` fast path, streaming descendant matcher boolean path, and read-only close sync bypass.
 
-All runs used `--iterations 10 --warmups 3` with paired before/after `screenfs` binaries built in release mode. Perf-counter rows used release binaries built with `--features perf-counters`.
+All runs used `--iterations 10 --warmups 3` with paired before/after `screenfs` binaries built in release mode. Perf-counter rows used release binaries built with `--features perf-counters`. Current validation for the maintained code and benchmark harness is recorded in [`validation-current.log`](validation-current.log).
 
 ## Latency ratios (after / before)
 
@@ -41,9 +41,15 @@ All runs used `--iterations 10 --warmups 3` with paired before/after `screenfs` 
 
 ## Files
 
+Claim-scope artifacts:
+
 - `before-fast-path-cache-eligible-directory-surface.*` / `after-fast-path-cache-eligible-directory-surface.*`
 - `before-glob-matcher-heavy-directory-surface.*` / `after-glob-matcher-heavy-directory-surface.*`
 - `before-fast-path-cache-eligible-read-only-close-surface.*` / `after-fast-path-cache-eligible-read-only-close-surface.*`
+- `validation-current.log`
+
+Context-only artifacts retained in this directory but not part of the directory/read-only-close claim:
+
 - `before-fast-path-cache-eligible-metadata-open-path.*` / `after-fast-path-cache-eligible-metadata-open-path.*`
 
 ## Notes

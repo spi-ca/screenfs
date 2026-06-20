@@ -495,7 +495,7 @@ impl ScreenFs {
             dir_file,
             path,
             3,
-            with_plus,
+            false,
             |name_bytes| resume_name.is_none_or(|resume| name_bytes > resume),
             |entry| {
                 let name_bytes = entry.name.as_bytes();
@@ -556,8 +556,28 @@ impl ScreenFs {
         }
 
         let mut remaining = remaining;
-        for (_, entry) in candidates {
+        for (_, mut entry) in candidates {
             let child = entry.child.clone();
+            if with_plus {
+                #[cfg(feature = "perf-counters")]
+                let attr_generation_start = Instant::now();
+                entry.attr = self.stat_child_no_follow(&child, 0)?;
+                entry.kind = backing::file_type_from_mode(entry.attr.mode);
+                #[cfg(feature = "perf-counters")]
+                self.perf
+                    .record_readdirplus_attr_generation(1, attr_generation_start.elapsed());
+                let is_dir = matches!(entry.kind, fractal_fuse::FileType::Directory);
+                if !self.entry_is_readable(&child, is_dir) {
+                    continue;
+                }
+                if matches!(entry.kind, fractal_fuse::FileType::Symlink)
+                    && self
+                        .guard_resolved_target_visibility_if_needed(&child)
+                        .is_err()
+                {
+                    continue;
+                }
+            }
             let snapshot_entry = DirectorySnapshotEntry {
                 ino: 0,
                 offset: 0,
