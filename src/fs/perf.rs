@@ -65,6 +65,7 @@ pub(super) struct PerfCounters {
     invalidations: AtomicU64,
     invalidated_entries: AtomicU64,
     evicted_entries: AtomicU64,
+    invalidation_scanned_entries: AtomicU64,
 }
 
 #[derive(Debug, Default)]
@@ -142,6 +143,7 @@ pub(crate) struct PerfSnapshot {
     pub(super) invalidations: u64,
     pub(super) invalidated_entries: u64,
     pub(super) evicted_entries: u64,
+    pub(super) invalidation_scanned_entries: u64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -155,6 +157,7 @@ pub(crate) struct LatencySnapshot {
 pub(super) struct InvalidationStats {
     pub(super) invalidated_entries: u64,
     pub(super) evicted_entries: u64,
+    pub(super) scanned_entries: u64,
 }
 
 pub(super) struct FuseOpTimer<'a> {
@@ -167,6 +170,7 @@ impl AddAssign for InvalidationStats {
     fn add_assign(&mut self, rhs: Self) {
         self.invalidated_entries += rhs.invalidated_entries;
         self.evicted_entries += rhs.evicted_entries;
+        self.scanned_entries += rhs.scanned_entries;
     }
 }
 
@@ -367,6 +371,8 @@ impl PerfCounters {
             .fetch_add(stats.invalidated_entries, Ordering::Relaxed);
         self.evicted_entries
             .fetch_add(stats.evicted_entries, Ordering::Relaxed);
+        self.invalidation_scanned_entries
+            .fetch_add(stats.scanned_entries, Ordering::Relaxed);
     }
 
     pub(super) fn snapshot(&self) -> PerfSnapshot {
@@ -440,6 +446,7 @@ impl PerfCounters {
             invalidations: self.invalidations.load(Ordering::Relaxed),
             invalidated_entries: self.invalidated_entries.load(Ordering::Relaxed),
             evicted_entries: self.evicted_entries.load(Ordering::Relaxed),
+            invalidation_scanned_entries: self.invalidation_scanned_entries.load(Ordering::Relaxed),
         }
     }
 
@@ -649,8 +656,11 @@ impl PerfCounters {
         );
         writeln!(
             &mut output,
-            "  invalidations: count={} invalidated_entries={} evicted_entries={}",
-            snapshot.invalidations, snapshot.invalidated_entries, snapshot.evicted_entries
+            "  invalidations: count={} invalidated_entries={} evicted_entries={} scanned_entries={}",
+            snapshot.invalidations,
+            snapshot.invalidated_entries,
+            snapshot.evicted_entries,
+            snapshot.invalidation_scanned_entries
         )
         .expect("write to string");
         output

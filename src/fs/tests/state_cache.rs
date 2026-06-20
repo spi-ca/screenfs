@@ -85,6 +85,193 @@ fn forget_evicts_non_root_mapping_after_lookup_refs_drop_and_handles_close() {
 }
 
 #[test]
+fn mutation_invalidation_detaches_path_and_evicts_after_forget_without_touching_sibling() {
+    let dir = test_dir("mutation-invalidation-forget-eviction");
+    std::fs::write(dir.join("victim"), b"old").unwrap();
+    std::fs::write(dir.join("sibling"), b"keep").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    let victim = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("victim"))).unwrap();
+    let sibling = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("sibling"))).unwrap();
+
+    block_on(fs.unlink(dummy_req(), FUSE_ROOT_ID, OsStr::new("victim"))).unwrap();
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        let victim_record = state
+            .inodes
+            .get(&victim.attr.ino)
+            .expect("lookup ref keeps invalidated inode until forget");
+        assert_eq!(victim_record.path, None);
+        assert_eq!(victim_record.lookup_refs, 1);
+        assert!(!state.path_inodes.contains_key(&VirtualPath::new("/victim")));
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/sibling")),
+            Some(&sibling.attr.ino)
+        );
+    }
+
+    fs.forget(dummy_req(), victim.attr.ino, 1);
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        assert!(!state.inodes.contains_key(&victim.attr.ino));
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/sibling")),
+            Some(&sibling.attr.ino)
+        );
+    }
+
+    fs.forget(dummy_req(), sibling.attr.ino, 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rename_invalidation_detaches_subtree_and_keeps_unrelated_sibling_mapping() {
+    let dir = test_dir("rename-invalidation-subtree");
+    std::fs::create_dir(dir.join("old")).unwrap();
+    std::fs::write(dir.join("old/child"), b"child").unwrap();
+    std::fs::create_dir(dir.join("oldish")).unwrap();
+    std::fs::write(dir.join("oldish/child"), b"keep-prefix-neighbor").unwrap();
+    std::fs::write(dir.join("sibling"), b"keep").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    let old_dir = lookup_root_inode(&fs, "old");
+    let old_child = lookup_child_inode(&fs, old_dir, "child");
+    let oldish = lookup_root_inode(&fs, "oldish");
+    let oldish_child = lookup_child_inode(&fs, oldish, "child");
+    let sibling = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("sibling"))).unwrap();
+
+    block_on(fs.rename(
+        dummy_req(),
+        FUSE_ROOT_ID,
+        OsStr::new("old"),
+        FUSE_ROOT_ID,
+        OsStr::new("new"),
+        0,
+    ))
+    .unwrap();
+
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        let old_record = state
+            .inodes
+            .get(&old_dir)
+            .expect("lookup ref keeps invalidated source dir until forget");
+        let child_record = state
+            .inodes
+            .get(&old_child)
+            .expect("lookup ref keeps invalidated source child until forget");
+        assert_eq!(old_record.path, None);
+        assert_eq!(child_record.path, None);
+        assert!(!state.path_inodes.contains_key(&VirtualPath::new("/old")));
+        assert!(
+            !state
+                .path_inodes
+                .contains_key(&VirtualPath::new("/old/child"))
+        );
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/oldish")),
+            Some(&oldish)
+        );
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/oldish/child")),
+            Some(&oldish_child)
+        );
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/sibling")),
+            Some(&sibling.attr.ino)
+        );
+    }
+
+    fs.forget(dummy_req(), old_child, 1);
+    fs.forget(dummy_req(), old_dir, 1);
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        assert!(!state.inodes.contains_key(&old_child));
+        assert!(!state.inodes.contains_key(&old_dir));
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/oldish")),
+            Some(&oldish)
+        );
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/oldish/child")),
+            Some(&oldish_child)
+        );
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/sibling")),
+            Some(&sibling.attr.ino)
+        );
+    }
+
+    fs.forget(dummy_req(), oldish_child, 1);
+    fs.forget(dummy_req(), oldish, 1);
+    fs.forget(dummy_req(), sibling.attr.ino, 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rename_overwrite_invalidates_source_and_target_but_not_sibling() {
+    let dir = test_dir("rename-overwrite-invalidation");
+    std::fs::write(dir.join("source"), b"new").unwrap();
+    std::fs::write(dir.join("target"), b"old").unwrap();
+    std::fs::write(dir.join("sibling"), b"keep").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+
+    let source = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("source"))).unwrap();
+    let target = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("target"))).unwrap();
+    let sibling = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("sibling"))).unwrap();
+
+    block_on(fs.rename(
+        dummy_req(),
+        FUSE_ROOT_ID,
+        OsStr::new("source"),
+        FUSE_ROOT_ID,
+        OsStr::new("target"),
+        0,
+    ))
+    .unwrap();
+
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        let source_record = state
+            .inodes
+            .get(&source.attr.ino)
+            .expect("source lookup ref keeps invalidated inode until forget");
+        let target_record = state
+            .inodes
+            .get(&target.attr.ino)
+            .expect("target lookup ref keeps overwritten inode until forget");
+        assert_eq!(source_record.path, None);
+        assert_eq!(target_record.path, None);
+        assert!(!state.path_inodes.contains_key(&VirtualPath::new("/source")));
+        assert!(!state.path_inodes.contains_key(&VirtualPath::new("/target")));
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/sibling")),
+            Some(&sibling.attr.ino)
+        );
+    }
+
+    fs.forget(dummy_req(), source.attr.ino, 1);
+    fs.forget(dummy_req(), target.attr.ino, 1);
+    {
+        let state = fs.state.read().expect("state rwlock poisoned");
+        assert!(!state.inodes.contains_key(&source.attr.ino));
+        assert!(!state.inodes.contains_key(&target.attr.ino));
+        assert_eq!(
+            state.path_inodes.get(&VirtualPath::new("/sibling")),
+            Some(&sibling.attr.ino)
+        );
+    }
+
+    let replacement = block_on(fs.lookup(dummy_req(), FUSE_ROOT_ID, OsStr::new("target"))).unwrap();
+    assert_ne!(replacement.attr.ino, source.attr.ino);
+    assert_ne!(replacement.attr.ino, target.attr.ino);
+
+    fs.forget(dummy_req(), replacement.attr.ino, 1);
+    fs.forget(dummy_req(), sibling.attr.ino, 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn successful_mutations_invalidate_parent_snapshots_and_reused_exact_paths() {
     let dir = test_dir("mutation-invalidation");
     std::fs::write(dir.join("source"), b"src").unwrap();

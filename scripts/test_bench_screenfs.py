@@ -39,8 +39,24 @@ def make_args(**overrides: object) -> argparse.Namespace:
 
 
 class PerfSummaryTests(unittest.TestCase):
+    def test_time_one_runs_cleanup_after_timed_body(self) -> None:
+        events: list[str] = []
+
+        def workload(_root: Path, _args: argparse.Namespace, _side: str):
+            events.append("body")
+
+            def cleanup() -> None:
+                events.append("cleanup")
+
+            return cleanup
+
+        elapsed = bench.time_one(workload, Path("/tmp"), make_args(), "native")
+
+        self.assertGreaterEqual(elapsed, 0)
+        self.assertEqual(events, ["body", "cleanup"])
+
     def test_parse_perf_summary_extracts_metrics(self) -> None:
-        stderr = "mounting screenfs\nscreenfs perf counters:\n  fuse_op.lookup: count=2 total_ns=10 avg_ns=5 max_ns=6\n  matcher_candidates: count=7\n  invalidations: count=1 invalidated_entries=2 evicted_entries=1\n"
+        stderr = "mounting screenfs\nscreenfs perf counters:\n  fuse_op.lookup: count=2 total_ns=10 avg_ns=5 max_ns=6\n  matcher_candidates: count=7\n  invalidations: count=1 invalidated_entries=2 evicted_entries=1 scanned_entries=3\n"
         summary = bench.parse_perf_summary(stderr)
         self.assertIsNotNone(summary)
         assert summary is not None
@@ -48,6 +64,7 @@ class PerfSummaryTests(unittest.TestCase):
         self.assertEqual(summary["metrics"]["fuse_op.lookup"]["count"], 2)
         self.assertEqual(summary["metrics"]["matcher_candidates"]["count"], 7)
         self.assertEqual(summary["metrics"]["invalidations"]["evicted_entries"], 1)
+        self.assertEqual(summary["metrics"]["invalidations"]["scanned_entries"], 3)
 
     def test_markdown_report_includes_perf_summary(self) -> None:
         result = {

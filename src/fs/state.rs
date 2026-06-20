@@ -328,6 +328,7 @@ impl State {
         let mut stats = InvalidationStats {
             invalidated_entries: 1,
             evicted_entries: 0,
+            scanned_entries: 0,
         };
         if let Some(record) = self.inodes.get_mut(&inode)
             && record.path.as_ref() == Some(path)
@@ -341,27 +342,39 @@ impl State {
     }
 
     #[cfg(not(feature = "perf-counters"))]
-    pub(super) fn invalidate_path_tree(&mut self, root: &VirtualPath) {
-        let paths = self
-            .path_inodes
+    fn path_tree_keys(&self, root: &VirtualPath) -> Vec<VirtualPath> {
+        self.path_inodes
             .keys()
             .filter(|path| path.starts_with(root))
             .cloned()
-            .collect::<Vec<_>>();
-        for path in paths {
+            .collect()
+    }
+
+    #[cfg(feature = "perf-counters")]
+    fn path_tree_keys_with_scan_count(&self, root: &VirtualPath) -> (Vec<VirtualPath>, u64) {
+        let mut paths = Vec::new();
+        for path in self.path_inodes.keys() {
+            if path.starts_with(root) {
+                paths.push(path.clone());
+            }
+        }
+        (paths, self.path_inodes.len() as u64)
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    pub(super) fn invalidate_path_tree(&mut self, root: &VirtualPath) {
+        for path in self.path_tree_keys(root) {
             self.invalidate_exact_path(&path);
         }
     }
 
     #[cfg(feature = "perf-counters")]
     pub(super) fn invalidate_path_tree(&mut self, root: &VirtualPath) -> InvalidationStats {
-        let paths = self
-            .path_inodes
-            .keys()
-            .filter(|path| path.starts_with(root))
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut stats = InvalidationStats::default();
+        let (paths, scanned_entries) = self.path_tree_keys_with_scan_count(root);
+        let mut stats = InvalidationStats {
+            scanned_entries,
+            ..InvalidationStats::default()
+        };
         for path in paths {
             stats += self.invalidate_exact_path(&path);
         }

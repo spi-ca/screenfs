@@ -169,9 +169,12 @@ class WorkloadSelectionTests(unittest.TestCase):
 
     def test_next_candidate_named_sets_select_expected_workloads(self) -> None:
         cases = {
+            "read-write-surface": bench.READ_WRITE_SURFACE_COMPARABLE_WORKLOADS,
             "metadata-open-path": bench.METADATA_OPEN_PATH_COMPARABLE_WORKLOADS,
+            "open-confined-surface": bench.OPEN_CONFINED_SURFACE_COMPARABLE_WORKLOADS,
             "sync-surface": bench.SYNC_SURFACE_COMPARABLE_WORKLOADS,
             "directory-surface": bench.DIRECTORY_SURFACE_COMPARABLE_WORKLOADS,
+            "directory-symlink-surface": bench.DIRECTORY_SYMLINK_SURFACE_COMPARABLE_WORKLOADS,
         }
         policy = bench.resolve_policy(make_args())
         for workload_set, expected in cases.items():
@@ -180,6 +183,14 @@ class WorkloadSelectionTests(unittest.TestCase):
                 self.assertEqual(workloads["comparable"], expected)
                 self.assertEqual(workloads["screenfs_only"], [])
                 self.assertEqual(workloads["skipped"], [])
+
+    def test_mutation_invalidation_named_set_selects_pinned_workloads(self) -> None:
+        policy = bench.resolve_policy(make_args())
+        workloads = bench.resolve_workloads(make_args(workload_set="mutation-invalidation"), policy)
+
+        self.assertEqual(workloads["comparable"], [])
+        self.assertEqual(workloads["screenfs_only"], bench.MUTATION_INVALIDATION_SCREENFS_ONLY_WORKLOADS)
+        self.assertEqual(workloads["skipped"], [])
 
     def test_policy_heavy_matrix_skips_matcher_without_extra_rules(self) -> None:
         args = make_args(workload_set="policy-heavy-matrix")
@@ -284,7 +295,9 @@ class WorkloadFunctionTests(unittest.TestCase):
     def test_per_open_cache_minimum_workloads_run_on_small_fixture(self) -> None:
         for workload_name in bench.PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS:
             with self.subTest(workload=workload_name):
-                bench.WORKLOADS[workload_name](self.root, self.args, "native")
+                cleanup = bench.WORKLOADS[workload_name](self.root, self.args, "native")
+                if callable(cleanup):
+                    cleanup()
 
         write_root = self.root / ".screenfs-bench"
         self.assertFalse((write_root / "write-native" / "rand-write-4k.bin").exists())
@@ -292,15 +305,20 @@ class WorkloadFunctionTests(unittest.TestCase):
 
     def test_metadata_sync_and_directory_workloads_run_on_small_fixture(self) -> None:
         for workload_name in (
-            bench.METADATA_OPEN_PATH_COMPARABLE_WORKLOADS
+            bench.READ_WRITE_SURFACE_COMPARABLE_WORKLOADS
+            + bench.METADATA_OPEN_PATH_COMPARABLE_WORKLOADS
+            + bench.OPEN_CONFINED_SURFACE_COMPARABLE_WORKLOADS
             + bench.SYNC_SURFACE_COMPARABLE_WORKLOADS
             + bench.DIRECTORY_SURFACE_COMPARABLE_WORKLOADS
+            + bench.DIRECTORY_SYMLINK_SURFACE_COMPARABLE_WORKLOADS
         ):
             with self.subTest(workload=workload_name):
-                bench.WORKLOADS[workload_name](self.root, self.args, "native")
+                cleanup = bench.WORKLOADS[workload_name](self.root, self.args, "native")
+                if callable(cleanup):
+                    cleanup()
 
     def test_next_candidate_named_sets_execute_selected_workloads(self) -> None:
-        for workload_set in ("metadata-open-path", "sync-surface", "directory-surface"):
+        for workload_set in ("read-write-surface", "metadata-open-path", "open-confined-surface", "sync-surface", "directory-surface", "directory-symlink-surface"):
             args = make_args(workload_set=workload_set)
             policy = bench.resolve_policy(args)
             workloads = bench.resolve_workloads(args, policy)
@@ -310,13 +328,33 @@ class WorkloadFunctionTests(unittest.TestCase):
 
             for workload_name in workloads["comparable"]:
                 with self.subTest(workload_set=workload_set, workload=workload_name):
-                    bench.WORKLOADS[workload_name](self.root, args, "native")
+                    cleanup = bench.WORKLOADS[workload_name](self.root, args, "native")
+                    if callable(cleanup):
+                        cleanup()
 
     def test_symlink_parent_mutation_workload_leaves_no_children_behind(self) -> None:
         bench.symlink_parent_mkdir_rmdir(self.root, self.args, "native")
 
         real_dir = self.root / ".screenfs-bench" / "symlink-parent" / "real"
-        self.assertEqual(list(real_dir.iterdir()), [])
+        self.assertEqual([path.name for path in real_dir.iterdir()], ["pinned-sibling.txt"])
+
+    def test_pinned_symlink_parent_mutation_workload_leaves_no_children_behind(self) -> None:
+        bench.pinned_symlink_parent_mkdir_rmdir(self.root, self.args, "native")
+
+        real_dir = self.root / ".screenfs-bench" / "symlink-parent" / "real"
+        self.assertEqual([path.name for path in real_dir.iterdir()], ["pinned-sibling.txt"])
+
+    def test_subtree_rename_cached_unrelated_returns_cleanup_for_source_tree(self) -> None:
+        cleanup = bench.subtree_rename_cached_unrelated(self.root, self.args, "native")
+
+        fixture_root = self.root / ".screenfs-bench" / "invalidation-tree"
+        self.assertFalse((fixture_root / "source").exists())
+        self.assertTrue((fixture_root / "target" / "child.txt").is_file())
+        self.assertIsNotNone(cleanup)
+        assert cleanup is not None
+        cleanup()
+        self.assertTrue((fixture_root / "source" / "child.txt").is_file())
+        self.assertFalse((fixture_root / "target").exists())
 
 
 if __name__ == "__main__":

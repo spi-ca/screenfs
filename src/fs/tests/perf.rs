@@ -579,6 +579,7 @@ fn perf_counters_record_invalidation_and_eviction_work() {
     assert!(snapshot.invalidations > 0, "{snapshot:?}");
     assert!(snapshot.invalidated_entries > 0, "{snapshot:?}");
     assert!(snapshot.evicted_entries > 0, "{snapshot:?}");
+    assert!(snapshot.invalidation_scanned_entries > 0, "{snapshot:?}");
     std::fs::remove_dir_all(source).unwrap();
 }
 

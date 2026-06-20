@@ -86,6 +86,14 @@ PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS = [
     "sync_write_4k",
     "small_open_read_close",
 ]
+READ_WRITE_SURFACE_COMPARABLE_WORKLOADS = [
+    "seq_read",
+    "seq_write",
+    "small_read",
+    "small_write",
+    "rand_read_4k",
+    "rand_write_4k",
+]
 METADATA_OPEN_PATH_COMPARABLE_WORKLOADS = [
     "metadata_lookup",
     "metadata_getattr",
@@ -93,6 +101,10 @@ METADATA_OPEN_PATH_COMPARABLE_WORKLOADS = [
     "metadata_readlink",
     "metadata_access",
     "metadata_statfs",
+]
+OPEN_CONFINED_SURFACE_COMPARABLE_WORKLOADS = [
+    "metadata_open",
+    "metadata_opendir",
 ]
 SYNC_SURFACE_COMPARABLE_WORKLOADS = [
     "sync_flush_only",
@@ -109,6 +121,10 @@ DIRECTORY_SURFACE_COMPARABLE_WORKLOADS = [
     "readdir_basic",
     "readdirplus_basic",
 ]
+DIRECTORY_SYMLINK_SURFACE_COMPARABLE_WORKLOADS = [
+    "readdir_symlink_visibility",
+    "readdirplus_symlink_visibility",
+]
 POLICY_HEAVY_COMPARABLE_WORKLOADS = [
     "metadata_lookup",
     "metadata_getattr",
@@ -120,6 +136,11 @@ DEFAULT_SCREENFS_ONLY_WORKLOADS = [
     "matcher_hidden_stat_miss",
     "symlink_parent_mkdir_rmdir",
 ]
+MUTATION_INVALIDATION_SCREENFS_ONLY_WORKLOADS = [
+    "symlink_parent_mkdir_rmdir",
+    "pinned_symlink_parent_mkdir_rmdir",
+    "subtree_rename_cached_unrelated",
+]
 WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
     "default": {
         "comparable": list(DEFAULT_COMPARABLE_WORKLOADS),
@@ -129,8 +150,16 @@ WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
         "comparable": list(PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS),
         "screenfs_only": [],
     },
+    "read-write-surface": {
+        "comparable": list(READ_WRITE_SURFACE_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
     "metadata-open-path": {
         "comparable": list(METADATA_OPEN_PATH_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
+    "open-confined-surface": {
+        "comparable": list(OPEN_CONFINED_SURFACE_COMPARABLE_WORKLOADS),
         "screenfs_only": [],
     },
     "sync-surface": {
@@ -145,19 +174,30 @@ WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
         "comparable": list(DIRECTORY_SURFACE_COMPARABLE_WORKLOADS),
         "screenfs_only": [],
     },
+    "directory-symlink-surface": {
+        "comparable": list(DIRECTORY_SYMLINK_SURFACE_COMPARABLE_WORKLOADS),
+        "screenfs_only": [],
+    },
     "policy-heavy-matrix": {
         "comparable": ["metadata_lookup", "metadata_getattr", "metadata_access"],
         "screenfs_only": ["matcher_hidden_stat_miss"],
+    },
+    "mutation-invalidation": {
+        "comparable": [],
+        "screenfs_only": list(MUTATION_INVALIDATION_SCREENFS_ONLY_WORKLOADS),
     },
     "all": {
         "comparable": list(
             dict.fromkeys(
                 DEFAULT_COMPARABLE_WORKLOADS
                 + PER_OPEN_CACHE_MINIMUM_COMPARABLE_WORKLOADS
+                + READ_WRITE_SURFACE_COMPARABLE_WORKLOADS
                 + METADATA_OPEN_PATH_COMPARABLE_WORKLOADS
+                + OPEN_CONFINED_SURFACE_COMPARABLE_WORKLOADS
                 + SYNC_SURFACE_COMPARABLE_WORKLOADS
                 + READ_ONLY_CLOSE_SURFACE_COMPARABLE_WORKLOADS
                 + DIRECTORY_SURFACE_COMPARABLE_WORKLOADS
+                + DIRECTORY_SYMLINK_SURFACE_COMPARABLE_WORKLOADS
             )
         ),
         "screenfs_only": list(DEFAULT_SCREENFS_ONLY_WORKLOADS),
@@ -218,7 +258,7 @@ def parse_args() -> argparse.Namespace:
         "--metadata-ops",
         type=int,
         default=512,
-        help="Metadata operations per iteration for metadata_* workloads. Keep this below the process file-descriptor limit for metadata_open.",
+        help="Metadata operations per iteration for metadata_* workloads. Keep this below the process file-descriptor limit for metadata_open and metadata_opendir.",
     )
     parser.add_argument(
         "--sync-4k-fsync-every",
@@ -520,6 +560,8 @@ def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
     target = symlink_dir / "target.txt"
     target.write_text("visible symlink target\n", encoding="utf-8")
     os.symlink("target.txt", symlink_dir / "link.txt")
+    for index in range(args.dir_entries):
+        os.symlink("target.txt", symlink_dir / f"link-{index:06d}.txt")
 
     if args.matcher_extra_rules:
         matcher_dir = root / "matcher-heavy"
@@ -535,7 +577,18 @@ def prepare_fixture(source: Path, args: argparse.Namespace) -> None:
     symlink_parent_dir = root / "symlink-parent"
     symlink_parent_dir.mkdir()
     (symlink_parent_dir / "real").mkdir()
+    (symlink_parent_dir / "real" / "pinned-sibling.txt").write_text("pinned sibling\n", encoding="utf-8")
     os.symlink("real", symlink_parent_dir / "alias")
+
+    invalidation_dir = root / "invalidation-tree"
+    invalidation_dir.mkdir()
+    source_dir = invalidation_dir / "source"
+    source_dir.mkdir()
+    (source_dir / "child.txt").write_text("subtree child\n", encoding="utf-8")
+    unrelated_dir = invalidation_dir / "unrelated"
+    unrelated_dir.mkdir()
+    for index in range(args.small_files):
+        (unrelated_dir / f"cached-{index:06d}.txt").write_text("unrelated\n", encoding="utf-8")
 
     (root / "hidden").mkdir()
     for index in range(args.hidden_misses):
@@ -605,16 +658,24 @@ def write_output_path(root: Path, side: str, name: str) -> Path:
 
 
 
-def seq_write(root: Path, args: argparse.Namespace, side: str) -> None:
+def seq_write(root: Path, args: argparse.Namespace, side: str) -> AbcCallable[[], None]:
     path = write_output_path(root, side, "seq-write.bin")
     chunk = b"w" * MiB
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
     try:
-        for _ in range(args.write_mib):
-            write_all_fd(fd, chunk)
-    finally:
-        os.close(fd)
-    path.unlink(missing_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+        try:
+            for _ in range(args.write_mib):
+                write_all_fd(fd, chunk)
+        finally:
+            os.close(fd)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+    def cleanup() -> None:
+        path.unlink(missing_ok=True)
+
+    return cleanup
 
 
 
@@ -638,16 +699,24 @@ def small_read(root: Path, args: argparse.Namespace, side: str) -> None:
 
 
 
-def small_write(root: Path, args: argparse.Namespace, side: str) -> None:
+def small_write(root: Path, args: argparse.Namespace, side: str) -> AbcCallable[[], None]:
     path = write_output_path(root, side, "small-write.bin")
     chunk = b"s" * args.small_io_bytes
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
     try:
-        for _ in range(args.small_io_ops):
-            write_all_fd(fd, chunk)
-    finally:
-        os.close(fd)
-    path.unlink(missing_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+        try:
+            for _ in range(args.small_io_ops):
+                write_all_fd(fd, chunk)
+        finally:
+            os.close(fd)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+    def cleanup() -> None:
+        path.unlink(missing_ok=True)
+
+    return cleanup
 
 
 
@@ -691,24 +760,32 @@ def rand_read_4k(root: Path, args: argparse.Namespace, side: str) -> None:
 
 
 
-def rand_write_4k(root: Path, args: argparse.Namespace, side: str) -> None:
+def rand_write_4k(root: Path, args: argparse.Namespace, side: str) -> AbcCallable[[], None]:
     path = write_output_path(root, side, "rand-write-4k.bin")
     size = max(args.write_mib * MiB, RANDOM_4K_BLOCK_SIZE)
     size = (size // RANDOM_4K_BLOCK_SIZE) * RANDOM_4K_BLOCK_SIZE
     block_count = max(1, size // RANDOM_4K_BLOCK_SIZE)
     chunk = b"r" * RANDOM_4K_BLOCK_SIZE
     rng = random.Random(0)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
     try:
-        os.ftruncate(fd, size)
-        for _ in range(args.rand_io_ops):
-            offset = rng.randrange(block_count) * RANDOM_4K_BLOCK_SIZE
-            written = os.pwrite(fd, chunk, offset)
-            if written != RANDOM_4K_BLOCK_SIZE:
-                raise RuntimeError(f"{side} rand_write_4k short write at offset {offset}: {written}")
-    finally:
-        os.close(fd)
-    path.unlink(missing_ok=True)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
+        try:
+            os.ftruncate(fd, size)
+            for _ in range(args.rand_io_ops):
+                offset = rng.randrange(block_count) * RANDOM_4K_BLOCK_SIZE
+                written = os.pwrite(fd, chunk, offset)
+                if written != RANDOM_4K_BLOCK_SIZE:
+                    raise RuntimeError(f"{side} rand_write_4k short write at offset {offset}: {written}")
+        finally:
+            os.close(fd)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+    def cleanup() -> None:
+        path.unlink(missing_ok=True)
+
+    return cleanup
 
 
 
@@ -894,6 +971,40 @@ def metadata_open(root: Path, args: argparse.Namespace, _side: str) -> AbcCallab
 
 
 
+def metadata_opendir(root: Path, args: argparse.Namespace, _side: str) -> AbcCallable[[], None]:
+    try:
+        import resource
+
+        soft_limit, _hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except (ImportError, OSError, ValueError):
+        soft_limit = 1024
+    reserve_fds = 64
+    if args.metadata_ops >= max(1, soft_limit - reserve_fds):
+        raise RuntimeError(
+            f"metadata_opendir needs one live directory handle per metadata op to exclude close/releasedir from timing; "
+            f"--metadata-ops={args.metadata_ops} is too high for RLIMIT_NOFILE={soft_limit}"
+        )
+
+    dir_path = root / ".screenfs-bench" / "dir-entries"
+    handles = []
+    try:
+        for _ in range(args.metadata_ops):
+            handles.append(os.scandir(dir_path))
+    except Exception:
+        for handle in handles:
+            handle.close()
+        raise
+    if not handles:
+        raise RuntimeError("metadata_opendir opened no directories")
+
+    def cleanup() -> None:
+        for handle in handles:
+            handle.close()
+
+    return cleanup
+
+
+
 def metadata_readlink(root: Path, args: argparse.Namespace, _side: str) -> None:
     link = root / ".screenfs-bench" / "symlinks" / "link.txt"
     total = 0
@@ -962,6 +1073,41 @@ def readdirplus_basic(root: Path, _args: argparse.Namespace, _side: str) -> None
 
 def readdir_lstat(root: Path, _args: argparse.Namespace, _side: str) -> None:
     readdirplus_basic(root, _args, _side)
+
+
+
+def expected_symlink_directory_names(args: argparse.Namespace) -> set[str]:
+    return {
+        "target.txt",
+        "link.txt",
+        *(f"link-{index:06d}.txt" for index in range(args.dir_entries)),
+    }
+
+
+
+def readdir_symlink_visibility(root: Path, args: argparse.Namespace, _side: str) -> None:
+    dir_path = root / ".screenfs-bench" / "symlinks"
+    names = set()
+    with os.scandir(dir_path) as entries:
+        for entry in entries:
+            names.add(entry.name)
+    expected = expected_symlink_directory_names(args)
+    if names != expected:
+        raise RuntimeError(f"readdir_symlink_visibility saw unexpected entries: {sorted(names)}")
+
+
+
+def readdirplus_symlink_visibility(root: Path, args: argparse.Namespace, _side: str) -> None:
+    dir_path = root / ".screenfs-bench" / "symlinks"
+    seen: dict[str, bool] = {}
+    with os.scandir(dir_path) as entries:
+        for entry in entries:
+            entry.stat(follow_symlinks=False)
+            seen[entry.name] = entry.is_symlink()
+    expected = expected_symlink_directory_names(args)
+    expected_symlinks = expected - {"target.txt"}
+    if set(seen) != expected or seen.get("target.txt") is not False or any(not seen.get(name) for name in expected_symlinks):
+        raise RuntimeError(f"readdirplus_symlink_visibility saw unexpected entries: {seen}")
 
 
 
@@ -1036,7 +1182,82 @@ def symlink_parent_mkdir_rmdir(root: Path, args: argparse.Namespace, _side: str)
                 pass
 
 
-WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
+def pinned_symlink_parent_mkdir_rmdir(root: Path, args: argparse.Namespace, _side: str) -> None:
+    fixture_root = root / ".screenfs-bench" / "symlink-parent"
+    real_parent = fixture_root / "real"
+    alias_parent = fixture_root / "alias"
+    if not alias_parent.is_dir():
+        raise RuntimeError("pinned_symlink_parent_mkdir_rmdir missing alias parent")
+
+    pinned_sibling = alias_parent / "pinned-sibling.txt"
+    created: list[Path] = []
+    try:
+        if not pinned_sibling.stat().st_size:
+            raise RuntimeError("pinned_symlink_parent_mkdir_rmdir expected pinned sibling data")
+        with os.scandir(alias_parent) as entries:
+            if not any(entry.name == pinned_sibling.name for entry in entries):
+                raise RuntimeError("pinned_symlink_parent_mkdir_rmdir did not see pinned sibling")
+
+        for index in range(args.symlink_parent_mutations):
+            name = f"pinned-child-{index:06d}"
+            alias_child = alias_parent / name
+            real_child = real_parent / name
+            if alias_child.exists() or real_child.exists():
+                raise RuntimeError(f"pinned_symlink_parent_mkdir_rmdir saw unexpected preexisting path: {alias_child}")
+            os.mkdir(alias_child, 0o755)
+            created.append(real_child)
+            if not alias_child.stat().st_mode:
+                raise RuntimeError(f"pinned_symlink_parent_mkdir_rmdir could not stat created child: {alias_child}")
+            with os.scandir(alias_parent) as entries:
+                if not any(entry.name == name for entry in entries):
+                    raise RuntimeError(f"pinned_symlink_parent_mkdir_rmdir did not list created child: {alias_child}")
+            os.rmdir(alias_child)
+            created.pop()
+            if real_child.exists():
+                raise RuntimeError(f"pinned_symlink_parent_mkdir_rmdir expected {real_child} to be removed")
+            if not pinned_sibling.exists():
+                raise RuntimeError("pinned_symlink_parent_mkdir_rmdir lost pinned sibling")
+    finally:
+        for leftover in reversed(created):
+            try:
+                os.rmdir(leftover)
+            except FileNotFoundError:
+                pass
+
+
+def subtree_rename_cached_unrelated(root: Path, args: argparse.Namespace, _side: str) -> Callable[[], None] | None:
+    fixture_root = root / ".screenfs-bench" / "invalidation-tree"
+    source = fixture_root / "source"
+    target = fixture_root / "target"
+    unrelated = fixture_root / "unrelated"
+    child = source / "child.txt"
+    if not source.is_dir() or not child.is_file() or not unrelated.is_dir():
+        raise RuntimeError("subtree_rename_cached_unrelated missing fixture")
+    if target.exists():
+        raise RuntimeError(f"subtree_rename_cached_unrelated saw unexpected target: {target}")
+
+    for index in range(args.small_files):
+        unrelated_path = unrelated / f"cached-{index:06d}.txt"
+        if not unrelated_path.stat().st_size:
+            raise RuntimeError(f"subtree_rename_cached_unrelated expected unrelated data: {unrelated_path}")
+    if not child.stat().st_size:
+        raise RuntimeError("subtree_rename_cached_unrelated expected child data")
+
+    os.rename(source, target)
+    moved_child = target / "child.txt"
+    if not moved_child.is_file():
+        if target.exists() and not source.exists():
+            os.rename(target, source)
+        raise RuntimeError("subtree_rename_cached_unrelated target child missing after rename")
+
+    def cleanup() -> None:
+        if target.exists() and not source.exists():
+            os.rename(target, source)
+
+    return cleanup
+
+
+WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], Any]] = {
     "seq_read": seq_read,
     "seq_write": seq_write,
     "small_read": small_read,
@@ -1056,6 +1277,7 @@ WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
     "metadata_lookup": metadata_lookup,
     "metadata_getattr": metadata_getattr,
     "metadata_open": metadata_open,
+    "metadata_opendir": metadata_opendir,
     "metadata_readlink": metadata_readlink,
     "metadata_access": metadata_access,
     "metadata_statfs": metadata_statfs,
@@ -1063,12 +1285,16 @@ WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
     "readdir_basic": readdir_basic,
     "readdirplus_basic": readdirplus_basic,
     "readdir_lstat": readdir_lstat,
+    "readdir_symlink_visibility": readdir_symlink_visibility,
+    "readdirplus_symlink_visibility": readdirplus_symlink_visibility,
     "symlink_open_read": symlink_open_read,
 }
-SCREENFS_ONLY_WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], None]] = {
+SCREENFS_ONLY_WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], Any]] = {
     "hidden_stat_miss": hidden_stat_miss,
     "matcher_hidden_stat_miss": matcher_hidden_stat_miss,
     "symlink_parent_mkdir_rmdir": symlink_parent_mkdir_rmdir,
+    "pinned_symlink_parent_mkdir_rmdir": pinned_symlink_parent_mkdir_rmdir,
+    "subtree_rename_cached_unrelated": subtree_rename_cached_unrelated,
 }
 
 
@@ -1235,7 +1461,7 @@ def summarize(values: list[float]) -> dict[str, float]:
 
 def measure_workload(
     name: str,
-    func: Callable[[Path, argparse.Namespace, str], None],
+    func: Callable[[Path, argparse.Namespace, str], Any],
     root: Path,
     args: argparse.Namespace,
     side: str,
@@ -1514,7 +1740,7 @@ def markdown_report(result: dict[str, Any]) -> str:
     if perf_summary:
         lines.extend(
             [
-                "Perf counters were enabled and captured from ScreenFS stderr after unmount/termination.",
+                "Perf counters were enabled and captured from ScreenFS stderr after unmount/termination. They are process-lifetime aggregates and can include warmups plus cleanup work that runs before unmount, even when cleanup is outside the timed latency samples.",
                 "",
                 "```text",
                 perf_summary.get("raw", ""),
@@ -1532,7 +1758,7 @@ def markdown_report(result: dict[str, Any]) -> str:
             "## Notes",
             "",
             "- Fixture creation, build time, and mount startup are not included in workload timings.",
-            "- Native and mounted timings use the same prepared backing fixture; write workloads use separate native/mounted output files and remove them after each iteration.",
+            "- Native and mounted timings use the same prepared backing fixture; write workloads use separate native/mounted output files and remove them after each iteration. Workloads that return cleanup callbacks run those deletions outside timed latency samples, but perf counters still include cleanup-side `unlink`/invalidation work before unmount.",
             "- Interpret results as warm-cache local evidence unless the run environment records separate cache-control steps.",
             "",
         ]
