@@ -61,7 +61,8 @@ pub(super) struct FileHandle {
 }
 
 pub(super) type FileSnapshot = (VirtualPath, Arc<File>);
-pub(super) type FileFlushSnapshot = (VirtualPath, Arc<File>, bool);
+pub(super) type FileSyncSnapshot = Arc<File>;
+pub(super) type FileFlushSyncSnapshot = (Arc<File>, bool);
 pub(super) type FileDataPathSnapshot = (VirtualPath, Arc<File>, FileIoGuardCache);
 pub(super) type CopyFileRangeSnapshot = (FileSnapshot, FileSnapshot);
 
@@ -510,21 +511,27 @@ impl ScreenFs {
         })
     }
 
-    pub(super) fn file_flush_snapshot(
-        &self,
-        inode: u64,
-        fh: u64,
-    ) -> Result<FileFlushSnapshot, i32> {
+    pub(super) fn file_sync_snapshot(&self, inode: u64, fh: u64) -> Result<FileSyncSnapshot, i32> {
         self.with_state_read(|state| {
             let handle = state.files.get(&fh).ok_or(ENOENT)?;
             if handle.inode != inode {
                 return Err(ENOENT);
             }
-            Ok((
-                handle.path.clone(),
-                Arc::clone(&handle.file),
-                handle.flush_needs_sync,
-            ))
+            Ok(Arc::clone(&handle.file))
+        })
+    }
+
+    pub(super) fn file_flush_sync_snapshot(
+        &self,
+        inode: u64,
+        fh: u64,
+    ) -> Result<FileFlushSyncSnapshot, i32> {
+        self.with_state_read(|state| {
+            let handle = state.files.get(&fh).ok_or(ENOENT)?;
+            if handle.inode != inode {
+                return Err(ENOENT);
+            }
+            Ok((Arc::clone(&handle.file), handle.flush_needs_sync))
         })
     }
 

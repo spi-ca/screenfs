@@ -798,7 +798,7 @@ impl Filesystem for ScreenFs {
 
     async fn flush(&self, _req: Request, inode: u64, fh: u64, _lock_owner: u64) -> FsResult<()> {
         let _timer = fuse_op_timer!(self, "flush");
-        let (_path, file, flush_needs_sync) = self.file_flush_snapshot(inode, fh)?;
+        let (file, flush_needs_sync) = self.file_flush_sync_snapshot(inode, fh)?;
         if !flush_needs_sync {
             return Ok(());
         }
@@ -842,7 +842,7 @@ impl Filesystem for ScreenFs {
 
     async fn fsync(&self, _req: Request, inode: u64, fh: u64, datasync: bool) -> FsResult<()> {
         let _timer = fuse_op_timer!(self, "fsync");
-        let (_path, file) = self.file_handle_snapshot(inode, fh)?;
+        let file = self.file_sync_snapshot(inode, fh)?;
         #[cfg(feature = "perf-counters")]
         let sync_start = Instant::now();
         let result =

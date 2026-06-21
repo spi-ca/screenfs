@@ -1,0 +1,235 @@
+# Current all-five retry validation
+2026-06-21T02:40:58Z
+$ python3 -m py_compile scripts/bench-screenfs.py scripts/test_bench_screenfs.py scripts/test_bench_screenfs_workloads.py
+$ python3 scripts/test_bench_screenfs.py
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 0.002s
+
+OK
+$ python3 scripts/test_bench_screenfs_workloads.py
+................................
+----------------------------------------------------------------------
+Ran 32 tests in 0.371s
+
+OK
+$ cargo fmt --check
+$ cargo check
+    Checking screenfs v0.1.0 (/home/spi-ca/Codebase/screenfs)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.23s
+$ cargo check --features perf-counters
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+$ cargo clippy --all-targets --all-features
+    Checking screenfs v0.1.0 (/home/spi-ca/Codebase/screenfs)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.63s
+$ cargo test --all-targets --all-features
+   Compiling screenfs v0.1.0 (/home/spi-ca/Codebase/screenfs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.86s
+     Running unittests src/lib.rs (target/debug/deps/screenfs-015c90064ceb263b)
+
+running 188 tests
+test cli::tests::help_text_describes_two_axis_policy ... ok
+test cli::tests::detects_help_flag ... ok
+test cli::tests::parses_positionals_after_binary_name ... ok
+test cli::tests::reports_missing_required_positionals ... ok
+test cli::tests::parses_two_axis_policy_options_and_config ... ok
+test cli::tests::rejects_invalid_defaults ... ok
+test cli::tests::rejects_removed_policy_options_as_unknown ... ok
+test cli::tests::reports_unknown_and_missing_option_arguments ... ok
+test cli::tests::reports_unexpected_extra_positionals ... ok
+test config::tests::broader_visible_rule_does_not_override_more_specific_hidden_descendant ... ok
+test config::tests::canonical_glob_families_share_visibility_and_mutability_axis_semantics ... ok
+test config::tests::bare_and_recursive_globs_keep_containment_override_semantics ... ok
+test config::tests::config_file_accepts_recursive_literal_directory_shorthand_for_hidden_readonly_and_writable ... ok
+test config::tests::config_uses_two_axis_schema_and_cli_replaces_axis_independently ... ok
+test config::tests::cwd_sensitive_glob_shorthands_fail_fast_when_current_dir_is_outside_source_root ... ok
+test config::tests::default_hidden_supports_visible_carve_outs ... ok
+test config::tests::defaults_to_visible_and_writable_without_policy ... ok
+test config::tests::direct_child_visible_rule_bridges_only_normalized_anchor_ancestors ... ok
+test config::tests::four_policy_surfaces_share_anchored_shorthand_normalization_semantics ... ok
+test config::tests::four_policy_surfaces_share_bare_basename_glob_semantics ... ok
+test config::tests::four_policy_surfaces_share_direct_child_glob_semantics ... ok
+test config::tests::four_policy_surfaces_share_normalized_virtual_semantics ... ok
+test config::tests::hidden_precedence_over_mutability ... ok
+test config::tests::includes_mount_root_internal_hidden_rule ... ok
+test config::tests::mount_root_internal_hidden_rule_cannot_be_made_visible ... ok
+test config::tests::mutability_readonly_and_writable_use_most_specific_match ... ok
+test config::tests::rejects_unknown_config_fields_and_same_specificity_conflicts ... ok
+test config::tests::visible_rules_reject_recursive_bridge_discovery_but_keep_discovery_free_forms ... ok
+test config::tests::symlink_target_fast_path_is_enabled_only_when_visibility_policy_cannot_hide_targets ... ok
+test errors::tests::detects_write_intent_open_flags ... ok
+test config::tests::unprovable_opposite_glob_overlap_fails_fast ... ok
+test config::tests::visibility_hidden_and_visible_use_most_specific_match_with_bridge ... ok
+test config::tests::visible_recursive_literal_directory_shorthand_rejects_recursive_bridge_discovery_from_config_file ... ok
+test config::tests::shorthand_and_trailing_descendant_forms_conflict_at_same_normalized_specificity ... ok
+test fs::tests::data_mutations::cache_eligible_opened_file_read_write_keep_pinned_fd_after_unlink ... ok
+test fs::tests::data_mutations::cache_eligible_opened_file_read_write_keep_pinned_fd_after_host_rename ... ok
+test fs::tests::data_mutations::cache_eligible_opened_file_read_write_keep_pinned_fd_after_ancestor_rename ... ok
+test fs::tests::data_mutations::copy_file_range_revalidates_input_after_host_rename_into_hidden_subtree ... ok
+test config::tests::mutability_fast_path_helpers_follow_default_policies ... ok
+test fs::tests::data_mutations::copy_file_range_revalidates_output_after_host_rename_into_hidden_subtree ... ok
+test fs::tests::data_mutations::lseek_uses_tracked_file_handle_and_released_handle_fails ... ok
+test fs::tests::data_mutations::copy_file_range_symlink_destination_hidden_target_returns_enoent_before_readonly_fast_path ... ok
+test fs::tests::data_mutations::offload_file_sync_completes_without_ambient_compio_runtime ... ok
+test fs::tests::data_mutations::offload_file_sync_maps_closure_panic_to_eio ... ok
+test fs::tests::data_mutations::hidden_multi_path_mutations_return_enoent_before_readonly ... ok
+test fs::tests::data_mutations::hidden_copy_file_range_paths_return_enoent_before_readonly ... ok
+test fs::tests::data_mutations::offload_file_sync_preserves_closure_errno ... ok
+test fs::tests::data_mutations::opened_fallocate_revalidates_target_after_host_rename_into_hidden_subtree ... ok
+test fs::tests::data_mutations::flush_and_fsync_complete_under_compio_runtime ... ok
+test fs::tests::data_mutations::hidden_xattr_queries_return_enoent ... ok
+test fs::tests::data_mutations::opened_file_read_keeps_pinned_fd_after_host_rename_but_write_fails_closed ... ok
+test fs::tests::data_mutations::opened_file_read_write_fail_closed_after_host_rename_into_hidden_subtree ... ok
+test config::tests::reports_shared_normalization_failures_per_surface ... ok
+test fs::tests::data_mutations::read_write_offsets_do_not_depend_on_shared_file_position ... ok
+test fs::tests::data_mutations::visible_copy_file_range_copies_data ... ok
+test fs::tests::data_mutations::setattr_uses_confined_fd_and_preserves_symlink_visibility ... ok
+test fs::tests::data_mutations::readonly_multi_path_xattr_and_fallocate_mutations_return_erofs ... ok
+test fs::tests::mutability::readonly_default_canonical_absolute_txt_globs_preserve_direct_child_over_recursive_specificity ... ok
+test fs::tests::data_mutations::release_flush_true_completes_under_compio_runtime_and_removes_handle ... ok
+test fs::tests::mutability::opened_symlink_write_revalidates_readonly_target_after_retarget ... ok
+test fs::tests::data_mutations::xattr_operations_use_confined_fd_and_preserve_symlink_visibility ... ok
+test fs::tests::mutability::readonly_default_copy_file_range_requires_writable_destination_parent ... ok
+test fs::tests::mutability::writable_default_direct_child_globs_lock_only_immediate_children ... ok
+test fs::tests::mutability::readonly_default_writable_match_non_match_and_hidden_precedence ... ok
+test fs::tests::perf::perf_counters_are_enabled_by_feature ... ok
+test fs::tests::mutability::readonly_default_requires_writable_parent_for_path_only_and_multi_path_mutation ... ok
+test fs::tests::mutability::writable_default_recursive_literal_directory_shorthand_locks_git_hooks_subtree ... ok
+test fs::tests::mutability::writable_default_mutability_fast_path_still_returns_enoent_for_hidden_symlink_target ... ok
+test fs::tests::mutability::readonly_default_recursive_literal_directory_writable_shorthand_overrides_default ... ok
+test fs::tests::mutability::writable_default_symlink_returns_erofs_and_hidden_precedence_remains_enoent ... ok
+test fs::tests::mutability::writable_default_direct_child_wildcard_all_locks_child_subtrees ... ok
+test fs::tests::perf::perf_counters_record_data_path_splits_on_snapshot_guard_and_io_failures ... ok
+test fs::tests::perf::perf_counters_record_data_path_splits_on_success ... ok
+test fs::tests::perf::perf_counters_keep_fallocate_and_copy_file_range_on_per_call_policy_path ... ok
+test fs::tests::mutability::writable_default_readonly_rules_are_scoped_to_matching_paths ... ok
+test fs::tests::perf::perf_counters_record_lookup_getattr_stat_reuse ... ok
+test fs::tests::perf::perf_counters_record_open_like_guard_and_revalidation_splits_on_success ... ok
+test fs::tests::perf::perf_counters_record_missing_lookup_stat_failure_reuse ... ok
+test fs::tests::perf::perf_counters_record_file_sync_splits ... ok
+test fs::tests::perf::perf_counters_record_invalidation_and_eviction_work ... ok
+test fs::tests::perf::perf_counters_split_resolved_virtual_path_sources ... ok
+test fs::tests::perf::perf_counters_record_readlink_stat_reuse ... ok
+test fs::tests::perf::perf_counters_resume_filter_skips_repeated_attr_work ... ok
+test fs::tests::state_cache::failed_lookup_does_not_pin_unknown_inode ... ok
+test fs::tests::perf::readonly_open_uses_noflush_and_flush_skips_sync ... ok
+test fs::tests::perf::perf_counters_record_policy_state_open_and_readdirplus_attr_work ... ok
+test fs::tests::perf::write_capable_open_flushes_and_does_not_use_noflush ... ok
+test fs::tests::perf::perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe ... ok
+test fs::tests::state_cache::forget_evicts_non_root_mapping_after_lookup_refs_drop_and_handles_close ... ok
+test fs::tests::state_cache::mutation_invalidation_detaches_path_and_evicts_after_forget_without_touching_sibling ... ok
+test fs::tests::state_cache::readdirplus_dot_entries_do_not_pin_lookup_refs ... ok
+test fs::tests::state_cache::rename_overwrite_invalidates_source_and_target_but_not_sibling ... ok
+test fs::tests::symlinks_access_create::access_passes_through_host_permissions_and_readonly_write_mask ... ok
+test fs::tests::state_cache::read_only_state_snapshots_can_run_concurrently ... ok
+test fs::tests::state_cache::readdirplus_pins_returned_child_lookup_refs ... ok
+test fs::tests::state_cache::successful_rename_invalidates_source_tree_and_parent_snapshot ... ok
+test fs::tests::state_cache::successful_mutations_invalidate_parent_snapshots_and_reused_exact_paths ... ok
+test fs::tests::state_cache::readdirplus_pins_only_returned_page_child_lookup_refs ... ok
+test fs::tests::symlinks_access_create::broader_visible_rule_does_not_expose_more_specific_hidden_symlink_target ... ok
+test fs::tests::symlinks_access_create::ancestor_symlink_into_hidden_subtree_returns_enoent_for_child ... ok
+test fs::tests::symlinks_access_create::cache_eligible_opened_symlink_read_keeps_pinned_fd_after_ancestor_retarget ... ok
+test fs::tests::state_cache::rename_invalidation_detaches_subtree_and_keeps_unrelated_sibling_mapping ... ok
+test fs::tests::state_cache::readdirplus_honors_size_budget_and_continues_from_last_cookie ... ok
+test fs::tests::symlinks_access_create::create_existing_symlink_to_hidden_target_returns_enoent_before_side_effects ... ok
+test fs::tests::symlinks_access_create::cache_eligible_opened_symlink_read_keeps_pinned_fd_after_final_retarget ... ok
+test fs::tests::symlinks_access_create::deleted_source_root_resolved_path_fails_closed ... ok
+test fs::tests::symlinks_access_create::create_existing_visible_symlink_is_rejected_without_target_side_effect ... ok
+test fs::tests::symlinks_access_create::create_honors_host_exclusive_and_readonly_flags ... ok
+test fs::tests::symlinks_access_create::hidden_access_returns_enoent_for_read_and_write_masks ... ok
+test fs::tests::symlinks_access_create::hard_link_existing_hidden_target_symlink_returns_enoent_before_eexist ... ok
+test fs::tests::symlinks_access_create::hidden_create_returns_enoent_before_readonly ... ok
+test fs::tests::symlinks_access_create::opened_parent_directory_at_path_rejects_host_rename_replacement ... ok
+test fs::tests::symlinks_access_create::mkdir_restrictive_mode_returns_success_after_creation ... ok
+test fs::tests::symlinks_access_create::open_honors_host_access_mode_truncate_and_append_flags ... ok
+test fs::tests::symlinks_access_create::multi_hop_symlink_to_hidden_target_returns_enoent ... ok
+test fs::tests::symlinks_access_create::readonly_create_returns_erofs_instead_of_enosys ... ok
+test fs::tests::symlinks_access_create::mutation_under_visible_symlink_parent_uses_resolved_parent ... ok
+test fs::tests::symlinks_access_create::opened_symlink_read_revalidates_hidden_target_after_retarget ... ok
+test fs::tests::symlinks_access_create::statfs_reflects_backing_filesystem_instead_of_placeholder_values ... ok
+test fs::tests::symlinks_access_create::readonly_write_intent_open_and_opendir_return_erofs_but_hidden_stays_enoent ... ok
+test fs::tests::symlinks_access_create::rename_over_hidden_target_symlink_returns_enoent_without_overwrite ... ok
+test fs::tests::symlinks_access_create::rename_hidden_target_symlink_source_returns_enoent_and_preserves_entry ... ok
+test fs::tests::symlinks_access_create::symlink_creation_to_hidden_final_target_rolls_back_side_effect ... ok
+test fs::tests::symlinks_access_create::unlink_hidden_target_symlink_returns_enoent_and_preserves_entry ... ok
+test fs::tests::symlinks_access_create::symlink_to_hidden_target_returns_enoent_before_readonly_for_write_intent ... ok
+test fs::tests::symlinks_access_create::visible_symlink_to_bridge_visible_target_returns_enoent_for_write_intent_ops ... ok
+test fs::tests::symlinks_access_create::symlink_to_bridge_visible_target_is_not_exported ... ok
+test fs::tests::symlinks_access_create::symlink_to_hidden_target_returns_enoent_for_lookup_open_and_readlink ... ok
+test fs::tests::symlinks_access_create::unlink_hidden_target_symlink_returns_enoent_before_readonly ... ok
+test fs::tests::symlinks_access_create::symlink_to_outside_source_root_stays_visible_but_following_ops_return_enoent ... ok
+test fs::tests::symlinks_access_create::symlink_directory_escape_rejects_opendir_access_and_create_before_side_effects ... ok
+test fs::tests::symlinks_access_create::write_intent_open_hidden_symlink_does_not_truncate_target ... ok
+test fs::tests::visibility::hidden_descendant_subtree_rules_keep_enoent_precedence_over_readonly ... ok
+test fs::tests::visibility::hidden_lookup_preserves_enoent_when_initial_stat_fails ... ok
+test fs::tests::visibility::default_hidden_absolute_txt_visible_globs_accept_direct_child_and_reject_recursive ... ok
+test fs::tests::visibility::exact_visible_absent_target_still_exposes_existing_bridge_ancestors ... ok
+test fs::tests::visibility::default_hidden_visible_writable_subtree_allows_new_child_create ... ok
+test fs::tests::visibility::hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly ... ok
+test fs::tests::visibility::default_hidden_cwd_rebased_direct_child_visible_glob_uses_anchor_bridge_without_recursive_scan ... ok
+test fs::tests::visibility::readdir_honors_size_budget_and_last_cookie_continuation ... ok
+test fs::tests::visibility::hidden_recursive_literal_directory_shorthand_returns_enoent ... ok
+test fs::tests::visibility::hidden_read_and_list_operations_return_enoent_and_filter_entries ... ok
+test fs::tests::visibility::opendir_returns_real_handle_and_readdir_variants_share_cookie_domain ... ok
+test fs::tests::visibility::readdir_page_boundaries_keep_bridge_visible_filtering ... ok
+test fs::tests::visibility::default_hidden_anchored_wildcard_all_and_subtree_shorthands_preserve_visibility ... ok
+test fs::tests::visibility::readdir_keeps_prior_cookies_usable_after_later_pages ... ok
+test matcher::index::tests::best_matching_candidate_matches_candidate_order_winner_for_mixed_families ... ok
+test matcher::index::tests::candidate_order_uses_match_order_after_unstable_sort ... ok
+test fs::tests::visibility::recursive_visible_globs_fail_fast_before_mount ... ok
+test matcher::index::tests::descendant_candidate_order_uses_match_order_after_unstable_sort ... ok
+test matcher::index::tests::descendant_streaming_candidate_matches_candidate_order_bool_for_mixed_families ... ok
+test fs::tests::visibility::readdir_page_boundaries_keep_hidden_entries_omitted ... ok
+test matcher::tests::anchored_wildcard_all_preserves_direct_child_containment_and_conservative_overlap_checks ... ok
+test fs::tests::visibility::readdirplus_discovered_visible_file_survives_open_release_for_cached_path_reuse ... ok
+test matcher::tests::anchored_wildcard_all_and_trailing_subtree_shorthand_preserve_normalized_semantics ... ok
+test matcher::tests::bare_basename_glob_shorthand_compiles_equivalent_to_current_dir_direct_child_form ... ok
+test matcher::tests::bare_basename_glob_shorthand_matches_current_dir_immediate_children_and_descendants ... ok
+test matcher::tests::canonical_glob_families_preserve_match_ranges_and_specificity ... ok
+test matcher::tests::computes_mount_root_internal_prefix_before_mount_exists ... ok
+test fs::tests::visibility::releasedir_removes_directory_handle_and_snapshot ... ok
+test matcher::tests::hides_mount_root_subtree_as_internal_prefix ... ok
+test matcher::tests::matcher_indexes_candidates_by_family_and_normalized_anchor ... ok
+test matcher::tests::matches_requested_absolute_descendant_subtree_glob_pattern ... ok
+test matcher::tests::matches_exact_rules_directory_prefixes_and_cwd_anchored_recursive_globs ... ok
+test matcher::tests::matches_recursive_literal_descendant_subtree_globs ... ok
+test fs::tests::visibility::writable_default_readonly_descendant_subtree_rule_only_locks_git_hooks_subtree ... ok
+test matcher::tests::matches_symlink_target_without_caching_target_decision ... ok
+test matcher::tests::normalizes_direct_child_basename_prefix_and_suffix_glob_rules ... ok
+test matcher::tests::prefixless_recursive_glob_shorthand_compiles_equivalent_to_current_dir_recursive_form ... ok
+test matcher::tests::normalizes_relative_exact_and_prefixed_glob_rules ... ok
+test fs::tests::visibility::visible_read_and_nested_listing_preserve_access_and_parent_entries ... ok
+test matcher::tests::prefixless_recursive_glob_fails_fast_when_current_dir_is_outside_source_root ... ok
+test matcher::tests::recursive_literal_descendant_subtree_specificity_prefers_longer_tail_over_longer_prefix ... ok
+test matcher::tests::rejects_unsupported_globs_and_paths_outside_source_root ... ok
+test path::tests::clamps_parent_escape_at_virtual_root ... ok
+test path::tests::converts_virtual_path_to_source_relative_and_host_paths_without_root_escape ... ok
+test path::tests::joins_child_and_resolves_symlink_targets_lexically ... ok
+test path::tests::normalizes_lexical_absolute_virtual_paths ... ok
+test path::tests::normalizes_relative_and_tilde_rule_paths_inside_source_root ... ok
+test path::tests::rejects_rule_paths_outside_source_root_or_without_home ... ok
+test path::tests::loads_environment_based_rule_context ... ok
+test path::tests::rejects_following_symlinks_outside_source_root_but_allows_link_itself ... ok
+test path::tests::resolves_host_paths_within_source_root_without_changing_virtual_lexical_join ... ok
+test path::tests::resolves_root_symlink_targets_without_escaping_virtual_root ... ok
+test tests::root_euid_detection_is_exact ... ok
+test matcher::tests::recursive_literal_directory_shorthand_matches_canonical_descendant_subtree_forms ... ok
+test matcher::tests::recursive_literal_descendant_subtree_rules_preserve_specificity_and_containment ... ok
+test fs::tests::visibility::visible_carve_out_exposes_only_bridge_ancestors_and_target_subtree ... ok
+
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/main.rs (target/debug/deps/screenfs-f6297d3d3f59f683)
+
+running 1 test
+test tests::screenfs_mount_options_preserve_current_mount_policy ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ python3 - JSON parse artifacts
+json-ok 28 files
+$ /usr/bin/find README.md AGENTS.md docs -maxdepth 2 -type f -print
+111 /tmp/screenfs-docs-find.txt
+$ /usr/bin/find .pi/agents .pi/skills .pi/prompts .pi/extensions -maxdepth 3 -type f -print | sort
+15 /tmp/screenfs-pi-find.txt
+$ git diff --check
