@@ -70,6 +70,52 @@ impl ScreenFs {
             result
         }
     }
+
+    #[cfg(not(feature = "perf-counters"))]
+    fn measure_stat_child_no_follow_total<T>(
+        &self,
+        _context: &'static str,
+        f: impl FnOnce() -> Result<T, i32>,
+    ) -> Result<T, i32> {
+        f()
+    }
+
+    #[cfg(feature = "perf-counters")]
+    fn measure_stat_child_no_follow_total<T>(
+        &self,
+        context: &'static str,
+        f: impl FnOnce() -> Result<T, i32>,
+    ) -> Result<T, i32> {
+        let start = Instant::now();
+        let result = f();
+        let elapsed = start.elapsed();
+        self.perf.record_stat_child_no_follow(elapsed);
+        self.perf
+            .record_stat_child_no_follow_context(context, elapsed);
+        result
+    }
+
+    #[cfg(not(feature = "perf-counters"))]
+    fn measure_stat_child_no_follow_split<T>(
+        &self,
+        _label: &'static str,
+        f: impl FnOnce() -> Result<T, i32>,
+    ) -> Result<T, i32> {
+        f()
+    }
+
+    #[cfg(feature = "perf-counters")]
+    fn measure_stat_child_no_follow_split<T>(
+        &self,
+        label: &'static str,
+        f: impl FnOnce() -> Result<T, i32>,
+    ) -> Result<T, i32> {
+        let start = Instant::now();
+        let result = f();
+        self.perf
+            .record_stat_child_no_follow_split(label, start.elapsed());
+        result
+    }
 }
 
 pub(super) fn cstring_path(path: &Path) -> Result<CString, i32> {
@@ -345,12 +391,9 @@ impl ScreenFs {
         path: &VirtualPath,
         ino: u64,
     ) -> Result<FileAttr, i32> {
-        #[cfg(feature = "perf-counters")]
-        let start = Instant::now();
-        let result = self.stat_child_no_follow_inner(resolver, path, ino);
-        #[cfg(feature = "perf-counters")]
-        self.perf.record_stat_child_no_follow(start.elapsed());
-        result
+        self.measure_stat_child_no_follow_total("path_guard_or_metadata", || {
+            self.stat_child_no_follow_inner(resolver, path, ino)
+        })
     }
 
     fn stat_child_no_follow_inner(
@@ -361,11 +404,31 @@ impl ScreenFs {
     ) -> Result<FileAttr, i32> {
         if path.as_path() == Path::new("/") {
             let file = self.open_confined(path, libc::O_PATH | libc::O_DIRECTORY, None)?;
-            return fstat_attr(&file, ino);
+            return self.stat_child_no_follow_attr_for_file(&file, ino);
         }
-        let (parent, parent_dir, name) = self.open_parent_dir(path)?;
-        self.guard_opened_directory_at_path_with_resolver(resolver, &parent, &parent_dir, false)?;
-        fstatat_attr(&parent_dir, &name, libc::AT_SYMLINK_NOFOLLOW, ino)
+        let (parent, parent_dir, name) =
+            self.measure_stat_child_no_follow_split("parent_open", || self.open_parent_dir(path))?;
+        self.measure_stat_child_no_follow_split("directory_revalidation", || {
+            self.guard_opened_directory_at_path_with_resolver(resolver, &parent, &parent_dir, false)
+        })?;
+        self.stat_child_no_follow_attr_at(&parent_dir, &name, ino)
+    }
+
+    fn stat_child_no_follow_attr_for_file(&self, file: &File, ino: u64) -> Result<FileAttr, i32> {
+        let stat = self.measure_stat_child_no_follow_split("host_fstat", || fstat_raw(file))?;
+        self.measure_stat_child_no_follow_split("attr_conversion", || Ok(stat_to_attr(&stat, ino)))
+    }
+
+    fn stat_child_no_follow_attr_at(
+        &self,
+        parent_dir: &File,
+        name: &CStr,
+        ino: u64,
+    ) -> Result<FileAttr, i32> {
+        let stat = self.measure_stat_child_no_follow_split("host_fstatat", || {
+            fstatat_raw_fd(parent_dir.as_raw_fd(), name, libc::AT_SYMLINK_NOFOLLOW)
+        })?;
+        self.measure_stat_child_no_follow_split("attr_conversion", || Ok(stat_to_attr(&stat, ino)))
     }
 
     pub(super) fn prepare_readlink_child(
@@ -374,17 +437,23 @@ impl ScreenFs {
         path: &VirtualPath,
         ino: u64,
     ) -> Result<PreparedReadlinkChild, i32> {
-        let (parent, parent_dir, name) = self.open_parent_dir(path)?;
-        self.guard_opened_directory_at_path_with_resolver(resolver, &parent, &parent_dir, false)?;
-        #[cfg(feature = "perf-counters")]
-        let start = Instant::now();
-        let attr = fstatat_attr(&parent_dir, &name, libc::AT_SYMLINK_NOFOLLOW, ino)?;
-        #[cfg(feature = "perf-counters")]
-        self.perf.record_stat_child_no_follow(start.elapsed());
-        Ok(PreparedReadlinkChild {
-            attr,
-            parent_dir,
-            name,
+        self.measure_stat_child_no_follow_total("readlink_pre_open", || {
+            let (parent, parent_dir, name) = self
+                .measure_stat_child_no_follow_split("parent_open", || self.open_parent_dir(path))?;
+            self.measure_stat_child_no_follow_split("directory_revalidation", || {
+                self.guard_opened_directory_at_path_with_resolver(
+                    resolver,
+                    &parent,
+                    &parent_dir,
+                    false,
+                )
+            })?;
+            let attr = self.stat_child_no_follow_attr_at(&parent_dir, &name, ino)?;
+            Ok(PreparedReadlinkChild {
+                attr,
+                parent_dir,
+                name,
+            })
         })
     }
 
@@ -396,35 +465,29 @@ impl ScreenFs {
     }
 }
 
-pub(super) fn fstat_attr(file: &File, ino: u64) -> Result<FileAttr, i32> {
+fn fstat_raw(file: &File) -> Result<libc::stat, i32> {
     let mut stat = std::mem::MaybeUninit::<libc::stat>::zeroed();
     let result = unsafe { libc::fstat(file.as_raw_fd(), stat.as_mut_ptr()) };
     if result == 0 {
-        let stat = unsafe { stat.assume_init() };
-        Ok(stat_to_attr(&stat, ino))
+        Ok(unsafe { stat.assume_init() })
     } else {
         Err(errno_from_io(std::io::Error::last_os_error()))
     }
 }
 
-pub(super) fn fstatat_attr(
-    parent_dir: &File,
-    name: &CStr,
-    flags: i32,
-    ino: u64,
-) -> Result<FileAttr, i32> {
-    fstatat_attr_fd(parent_dir.as_raw_fd(), name, flags, ino)
-}
-
-fn fstatat_attr_fd(fd: i32, name: &CStr, flags: i32, ino: u64) -> Result<FileAttr, i32> {
+fn fstatat_raw_fd(fd: i32, name: &CStr, flags: i32) -> Result<libc::stat, i32> {
     let mut stat = std::mem::MaybeUninit::<libc::stat>::zeroed();
     let result = unsafe { libc::fstatat(fd, name.as_ptr(), stat.as_mut_ptr(), flags) };
     if result == 0 {
-        let stat = unsafe { stat.assume_init() };
-        Ok(stat_to_attr(&stat, ino))
+        Ok(unsafe { stat.assume_init() })
     } else {
         Err(errno_from_io(std::io::Error::last_os_error()))
     }
+}
+
+fn fstatat_attr_fd(fd: i32, name: &CStr, flags: i32, ino: u64) -> Result<FileAttr, i32> {
+    let stat = fstatat_raw_fd(fd, name, flags)?;
+    Ok(stat_to_attr(&stat, ino))
 }
 
 pub(super) fn readlinkat_os(parent_dir: &File, name: &CStr) -> Result<OsString, i32> {

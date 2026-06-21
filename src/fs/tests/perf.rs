@@ -47,11 +47,55 @@ fn perf_counters_record_lookup_getattr_stat_reuse() {
         after_lookup.stat_child_no_follow.count, 1,
         "{after_lookup:?}"
     );
+    assert_eq!(
+        labeled_latency_count(&after_lookup.stat_child_no_follow_splits, "parent_open"),
+        1,
+        "{after_lookup:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_lookup.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        1,
+        "{after_lookup:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_lookup.stat_child_no_follow_splits, "host_fstatat"),
+        1,
+        "{after_lookup:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_lookup.stat_child_no_follow_splits, "attr_conversion"),
+        1,
+        "{after_lookup:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_lookup.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ),
+        1,
+        "{after_lookup:?}"
+    );
 
     let _ = block_on(fs.getattr(dummy_req(), inode, None, 0)).unwrap();
     let after_getattr = fs.perf_snapshot().expect("perf counters enabled");
     assert_eq!(
         after_getattr.stat_child_no_follow.count, 2,
+        "{after_getattr:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_getattr.stat_child_no_follow_splits, "parent_open"),
+        2,
+        "{after_getattr:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_getattr.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ),
+        2,
         "{after_getattr:?}"
     );
     assert!(after_getattr.open_confined.count > 0, "{after_getattr:?}");
@@ -70,6 +114,94 @@ fn perf_counters_record_missing_lookup_stat_failure_reuse() {
     );
     let snapshot = fs.perf_snapshot().expect("perf counters enabled");
     assert_eq!(snapshot.stat_child_no_follow.count, 1, "{snapshot:?}");
+    assert_eq!(
+        labeled_latency_count(&snapshot.stat_child_no_follow_splits, "parent_open"),
+        1,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &snapshot.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        1,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&snapshot.stat_child_no_follow_splits, "host_fstatat"),
+        1,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&snapshot.stat_child_no_follow_splits, "attr_conversion"),
+        0,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &snapshot.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ),
+        1,
+        "{snapshot:?}"
+    );
+
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn perf_counters_record_root_stat_child_no_follow_split() {
+    let source = test_dir("perf-root-stat-child-no-follow-split");
+    std::fs::write(source.join("file.txt"), "hello").unwrap();
+    let fs = fs_for_perf(&source);
+
+    let root_attr = block_on(fs.getattr(dummy_req(), FUSE_ROOT_ID, None, 0)).unwrap();
+    assert_eq!(root_attr.attr.ino, FUSE_ROOT_ID);
+
+    let snapshot = fs.perf_snapshot().expect("perf counters enabled");
+    assert_eq!(snapshot.stat_child_no_follow.count, 1, "{snapshot:?}");
+    assert_eq!(
+        labeled_latency_count(&snapshot.stat_child_no_follow_splits, "host_fstat"),
+        1,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&snapshot.stat_child_no_follow_splits, "parent_open"),
+        0,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &snapshot.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        0,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&snapshot.stat_child_no_follow_splits, "host_fstatat"),
+        0,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&snapshot.stat_child_no_follow_splits, "attr_conversion"),
+        1,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &snapshot.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ),
+        1,
+        "{snapshot:?}"
+    );
+
+    let summary = fs.perf.summary();
+    assert!(
+        summary.contains("stat_child_no_follow.host_fstat"),
+        "{summary}"
+    );
 
     std::fs::remove_dir_all(source).unwrap();
 }
@@ -94,6 +226,48 @@ fn perf_counters_record_readlink_stat_reuse() {
     assert_eq!(
         after_readlink.stat_child_no_follow.count, 2,
         "{after_readlink:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_readlink.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ),
+        1,
+        "{after_readlink:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_readlink.stat_child_no_follow_context,
+            "readlink_pre_open",
+        ),
+        1,
+        "{after_readlink:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_readlink.stat_child_no_follow_splits, "host_fstatat"),
+        2,
+        "{after_readlink:?}"
+    );
+    let summary = fs.perf.summary();
+    assert!(
+        summary.contains("stat_child_no_follow.parent_open"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow.directory_revalidation"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow.host_fstatat"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow.attr_conversion"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow_context.readlink_pre_open"),
+        "{summary}"
     );
 
     std::fs::remove_dir_all(source).unwrap();
@@ -212,6 +386,17 @@ fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
         labeled_latency_count(&before_open.open_like_post_open_revalidation, "open") + 1,
         "{before_open:?}\n{after_open:?}"
     );
+    assert_eq!(
+        labeled_latency_count(
+            &after_open.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ),
+        labeled_latency_count(
+            &before_open.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ) + 1,
+        "{before_open:?}\n{after_open:?}"
+    );
     assert!(after_open.open_confined.count > before_open.open_confined.count);
     assert!(
         after_open.resolved_virtual_path_from_open_fd.count
@@ -232,6 +417,17 @@ fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
         labeled_latency_count(&before_opendir.open_like_post_open_revalidation, "opendir",) + 1,
         "{before_opendir:?}\n{after_opendir:?}"
     );
+    assert_eq!(
+        labeled_latency_count(
+            &after_opendir.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ),
+        labeled_latency_count(
+            &before_opendir.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ) + 1,
+        "{before_opendir:?}\n{after_opendir:?}"
+    );
 
     let before_access = fs.perf_snapshot().expect("perf counters enabled");
     block_on(fs.access(dummy_req(), file_inode, libc::W_OK as u32)).unwrap();
@@ -244,6 +440,17 @@ fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
     assert_eq!(
         labeled_latency_count(&after_access.open_like_post_open_revalidation, "access"),
         labeled_latency_count(&before_access.open_like_post_open_revalidation, "access") + 1,
+        "{before_access:?}\n{after_access:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_access.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ),
+        labeled_latency_count(
+            &before_access.stat_child_no_follow_context,
+            "path_guard_or_metadata",
+        ) + 1,
         "{before_access:?}\n{after_access:?}"
     );
 
@@ -271,6 +478,26 @@ fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
     );
     assert!(
         summary.contains("open_like.post_open_revalidation.access"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow.parent_open"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow.directory_revalidation"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow.host_fstatat"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow.attr_conversion"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow_context.path_guard_or_metadata"),
         "{summary}"
     );
     assert!(

@@ -35,6 +35,8 @@ pub(super) struct PerfCounters {
     open_like_pre_open_guard: LabeledLatencyCounters,
     open_like_post_open_revalidation: LabeledLatencyCounters,
     stat_child_no_follow: LatencyCounter,
+    stat_child_no_follow_splits: LabeledLatencyCounters,
+    stat_child_no_follow_context: LabeledLatencyCounters,
     source_root_path: LatencyCounter,
     resolved_virtual_path: LatencyCounter,
     resolved_virtual_path_from_path: LatencyCounter,
@@ -115,6 +117,8 @@ pub(crate) struct PerfSnapshot {
     pub(super) open_like_pre_open_guard: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) open_like_post_open_revalidation: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) stat_child_no_follow: LatencySnapshot,
+    pub(super) stat_child_no_follow_splits: BTreeMap<&'static str, LatencySnapshot>,
+    pub(super) stat_child_no_follow_context: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) source_root_path: LatencySnapshot,
     pub(super) resolved_virtual_path: LatencySnapshot,
     pub(super) resolved_virtual_path_from_path: LatencySnapshot,
@@ -278,6 +282,18 @@ impl PerfCounters {
         self.stat_child_no_follow.record(elapsed);
     }
 
+    pub(super) fn record_stat_child_no_follow_split(&self, label: &'static str, elapsed: Duration) {
+        self.stat_child_no_follow_splits.record(label, elapsed);
+    }
+
+    pub(super) fn record_stat_child_no_follow_context(
+        &self,
+        label: &'static str,
+        elapsed: Duration,
+    ) {
+        self.stat_child_no_follow_context.record(label, elapsed);
+    }
+
     pub(super) fn record_source_root_path(&self, elapsed: Duration) {
         self.source_root_path.record(elapsed);
     }
@@ -429,6 +445,8 @@ impl PerfCounters {
             open_like_pre_open_guard: self.open_like_pre_open_guard.snapshot(),
             open_like_post_open_revalidation: self.open_like_post_open_revalidation.snapshot(),
             stat_child_no_follow: self.stat_child_no_follow.snapshot(),
+            stat_child_no_follow_splits: self.stat_child_no_follow_splits.snapshot(),
+            stat_child_no_follow_context: self.stat_child_no_follow_context.snapshot(),
             source_root_path: self.source_root_path.snapshot(),
             resolved_virtual_path: self.resolved_virtual_path.snapshot(),
             resolved_virtual_path_from_path: self.resolved_virtual_path_from_path.snapshot(),
@@ -563,6 +581,16 @@ impl PerfCounters {
             &mut output,
             "stat_child_no_follow",
             snapshot.stat_child_no_follow,
+        );
+        write_labeled_latency(
+            &mut output,
+            "stat_child_no_follow",
+            &snapshot.stat_child_no_follow_splits,
+        );
+        write_labeled_latency(
+            &mut output,
+            "stat_child_no_follow_context",
+            &snapshot.stat_child_no_follow_context,
         );
         write_latency(&mut output, "source_root_path", snapshot.source_root_path);
         write_latency(
