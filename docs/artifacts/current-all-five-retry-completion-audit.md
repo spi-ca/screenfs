@@ -23,7 +23,7 @@ This audit maps the `3bac07ab-4d99-4a66-93d2-25a446b28134` goal requirements to 
 These labels are historical for the completion point of this retry. The current canonical status has since changed: `open_confined` / `openat2` is now a kept `claim` via [`open-confined-stat-child-open-path/summary.md`](open-confined-stat-child-open-path/summary.md), and current status should be read from [`current-next-performance-candidates.md`](current-next-performance-candidates.md), [`../performance-roadmap.md`](../performance-roadmap.md), and [`../benchmarks.md`](../benchmarks.md).
 
 - `open_confined` / `openat2`: remained `smoke` at this audit point; fresh fd-path candidate rejected.
-- `readdirplus` page/scan: remained `slice`; fresh bounded candidate-set candidate rejected.
+- `readdirplus` page/scan: historical retry remained `slice`; the later fast-policy/cache-eligible batch fast path is now claim-grade in [`readdirplus-page-scan-claim/summary.md`](readdirplus-page-scan-claim/summary.md).
 - mutation invalidation breadth: remained `smoke`; fresh prefix-range candidate rejected.
 - matcher-heavy policy path: remained `smoke`; fresh rank-0 early-stop candidate rejected.
 - read/write follow-up: remained `smoke` beyond the prior fallback small-I/O claim; fresh fast snapshot-path candidate rejected.
