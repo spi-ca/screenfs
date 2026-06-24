@@ -1,69 +1,78 @@
 # ScreenFS benchmark result
 
-- timestamp: `2026-06-20T14:59:22.947818+00:00`
+- timestamp: `2026-06-24T23:17:42.140773+00:00`
 - harness_command_line: `python3 scripts/bench-screenfs.py --screenfs-bin target/release/screenfs --perf-counters --workload-set all --iterations 3 --warmups 1 --read-mib 4 --write-mib 4 --small-io-ops 64 --sync-ops 16 --small-files 200 --dir-entries 500 --hidden-misses 200 --matcher-extra-rules 20 --matcher-misses 200 --symlink-parent-mutations 200 --output-json docs/artifacts/current-perf-counter-benchmark-result.json --output-md docs/artifacts/current-perf-counter-benchmark-result.md --output-svg docs/artifacts/current-perf-counter-benchmark-result.svg`
 - harness_repo_root: `/home/spi-ca/Codebase/screenfs`
-- git: `868f0dcba4e894e1fb1bcddd16712aa4e4098f6b`
+- git: `60caec31b7323997abcd856b0bb395f2b97c07f1`
 - git_worktree_clean: `True`
 - screenfs_bin: `target/release/screenfs`
-- screenfs_bin_sha256: `a75c06032c0b901a15879e767ac0534a6e55dd72dc2ad6f3df7f6ad77c7de5c8`
+- screenfs_bin_sha256: `bfa5b36cab85360f55cb559ff8549e6f7e6901a83e533ab372fbbbf1888e2821`
 - screenfs_source_root: `/home/spi-ca/Codebase/screenfs`
 - screenfs_source_root_origin: `inferred-from-screenfs-bin`
-- screenfs_source_git: `868f0dcba4e894e1fb1bcddd16712aa4e4098f6b`
+- screenfs_source_git: `60caec31b7323997abcd856b0bb395f2b97c07f1`
 - screenfs_source_git_worktree_clean: `True`
 - policy_preset: `fallback-unsafe-policy`
 - policy_bucket: `custom-unsafe-policy`
 - policy_label: `fallback-unsafe-policy-matcher20`
 - fast_path_cache_eligible: `False`
 - workload_selection: `named-set`
+- policy_notes: `matcher_extra_rules appended synthetic hidden/readonly rules plus hidden/visible descendant directory carve-outs for matcher_hidden_stat_miss, matcher_readonly_access_wok, and matcher_descendant_readdir* attribution workloads`
 - workload_set: `all`
-- policy_notes: `matcher_extra_rules appended synthetic hidden/readonly carve-outs and activates matcher_hidden_stat_miss when that workload is selected`
-- comparable_workloads: `seq_read, seq_write, small_read, small_write, write_fsync_close, small_stat_open_read, readdir_lstat, symlink_open_read, rand_read_4k, rand_write_4k, sync_write_4k, small_open_read_close, metadata_lookup, metadata_getattr, metadata_open, metadata_readlink, metadata_access, metadata_statfs, metadata_opendir, sync_flush_only, sync_fsync_only, sync_release_flush, read_only_open_close, read_only_open_read_close, write_open_write_close, write_open_fsync_close, readdir_basic, readdirplus_basic, readdir_symlink_visibility, readdirplus_symlink_visibility`
+- comparable_workloads: `seq_read, seq_write, small_read, small_write, write_fsync_close, small_stat_open_read, readdir_lstat, symlink_open_read, rand_read_4k, rand_write_4k, sync_write_4k, small_open_read_close, concurrent_rand_read_write_4k, metadata_lookup, metadata_getattr, metadata_open, metadata_readlink, metadata_access, metadata_statfs, metadata_opendir, sync_flush_only, sync_fsync_only, sync_release_flush, read_only_open_close, read_only_open_read_close, write_open_write_close, write_open_fsync_close, readdir_basic, readdirplus_basic, readdir_symlink_visibility, readdirplus_symlink_visibility, matcher_descendant_readdir, matcher_descendant_readdirplus`
 - screenfs_only_workloads: `hidden_stat_miss, matcher_hidden_stat_miss, symlink_parent_mkdir_rmdir`
+- cache_control: `warm`
+- cache_control_scope: `no explicit cache eviction; existing warm-cache behavior`
+- cache_control_timing_applied: `False`
+- cache_control_applications: `0`
+- cache_control_notes: `warm mode leaves cache state unchanged before warmups and measured samples`
+- concurrency_workers: `4`
 - iterations: `3`, warmups: `1`
 
 ## Comparable workloads
 
 | workload | native p50 s | mounted p50 s | ratio mounted/native | mounted p90 s | mounted p95 s | mounted p99 s |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| seq_read | 0.001369 | 0.003926 | 2.869 | 0.004044 | 0.004059 | 0.004071 |
-| seq_write | 0.000648 | 0.003143 | 4.847 | 0.003327 | 0.003351 | 0.003369 |
-| small_read | 0.000041 | 0.002021 | 49.506 | 0.002174 | 0.002193 | 0.002208 |
-| small_write | 0.000059 | 0.005054 | 86.268 | 0.005079 | 0.005082 | 0.005084 |
-| write_fsync_close | 0.000088 | 0.007329 | 83.380 | 0.008278 | 0.008396 | 0.008491 |
-| small_stat_open_read | 0.001081 | 0.058767 | 54.362 | 0.059329 | 0.059400 | 0.059456 |
-| readdir_lstat | 0.000486 | 0.046273 | 95.222 | 0.047356 | 0.047491 | 0.047599 |
-| symlink_open_read | 0.000011 | 0.000259 | 23.935 | 0.000273 | 0.000275 | 0.000276 |
-| rand_read_4k | 0.013328 | 0.320090 | 24.016 | 0.343733 | 0.346689 | 0.349053 |
-| rand_write_4k | 0.013888 | 1.216761 | 87.610 | 1.220617 | 1.221100 | 1.221485 |
-| sync_write_4k | 0.000027 | 0.001653 | 60.150 | 0.001743 | 0.001754 | 0.001763 |
-| small_open_read_close | 0.029560 | 0.773664 | 26.173 | 0.783903 | 0.785183 | 0.786206 |
-| metadata_lookup | 0.003189 | 0.035356 | 11.087 | 0.035403 | 0.035409 | 0.035414 |
-| metadata_getattr | 0.003260 | 0.046879 | 14.382 | 0.046912 | 0.046916 | 0.046919 |
-| metadata_open | 0.003017 | 0.054121 | 17.942 | 0.054481 | 0.054526 | 0.054562 |
-| metadata_readlink | 0.000276 | 0.046702 | 169.186 | 0.047679 | 0.047801 | 0.047899 |
-| metadata_access | 0.002935 | 0.048412 | 16.495 | 0.049928 | 0.050118 | 0.050269 |
-| metadata_statfs | 0.000336 | 0.002623 | 7.798 | 0.002626 | 0.002626 | 0.002626 |
-| metadata_opendir | 0.000969 | 0.039486 | 40.767 | 0.040100 | 0.040177 | 0.040238 |
-| sync_flush_only | 0.000069 | 0.004272 | 61.923 | 0.004449 | 0.004471 | 0.004488 |
-| sync_fsync_only | 0.000032 | 0.001770 | 55.160 | 0.001918 | 0.001936 | 0.001951 |
-| sync_release_flush | 0.000050 | 0.004053 | 81.311 | 0.004399 | 0.004442 | 0.004477 |
-| read_only_open_close | 0.024918 | 0.389911 | 15.648 | 0.414433 | 0.417499 | 0.419951 |
-| read_only_open_read_close | 0.027731 | 0.631174 | 22.760 | 0.635899 | 0.636489 | 0.636962 |
-| write_open_write_close | 0.000054 | 0.003886 | 72.579 | 0.003908 | 0.003910 | 0.003912 |
-| write_open_fsync_close | 0.000059 | 0.003988 | 67.688 | 0.004327 | 0.004370 | 0.004404 |
-| readdir_basic | 0.000100 | 0.005167 | 51.887 | 0.005358 | 0.005382 | 0.005401 |
-| readdirplus_basic | 0.000499 | 0.044932 | 89.958 | 0.045789 | 0.045896 | 0.045982 |
-| readdir_symlink_visibility | 0.000196 | 0.015634 | 79.614 | 0.015822 | 0.015846 | 0.015865 |
-| readdirplus_symlink_visibility | 0.000676 | 0.059818 | 88.463 | 0.060146 | 0.060186 | 0.060219 |
+| seq_read | 0.001264 | 0.004546 | 3.595 | 0.004606 | 0.004613 | 0.004619 |
+| seq_write | 0.000652 | 0.003363 | 5.157 | 0.003645 | 0.003680 | 0.003708 |
+| small_read | 0.000045 | 0.001705 | 37.910 | 0.001810 | 0.001823 | 0.001833 |
+| small_write | 0.000064 | 0.004857 | 76.344 | 0.004874 | 0.004876 | 0.004878 |
+| write_fsync_close | 0.000100 | 0.005724 | 57.146 | 0.006455 | 0.006546 | 0.006619 |
+| small_stat_open_read | 0.001097 | 0.046909 | 42.747 | 0.047782 | 0.047891 | 0.047978 |
+| readdir_lstat | 0.000549 | 0.038132 | 69.465 | 0.038892 | 0.038987 | 0.039063 |
+| symlink_open_read | 0.000010 | 0.000266 | 27.829 | 0.000289 | 0.000291 | 0.000294 |
+| rand_read_4k | 0.013199 | 0.349044 | 26.444 | 0.355287 | 0.356067 | 0.356691 |
+| rand_write_4k | 0.011456 | 0.840451 | 73.366 | 0.858102 | 0.860309 | 0.862074 |
+| sync_write_4k | 0.000029 | 0.001105 | 37.902 | 0.001196 | 0.001207 | 0.001216 |
+| small_open_read_close | 0.027989 | 0.678680 | 24.248 | 0.685620 | 0.686487 | 0.687181 |
+| concurrent_rand_read_write_4k | 0.218817 | 2.254701 | 10.304 | 2.284613 | 2.288352 | 2.291343 |
+| metadata_lookup | 0.003023 | 0.022217 | 7.348 | 0.022442 | 0.022470 | 0.022493 |
+| metadata_getattr | 0.003171 | 0.028046 | 8.845 | 0.029117 | 0.029250 | 0.029357 |
+| metadata_open | 0.002915 | 0.030801 | 10.566 | 0.031676 | 0.031785 | 0.031873 |
+| metadata_readlink | 0.000295 | 0.033416 | 113.276 | 0.034520 | 0.034658 | 0.034769 |
+| metadata_access | 0.002802 | 0.029564 | 10.550 | 0.030342 | 0.030440 | 0.030517 |
+| metadata_statfs | 0.000327 | 0.002169 | 6.644 | 0.002303 | 0.002320 | 0.002333 |
+| metadata_opendir | 0.001104 | 0.023682 | 21.443 | 0.024005 | 0.024045 | 0.024077 |
+| sync_flush_only | 0.000069 | 0.002671 | 38.659 | 0.002948 | 0.002983 | 0.003011 |
+| sync_fsync_only | 0.000033 | 0.001140 | 34.024 | 0.001220 | 0.001230 | 0.001238 |
+| sync_release_flush | 0.000049 | 0.002645 | 53.847 | 0.002708 | 0.002716 | 0.002722 |
+| read_only_open_close | 0.025080 | 0.321224 | 12.808 | 0.340864 | 0.343320 | 0.345284 |
+| read_only_open_read_close | 0.027041 | 0.581517 | 21.505 | 0.596514 | 0.598389 | 0.599889 |
+| write_open_write_close | 0.000050 | 0.003528 | 70.536 | 0.003532 | 0.003532 | 0.003533 |
+| write_open_fsync_close | 0.000053 | 0.003600 | 68.535 | 0.003645 | 0.003651 | 0.003656 |
+| readdir_basic | 0.000103 | 0.004636 | 44.919 | 0.004713 | 0.004723 | 0.004730 |
+| readdirplus_basic | 0.000517 | 0.036113 | 69.827 | 0.036301 | 0.036325 | 0.036343 |
+| readdir_symlink_visibility | 0.000215 | 0.018282 | 85.104 | 0.018403 | 0.018418 | 0.018430 |
+| readdirplus_symlink_visibility | 0.000684 | 0.060197 | 88.024 | 0.060696 | 0.060759 | 0.060809 |
+| matcher_descendant_readdir | 0.000019 | 0.000491 | 26.183 | 0.000512 | 0.000515 | 0.000517 |
+| matcher_descendant_readdirplus | 0.000035 | 0.002215 | 62.400 | 0.002227 | 0.002229 | 0.002230 |
 
 ## ScreenFS-only workloads
 
 | workload | mounted median s | mounted p90 s | mounted p95 s | mounted p99 s |
 | --- | ---: | ---: | ---: | ---: |
-| hidden_stat_miss | 0.007938 | 0.008055 | 0.008070 | 0.008081 |
-| matcher_hidden_stat_miss | 0.013196 | 0.013957 | 0.014052 | 0.014128 |
-| symlink_parent_mkdir_rmdir | 0.227349 | 0.227771 | 0.227824 | 0.227866 |
+| hidden_stat_miss | 0.006305 | 0.006320 | 0.006321 | 0.006323 |
+| matcher_hidden_stat_miss | 0.011216 | 0.011510 | 0.011547 | 0.011576 |
+| symlink_parent_mkdir_rmdir | 0.176038 | 0.183563 | 0.184503 | 0.185256 |
 
 ## Perf counters
 
@@ -71,87 +80,121 @@ Perf counters were enabled and captured from ScreenFS stderr after unmount/termi
 
 ```text
 screenfs perf counters:
-  fuse_op.access: count=2049 total_ns=47798597 avg_ns=23327 max_ns=84489
-  fuse_op.create: count=100 total_ns=12503545 avg_ns=125035 max_ns=181659
-  fuse_op.flush: count=340 total_ns=2780186 avg_ns=8177 max_ns=215730
-  fuse_op.fsync: count=196 total_ns=1241546 avg_ns=6334 max_ns=107519
-  fuse_op.getattr: count=128385 total_ns=2085557169 avg_ns=16244 max_ns=287298
-  fuse_op.getxattr: count=66500 total_ns=1754693031 avg_ns=26386 max_ns=287949
-  fuse_op.lookup: count=232173 total_ns=3511091917 avg_ns=15122 max_ns=19897694
-  fuse_op.mkdir: count=800 total_ns=102655342 avg_ns=128319 max_ns=270953
-  fuse_op.open: count=52256 total_ns=1232988819 avg_ns=23595 max_ns=320982
-  fuse_op.opendir: count=2072 total_ns=34879247 avg_ns=16833 max_ns=69787
-  fuse_op.read: count=37148 total_ns=869440899 avg_ns=23404 max_ns=175366
-  fuse_op.readdir: count=46 total_ns=53083237 avg_ns=1153983 max_ns=4760722
-  fuse_op.readdirplus: count=26 total_ns=147916439 avg_ns=5689093 max_ns=11455090
-  fuse_op.readlink: count=4456 total_ns=110150111 avg_ns=24719 max_ns=96160
-  fuse_op.release: count=52356 total_ns=30931254 avg_ns=590 max_ns=76405
-  fuse_op.releasedir: count=2072 total_ns=1948650 avg_ns=940 max_ns=138755
-  fuse_op.rmdir: count=800 total_ns=180743691 avg_ns=225929 max_ns=541175
-  fuse_op.setattr: count=4 total_ns=226177 avg_ns=56544 max_ns=59574
-  fuse_op.statfs: count=2050 total_ns=520693 avg_ns=253 max_ns=2823
-  fuse_op.unlink: count=100 total_ns=12137311 avg_ns=121373 max_ns=560124
-  fuse_op.write: count=66256 total_ns=2269770874 avg_ns=34257 max_ns=277565
-  policy_decision: count=1754170 total_ns=1468113578 avg_ns=836 max_ns=146639
-  matcher_candidates: count=1600
+  fuse_op.access: count=2049 total_ns=30121602 avg_ns=14700 max_ns=80032
+  fuse_op.create: count=116 total_ns=10880974 avg_ns=93801 max_ns=188409
+  fuse_op.flush: count=356 total_ns=2858955 avg_ns=8030 max_ns=159645
+  fuse_op.fsync: count=196 total_ns=920322 avg_ns=4695 max_ns=54976
+  fuse_op.getattr: count=390617 total_ns=5863241218 avg_ns=15010 max_ns=2052872
+  fuse_op.getxattr: count=328660 total_ns=9287230736 avg_ns=28257 max_ns=2021686
+  fuse_op.lookup: count=232661 total_ns=2517249724 avg_ns=10819 max_ns=17451247
+  fuse_op.mkdir: count=800 total_ns=71023771 avg_ns=88779 max_ns=236694
+  fuse_op.open: count=52272 total_ns=1010053546 avg_ns=19323 max_ns=280765
+  fuse_op.opendir: count=2080 total_ns=21071803 avg_ns=10130 max_ns=38928
+  fuse_op.read: count=50625 total_ns=1110729704 avg_ns=21940 max_ns=421946
+  fuse_op.readdir: count=54 total_ns=67822061 avg_ns=1255964 max_ns=5983289
+  fuse_op.readdirplus: count=34 total_ns=146936418 avg_ns=4321659 max_ns=12822953
+  fuse_op.readlink: count=4456 total_ns=117016839 avg_ns=26260 max_ns=79274
+  fuse_op.release: count=52388 total_ns=29869408 avg_ns=570 max_ns=98008
+  fuse_op.releasedir: count=2080 total_ns=1738494 avg_ns=835 max_ns=167550
+  fuse_op.rmdir: count=800 total_ns=154720152 avg_ns=193400 max_ns=337559
+  fuse_op.setattr: count=20 total_ns=1084429 avg_ns=54221 max_ns=77824
+  fuse_op.statfs: count=2050 total_ns=385500 avg_ns=188 max_ns=9121
+  fuse_op.unlink: count=116 total_ns=14940508 avg_ns=128797 max_ns=583088
+  fuse_op.write: count=328400 total_ns=15551015390 avg_ns=47353 max_ns=2074310
+  policy_decision: count=3542174 total_ns=4795826189 avg_ns=1353 max_ns=1221161
+  matcher_candidates: count=1545476
+  matcher_candidates_by_source.hidden.path: count=2216
+  matcher_candidates_by_source.internal_hidden.path: count=0
+  matcher_candidates_by_source.readonly.path: count=0
+  matcher_candidates_by_source.visible.descendant: count=1543260
+  matcher_candidates_by_source.visible.path: count=0
+  matcher_candidates_by_source.writable.path: count=0
   matcher_family_candidates.direct_child_glob: count=0
   matcher_family_candidates.recursive: count=0
-  matcher_family_candidates.subtree: count=1600
-  matcher_candidate_order.descendant: count=1615670 total_ns=230977748 avg_ns=142 max_ns=111748
-  matcher_candidate_order.path: count=5124010 total_ns=1597550027 avg_ns=311 max_ns=273732
+  matcher_family_candidates.subtree: count=1545476
+  matcher_candidate_order.descendant: count=2879242 total_ns=1365695899 avg_ns=474 max_ns=685029
+  matcher_candidate_order.path: count=9963590 total_ns=5127188417 avg_ns=514 max_ns=1237152
+  matcher_candidate_order_by_source.hidden.path: count=2879242 total_ns=1982637496 avg_ns=688 max_ns=1237152
+  matcher_candidate_order_by_source.internal_hidden.path: count=2879242 total_ns=574605903 avg_ns=199 max_ns=296005
+  matcher_candidate_order_by_source.readonly.path: count=662932 total_ns=522973041 avg_ns=788 max_ns=319666
+  matcher_candidate_order_by_source.visible.descendant: count=2879242 total_ns=1365695899 avg_ns=474 max_ns=685029
+  matcher_candidate_order_by_source.visible.path: count=2879242 total_ns=1909071085 avg_ns=663 max_ns=905029
+  matcher_candidate_order_by_source.writable.path: count=662932 total_ns=137900892 avg_ns=208 max_ns=254608
   matcher_candidate_order_duplicates: count=0
   matcher_candidate_order_duplicates.descendant: count=0
   matcher_candidate_order_duplicates.path: count=0
-  matcher_candidate_order_seen_slots: count=36837570
-  matcher_candidate_order_seen_slots.descendant: count=0
-  matcher_candidate_order_seen_slots.path: count=36837570
-  matcher_candidate_order_ancestor_steps: count=22764856
-  matcher_candidate_order_ancestor_steps.descendant: count=5413614
-  matcher_candidate_order_ancestor_steps.path: count=17351242
-  state_read_lock_wait: count=593707 total_ns=14650333 avg_ns=24 max_ns=7993
-  state_read_lock_hold: count=593707 total_ns=44411943 avg_ns=74 max_ns=68705
-  state_write_lock_wait: count=336671 total_ns=8374388 avg_ns=24 max_ns=7090
-  state_write_lock_hold: count=336671 total_ns=275557988 avg_ns=818 max_ns=660092
-  open_confined_openat2: count=728960 total_ns=553801651 avg_ns=759 max_ns=19832221
-  stat_child_no_follow: count=604207 total_ns=5546867969 avg_ns=9180 max_ns=19884657
-  source_root_path: count=745407 total_ns=1325715047 avg_ns=1778 max_ns=261675
-  resolved_virtual_path: count=2035390 total_ns=4670472152 avg_ns=2294 max_ns=270588
-  resolved_virtual_path_from_path: count=1202927 total_ns=3731761259 avg_ns=3102 max_ns=270588
-  resolved_virtual_path_from_path_component_walk: count=1202927 total_ns=3266165254 avg_ns=2715 max_ns=270190
-  resolved_virtual_path_from_path_canonicalize: count=2554866 total_ns=2666527198 avg_ns=1043 max_ns=269650
-  resolved_virtual_path_from_path_source_root_confinement: count=2554866 total_ns=314488302 avg_ns=123 max_ns=87952
-  resolved_virtual_path_from_path_virtual_conversion: count=1202927 total_ns=395350390 avg_ns=328 max_ns=101617
-  resolved_virtual_path_from_open_fd: count=832463 total_ns=938710893 avg_ns=1127 max_ns=94325
-  read_handle_snapshot: count=37148 total_ns=8803970 avg_ns=236 max_ns=6259
-  read_guard_path: count=37148 total_ns=813315246 avg_ns=21893 max_ns=173908
-  read_io: count=37148 total_ns=40484362 avg_ns=1089 max_ns=87827
-  write_handle_snapshot: count=66256 total_ns=14678589 avg_ns=221 max_ns=32999
-  write_guard_mutation: count=66256 total_ns=2147548055 avg_ns=32412 max_ns=180229
-  write_io: count=66256 total_ns=96081172 avg_ns=1450 max_ns=209013
-  file_sync.flush: count=340 total_ns=2650815 avg_ns=7796 max_ns=214792
-  file_sync.fsync: count=196 total_ns=1170801 avg_ns=5973 max_ns=106208
-  read_size_bucket.0_4k: count=36608 total_ns=35293834 avg_ns=964 max_ns=87827
-  read_size_bucket.4k_64k: count=400 total_ns=1318176 avg_ns=3295 max_ns=19413
-  read_size_bucket.64k_1m: count=140 total_ns=3872352 avg_ns=27659 max_ns=70396
-  write_size_bucket.0_4k: count=66240 total_ns=93249007 avg_ns=1407 max_ns=153435
-  write_size_bucket.64k_1m: count=16 total_ns=2832165 avg_ns=177010 max_ns=209013
-  readdir_directory_scan: count=46 total_ns=45334479 avg_ns=985532 max_ns=4127778
-  readdir_attr_generation_scan: count=46 total_ns=0 avg_ns=0 max_ns=0
+  matcher_candidate_order_seen_slots: count=192434576
+  matcher_candidate_order_seen_slots.descendant: count=57584840
+  matcher_candidate_order_seen_slots.path: count=134849736
+  matcher_candidate_order_ancestor_steps: count=50460300
+  matcher_candidate_order_ancestor_steps.descendant: count=11288643
+  matcher_candidate_order_ancestor_steps.path: count=39171657
+  state_read_lock_wait: count=1394312 total_ns=85953410 avg_ns=61 max_ns=265068
+  state_read_lock_hold: count=1394312 total_ns=118347028 avg_ns=84 max_ns=261731
+  state_write_lock_wait: count=337263 total_ns=7697601 avg_ns=22 max_ns=6648
+  state_write_lock_hold: count=337263 total_ns=260815000 avg_ns=773 max_ns=679077
+  open_confined_openat2: count=1792101 total_ns=1666693827 avg_ns=930 max_ns=17411450
+  open_like.pre_open_guard.access: count=2049 total_ns=18968919 avg_ns=9257 max_ns=67804
+  open_like.pre_open_guard.open: count=52272 total_ns=642282984 avg_ns=12287 max_ns=273200
+  open_like.pre_open_guard.opendir: count=2080 total_ns=13242214 avg_ns=6366 max_ns=24793
+  open_like.post_open_revalidation.access: count=2049 total_ns=9229449 avg_ns=4504 max_ns=11396
+  open_like.post_open_revalidation.open: count=52272 total_ns=297766724 avg_ns=5696 max_ns=185002
+  open_like.post_open_revalidation.opendir: count=2080 total_ns=5914803 avg_ns=2843 max_ns=31116
+  stat_child_no_follow: count=1405100 total_ns=2303317198 avg_ns=1639 max_ns=17415293
+  stat_child_no_follow.attr_conversion: count=1396866 total_ns=21712442 avg_ns=15 max_ns=34728
+  stat_child_no_follow.directory_revalidation: count=4456 total_ns=35796985 avg_ns=8033 max_ns=36182
+  stat_child_no_follow.host_fstat: count=1392410 total_ns=275279952 avg_ns=197 max_ns=109761
+  stat_child_no_follow.host_fstatat: count=4456 total_ns=1371573 avg_ns=307 max_ns=47361
+  stat_child_no_follow.parent_open: count=4456 total_ns=3489565 avg_ns=783 max_ns=10728
+  stat_child_no_follow_context.path_guard_or_metadata: count=1400644 total_ns=2261623521 avg_ns=1614 max_ns=17415293
+  stat_child_no_follow_context.readlink_pre_open: count=4456 total_ns=41693677 avg_ns=9356 max_ns=55689
+  source_root_path: count=1731812 total_ns=3499259466 avg_ns=2020 max_ns=1823376
+  resolved_virtual_path: count=2174444 total_ns=7186467902 avg_ns=3304 max_ns=2011277
+  resolved_virtual_path_from_path: count=1403846 total_ns=6173508490 avg_ns=4397 max_ns=1989286
+  resolved_virtual_path_from_path_component_walk: count=1403846 total_ns=5481190249 avg_ns=3904 max_ns=1987315
+  resolved_virtual_path_from_path_canonicalize: count=3978076 total_ns=4512921684 avg_ns=1134 max_ns=1986144
+  resolved_virtual_path_from_path_source_root_confinement: count=3978076 total_ns=519788149 avg_ns=130 max_ns=283663
+  resolved_virtual_path_from_path_virtual_conversion: count=1403846 total_ns=606781183 avg_ns=432 max_ns=320779
+  resolved_virtual_path_from_open_fd: count=770598 total_ns=1012959412 avg_ns=1314 max_ns=2011277
+  read_handle_snapshot: count=50625 total_ns=14921101 avg_ns=294 max_ns=15012
+  read_guard_path: count=50625 total_ns=1025320598 avg_ns=20253 max_ns=421230
+  read_io: count=50625 total_ns=58926610 avg_ns=1163 max_ns=376299
+  write_handle_snapshot: count=328400 total_ns=110355522 avg_ns=336 max_ns=265349
+  write_guard_mutation: count=328400 total_ns=14948534517 avg_ns=45519 max_ns=2071019
+  write_io: count=328400 total_ns=384218039 avg_ns=1169 max_ns=689699
+  file_sync.flush: count=356 total_ns=2741799 avg_ns=7701 max_ns=158422
+  file_sync.fsync: count=196 total_ns=867122 avg_ns=4424 max_ns=54384
+  read_size_bucket.0_4k: count=48418 total_ns=49423263 avg_ns=1020 max_ns=376299
+  read_size_bucket.4k_64k: count=2067 total_ns=5432666 avg_ns=2628 max_ns=100729
+  read_size_bucket.64k_1m: count=140 total_ns=4070681 avg_ns=29076 max_ns=55830
+  write_size_bucket.0_4k: count=328384 total_ns=380210939 avg_ns=1157 max_ns=689699
+  write_size_bucket.64k_1m: count=16 total_ns=4007100 avg_ns=250443 max_ns=315990
+  readdir_directory_scan: count=54 total_ns=59744647 avg_ns=1106382 max_ns=5584212
+  readdir_scan.name_child_path_materialization: count=54 total_ns=1765587 avg_ns=32696 max_ns=102863
+  readdir_scan.scan_fallback_attr: count=54 total_ns=0 avg_ns=0 max_ns=0
+  readdir_scan.scan_visibility: count=54 total_ns=22372008 avg_ns=414296 max_ns=1399246
+  readdir_attr_generation_scan: count=54 total_ns=0 avg_ns=0 max_ns=0
   readdir_attr_generation_entries: count=0
-  readdir_symlink_visibility: count=46 total_ns=23227461 avg_ns=504944 max_ns=2963548
-  readdir_candidate_selection: count=46 total_ns=940701 avg_ns=20450 max_ns=104583
-  readdir_page_commit: count=46 total_ns=6132211 avg_ns=133308 max_ns=660384
-  readdirplus_directory_scan: count=26 total_ns=71686116 avg_ns=2757158 max_ns=6637835
-  readdirplus_attr_generation_scan: count=4682 total_ns=43533027 avg_ns=9297 max_ns=98352
-  readdirplus_attr_generation_entries: count=4656
-  readdirplus_symlink_visibility: count=26 total_ns=37895845 avg_ns=1457532 max_ns=4857183
-  readdirplus_candidate_selection: count=26 total_ns=1771280 avg_ns=68126 max_ns=99008
-  readdirplus_page_commit: count=26 total_ns=4646514 avg_ns=178712 max_ns=493786
-  invalidations: count=1800 invalidated_entries=900 evicted_entries=0 scanned_entries=992340
+  readdir_symlink_visibility: count=54 total_ns=29249023 avg_ns=541648 max_ns=3859934
+  readdir_candidate_selection: count=54 total_ns=1050509 avg_ns=19453 max_ns=87996
+  readdir_page_commit: count=54 total_ns=6167628 avg_ns=114215 max_ns=679217
+  readdirplus_directory_scan: count=34 total_ns=96389583 avg_ns=2834987 max_ns=8892449
+  readdirplus_scan.name_child_path_materialization: count=34 total_ns=2869277 avg_ns=84390 max_ns=140076
+  readdirplus_scan.returned_attr_hydration: count=4816 total_ns=7626046 avg_ns=1583 max_ns=32335
+  readdirplus_scan.returned_policy_recheck: count=4816 total_ns=18574262 avg_ns=3856 max_ns=24847
+  readdirplus_scan.returned_symlink_visibility: count=1552 total_ns=17554864 avg_ns=11311 max_ns=31406
+  readdirplus_scan.scan_fallback_attr: count=34 total_ns=0 avg_ns=0 max_ns=0
+  readdirplus_scan.scan_visibility: count=34 total_ns=40695419 avg_ns=1196924 max_ns=2282485
+  readdirplus_attr_generation_scan: count=4850 total_ns=7626046 avg_ns=1572 max_ns=32335
+  readdirplus_attr_generation_entries: count=4816
+  readdirplus_symlink_visibility: count=34 total_ns=46973088 avg_ns=1381561 max_ns=6144990
+  readdirplus_candidate_selection: count=34 total_ns=1982216 avg_ns=58300 max_ns=138169
+  readdirplus_page_commit: count=34 total_ns=4458285 avg_ns=131126 max_ns=489455
+  invalidations: count=1832 invalidated_entries=916 evicted_entries=0 scanned_entries=1024720
 ```
 
 ## Notes
 
 - Fixture creation, build time, and mount startup are not included in workload timings.
 - Native and mounted timings use the same prepared backing fixture; write workloads use separate native/mounted output files and remove them after each iteration. Workloads that return cleanup callbacks run those deletions outside timed latency samples, but perf counters still include cleanup-side `unlink`/invalidation work before unmount.
-- Interpret results as warm-cache local evidence unless the run environment records separate cache-control steps.
+- `--cache-control=posix-fadvise-read-fixture` applies `os.posix_fadvise(..., POSIX_FADV_DONTNEED)` to selected `source/.screenfs-bench` read fixtures before each warmup and measured sample for read-side workloads; mounted runs evict backing source paths rather than mounted view paths.

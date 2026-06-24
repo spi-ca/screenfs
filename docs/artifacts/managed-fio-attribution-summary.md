@@ -32,11 +32,11 @@ This artifact reruns the supplemental fio attribution with the managed `contrib/
 
 | job | native mean clat µs | passthrough mean clat µs | ScreenFS mean clat µs | passthrough/native | ScreenFS/passthrough |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `seq_write_128k` | 26.804 | 40.680 | 101.600 | 1.52x | 2.50x |
-| `seq_read_128k` | 32.316 | 71.036 | 110.667 | 2.20x | 1.56x |
-| `rand_write_4k` | 0.427 | 7.758 | 39.401 | 18.15x | 5.08x |
-| `rand_read_4k` | 0.388 | 11.220 | 35.488 | 28.91x | 3.16x |
-| `sync_write_4k` | 1.681 | 5.424 | 37.607 | 3.23x | 6.93x |
+| `seq_write_128k` | 28.542 | 37.872 | 129.200 | 1.33x | 3.41x |
+| `seq_read_128k` | 14.863 | 54.377 | 119.726 | 3.66x | 2.20x |
+| `rand_write_4k` | 0.424 | 6.483 | 37.695 | 15.29x | 5.81x |
+| `rand_read_4k` | 0.794 | 11.956 | 32.851 | 15.06x | 2.75x |
+| `sync_write_4k` | 0.457 | 8.069 | 46.200 | 17.65x | 5.73x |
 
 ## ScreenFS perf split excerpt
 
@@ -44,12 +44,12 @@ This artifact reruns the supplemental fio attribution with the managed `contrib/
 
 | counter | count | avg ns | share |
 | --- | ---: | ---: | ---: |
-| `read_handle_snapshot` | 82650 | 218 | 1.5% of `fuse_op.read` |
-| `read_guard_path` | 82650 | 12639 | 88.7% of `fuse_op.read` |
-| `read_io` | 82650 | 1229 | 8.6% of `fuse_op.read` |
-| `write_handle_snapshot` | 75291 | 192 | 1.2% of `fuse_op.write` |
-| `write_guard_mutation` | 75291 | 15103 | 91.3% of `fuse_op.write` |
-| `write_io` | 75291 | 1099 | 6.6% of `fuse_op.write` |
+| `read_handle_snapshot` | 88725 | 272 | 2.2% of `fuse_op.read` |
+| `read_guard_path` | 88725 | 10585 | 84.4% of `fuse_op.read` |
+| `read_io` | 88725 | 1512 | 12.1% of `fuse_op.read` |
+| `write_handle_snapshot` | 78242 | 228 | 1.4% of `fuse_op.write` |
+| `write_guard_mutation` | 78242 | 14014 | 88.5% of `fuse_op.write` |
+| `write_io` | 78242 | 1409 | 8.9% of `fuse_op.write` |
 
 ## Boxplot style contract
 

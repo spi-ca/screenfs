@@ -1,60 +1,78 @@
-mounting screenfs: source=/tmp/screenfs-managed-attr.xj5g97sw/source mount=/tmp/screenfs-managed-attr.xj5g97sw/screenfs-mount visibility-default=visible visibility-source=cli hidden-rules=1 visible-rules=0 mutability-default=writable mutability-source=cli readonly-rules=1 writable-rules=0 io_uring=required
+mounting screenfs: source=/tmp/screenfs-managed-attr.twhttr55/source mount=/tmp/screenfs-managed-attr.twhttr55/screenfs-mount visibility-default=visible visibility-source=cli hidden-rules=1 visible-rules=0 mutability-default=writable mutability-source=cli readonly-rules=1 writable-rules=0 io_uring=required
 screenfs perf counters:
-  fuse_op.access: count=1 total_ns=43336 avg_ns=43336 max_ns=43336
-  fuse_op.create: count=3 total_ns=194307 avg_ns=64769 max_ns=85939
-  fuse_op.fallocate: count=3 total_ns=1472363 avg_ns=490787 max_ns=702083
-  fuse_op.flush: count=6 total_ns=129455 avg_ns=21575 max_ns=56473
-  fuse_op.fsync: count=34 total_ns=348074 avg_ns=10237 max_ns=113059
-  fuse_op.getattr: count=82732 total_ns=877339096 avg_ns=10604 max_ns=288313
-  fuse_op.getxattr: count=75294 total_ns=1061888454 avg_ns=14103 max_ns=294300
-  fuse_op.lookup: count=75 total_ns=2178107 avg_ns=29041 max_ns=135243
-  fuse_op.open: count=5 total_ns=237489 avg_ns=47497 max_ns=52234
-  fuse_op.read: count=82650 total_ns=1177571176 avg_ns=14247 max_ns=292597
-  fuse_op.release: count=8 total_ns=12811 avg_ns=1601 max_ns=2738
-  fuse_op.statfs: count=2 total_ns=5839 avg_ns=2919 max_ns=4396
-  fuse_op.write: count=75291 total_ns=1245969384 avg_ns=16548 max_ns=660305
-  policy_decision: count=1166593 total_ns=314970893 avg_ns=269 max_ns=323965
+  fuse_op.access: count=1 total_ns=57308 avg_ns=57308 max_ns=57308
+  fuse_op.create: count=3 total_ns=147906 avg_ns=49302 max_ns=52803
+  fuse_op.fallocate: count=3 total_ns=2537186 avg_ns=845728 max_ns=1273363
+  fuse_op.flush: count=6 total_ns=286858 avg_ns=47809 max_ns=77125
+  fuse_op.fsync: count=34 total_ns=775512 avg_ns=22809 max_ns=133835
+  fuse_op.getattr: count=88807 total_ns=731995749 avg_ns=8242 max_ns=259952
+  fuse_op.getxattr: count=78245 total_ns=919662100 avg_ns=11753 max_ns=324161
+  fuse_op.lookup: count=75 total_ns=1380093 avg_ns=18401 max_ns=114531
+  fuse_op.open: count=5 total_ns=150406 avg_ns=30081 max_ns=37028
+  fuse_op.read: count=88725 total_ns=1112933060 avg_ns=12543 max_ns=631673
+  fuse_op.release: count=8 total_ns=16980 avg_ns=2122 max_ns=3748
+  fuse_op.write: count=78242 total_ns=1238662163 avg_ns=15831 max_ns=640944
+  policy_decision: count=892358 total_ns=292443546 avg_ns=327 max_ns=308587
   matcher_candidates: count=0
+  matcher_candidates_by_source.hidden.path: count=0
+  matcher_candidates_by_source.internal_hidden.path: count=0
+  matcher_candidates_by_source.readonly.path: count=0
+  matcher_candidates_by_source.visible.descendant: count=0
+  matcher_candidates_by_source.visible.path: count=0
+  matcher_candidates_by_source.writable.path: count=0
   matcher_family_candidates.direct_child_glob: count=0
   matcher_family_candidates.recursive: count=0
   matcher_family_candidates.subtree: count=0
-  matcher_candidate_order.descendant: count=1015987 total_ns=86486986 avg_ns=85 max_ns=277814
-  matcher_candidate_order.path: count=3349173 total_ns=353939339 avg_ns=105 max_ns=315666
+  matcher_candidate_order.descendant: count=735850 total_ns=78365910 avg_ns=106 max_ns=125757
+  matcher_candidate_order.path: count=2520566 total_ns=334306044 avg_ns=132 max_ns=317343
+  matcher_candidate_order_by_source.hidden.path: count=735850 total_ns=130431649 avg_ns=177 max_ns=57600
+  matcher_candidate_order_by_source.internal_hidden.path: count=735850 total_ns=84649123 avg_ns=115 max_ns=261263
+  matcher_candidate_order_by_source.readonly.path: count=156508 total_ns=24930506 avg_ns=159 max_ns=317343
+  matcher_candidate_order_by_source.visible.descendant: count=735850 total_ns=78365910 avg_ns=106 max_ns=125757
+  matcher_candidate_order_by_source.visible.path: count=735850 total_ns=78327647 avg_ns=106 max_ns=69272
+  matcher_candidate_order_by_source.writable.path: count=156508 total_ns=15967119 avg_ns=102 max_ns=153536
   matcher_candidate_order_duplicates: count=0
   matcher_candidate_order_duplicates.descendant: count=0
   matcher_candidate_order_duplicates.path: count=0
-  matcher_candidate_order_seen_slots: count=1166593
+  matcher_candidate_order_seen_slots: count=892358
   matcher_candidate_order_seen_slots.descendant: count=0
-  matcher_candidate_order_seen_slots.path: count=1166593
-  matcher_candidate_order_ancestor_steps: count=11830720
-  matcher_candidate_order_ancestor_steps.descendant: count=2731774
-  matcher_candidate_order_ancestor_steps.path: count=9098946
-  state_read_lock_wait: count=316094 total_ns=6841568 avg_ns=21 max_ns=3234
-  state_read_lock_hold: count=316094 total_ns=26124706 avg_ns=82 max_ns=26561
-  state_write_lock_wait: count=75 total_ns=2819 avg_ns=37 max_ns=162
-  state_write_lock_hold: count=75 total_ns=64230 avg_ns=856 max_ns=3165
-  open_confined_openat2: count=391372 total_ns=170121436 avg_ns=434 max_ns=79592
-  stat_child_no_follow: count=316069 total_ns=1835886457 avg_ns=5808 max_ns=323617
-  source_root_path: count=466663 total_ns=618278110 avg_ns=1324 max_ns=276254
-  resolved_virtual_path: count=1181433 total_ns=1601126471 avg_ns=1355 max_ns=282829
-  resolved_virtual_path_from_path: count=632115 total_ns=1143965992 avg_ns=1809 max_ns=282829
-  resolved_virtual_path_from_path_component_walk: count=632115 total_ns=980504120 avg_ns=1551 max_ns=282571
-  resolved_virtual_path_from_path_canonicalize: count=948050 total_ns=776631108 avg_ns=819 max_ns=282224
-  resolved_virtual_path_from_path_source_root_confinement: count=948050 total_ns=112589764 avg_ns=118 max_ns=55170
-  resolved_virtual_path_from_path_virtual_conversion: count=632115 total_ns=131859158 avg_ns=208 max_ns=55268
-  resolved_virtual_path_from_open_fd: count=549318 total_ns=457160479 avg_ns=832 max_ns=272554
-  read_handle_snapshot: count=82650 total_ns=18053367 avg_ns=218 max_ns=8500
-  read_guard_path: count=82650 total_ns=1044647449 avg_ns=12639 max_ns=291538
-  read_io: count=82650 total_ns=101629188 avg_ns=1229 max_ns=118497
-  write_handle_snapshot: count=75291 total_ns=14508446 avg_ns=192 max_ns=26691
-  write_guard_mutation: count=75291 total_ns=1137175991 avg_ns=15103 max_ns=658012
-  write_io: count=75291 total_ns=82754025 avg_ns=1099 max_ns=71258
-  file_sync.flush: count=6 total_ns=125824 avg_ns=20970 max_ns=55594
-  file_sync.fsync: count=34 total_ns=336441 avg_ns=9895 max_ns=111926
-  read_size_bucket.0_4k: count=82586 total_ns=98541522 avg_ns=1193 max_ns=41099
-  read_size_bucket.64k_1m: count=64 total_ns=3087666 avg_ns=48244 max_ns=118497
-  write_size_bucket.0_4k: count=75163 total_ns=80983009 avg_ns=1077 max_ns=71258
-  write_size_bucket.64k_1m: count=128 total_ns=1771016 avg_ns=13836 max_ns=41930
+  matcher_candidate_order_seen_slots.path: count=892358
+  matcher_candidate_order_ancestor_steps: count=9768972
+  matcher_candidate_order_ancestor_steps.descendant: count=2207484
+  matcher_candidate_order_ancestor_steps.path: count=7561488
+  state_read_lock_wait: count=334146 total_ns=7339062 avg_ns=21 max_ns=3935
+  state_read_lock_hold: count=334146 total_ns=33585756 avg_ns=100 max_ns=74176
+  state_write_lock_wait: count=75 total_ns=2684 avg_ns=35 max_ns=356
+  state_write_lock_hold: count=75 total_ns=48255 avg_ns=643 max_ns=3023
+  open_confined_openat2: count=412375 total_ns=265135234 avg_ns=642 max_ns=137355
+  open_like.pre_open_guard.access: count=1 total_ns=49148 avg_ns=49148 max_ns=49148
+  open_like.pre_open_guard.open: count=5 total_ns=93253 avg_ns=18650 max_ns=26185
+  open_like.post_open_revalidation.access: count=1 total_ns=3564 avg_ns=3564 max_ns=3564
+  open_like.post_open_revalidation.open: count=5 total_ns=33933 avg_ns=6786 max_ns=7898
+  stat_child_no_follow: count=334121 total_ns=413351506 avg_ns=1237 max_ns=316967
+  stat_child_no_follow.attr_conversion: count=334093 total_ns=5239048 avg_ns=15 max_ns=5547
+  stat_child_no_follow.host_fstat: count=334093 total_ns=64962832 avg_ns=194 max_ns=66435
+  stat_child_no_follow_context.path_guard_or_metadata: count=334121 total_ns=413351506 avg_ns=1237 max_ns=316967
+  source_root_path: count=412363 total_ns=654623750 avg_ns=1587 max_ns=308036
+  resolved_virtual_path: count=579326 total_ns=1131648354 avg_ns=1953 max_ns=312851
+  resolved_virtual_path_from_path: count=334099 total_ns=902039316 avg_ns=2699 max_ns=312851
+  resolved_virtual_path_from_path_component_walk: count=334099 total_ns=781786468 avg_ns=2339 max_ns=312516
+  resolved_virtual_path_from_path_canonicalize: count=668139 total_ns=617414127 avg_ns=924 max_ns=312063
+  resolved_virtual_path_from_path_source_root_confinement: count=668139 total_ns=91153640 avg_ns=136 max_ns=129686
+  resolved_virtual_path_from_path_virtual_conversion: count=334099 total_ns=100842028 avg_ns=301 max_ns=67224
+  resolved_virtual_path_from_open_fd: count=245227 total_ns=229609038 avg_ns=936 max_ns=71907
+  read_handle_snapshot: count=88725 total_ns=24160176 avg_ns=272 max_ns=61812
+  read_guard_path: count=88725 total_ns=939221895 avg_ns=10585 max_ns=629938
+  read_io: count=88725 total_ns=134188847 avg_ns=1512 max_ns=223482
+  write_handle_snapshot: count=78242 total_ns=17879990 avg_ns=228 max_ns=27663
+  write_guard_mutation: count=78242 total_ns=1096532683 avg_ns=14014 max_ns=639600
+  write_io: count=78242 total_ns=110273190 avg_ns=1409 max_ns=93121
+  file_sync.flush: count=6 total_ns=282605 avg_ns=47100 max_ns=76442
+  file_sync.fsync: count=34 total_ns=753123 avg_ns=22150 max_ns=132446
+  read_size_bucket.0_4k: count=88661 total_ns=129387416 avg_ns=1459 max_ns=223482
+  read_size_bucket.64k_1m: count=64 total_ns=4801431 avg_ns=75022 max_ns=156564
+  write_size_bucket.0_4k: count=78114 total_ns=106367724 avg_ns=1361 max_ns=93121
+  write_size_bucket.64k_1m: count=128 total_ns=3905466 avg_ns=30511 max_ns=39508
   readdir_directory_scan: count=0 total_ns=0 avg_ns=0 max_ns=0
   readdir_attr_generation_scan: count=0 total_ns=0 avg_ns=0 max_ns=0
   readdir_attr_generation_entries: count=0
