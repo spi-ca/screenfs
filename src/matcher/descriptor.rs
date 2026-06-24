@@ -285,6 +285,10 @@ impl RuleDescriptor {
         &self.anchor
     }
 
+    pub fn is_subtree(&self) -> bool {
+        matches!(self.target, RuleTarget::Subtree)
+    }
+
     pub fn specificity(&self) -> RuleSpecificity {
         self.specificity
     }

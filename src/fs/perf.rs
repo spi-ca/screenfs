@@ -19,8 +19,10 @@ pub(super) struct PerfCounters {
     fuse_operations: LabeledLatencyCounters,
     policy_decisions: LatencyCounter,
     matcher_candidates: AtomicU64,
+    matcher_candidates_by_source: LabeledCountCounters,
     matcher_family_candidates: LabeledCountCounters,
     matcher_candidate_order: LabeledLatencyCounters,
+    matcher_candidate_order_by_source: LabeledLatencyCounters,
     matcher_candidate_order_duplicates: AtomicU64,
     matcher_candidate_order_duplicates_by_order: LabeledCountCounters,
     matcher_candidate_order_seen_slots: AtomicU64,
@@ -103,8 +105,10 @@ pub(crate) struct PerfSnapshot {
     pub(super) fuse_operations: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) policy_decisions: LatencySnapshot,
     pub(super) matcher_candidates: u64,
+    pub(super) matcher_candidates_by_source: BTreeMap<&'static str, u64>,
     pub(super) matcher_family_candidates: BTreeMap<&'static str, u64>,
     pub(super) matcher_candidate_order: BTreeMap<&'static str, LatencySnapshot>,
+    pub(super) matcher_candidate_order_by_source: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) matcher_candidate_order_duplicates: u64,
     pub(super) matcher_candidate_order_duplicates_by_order: BTreeMap<&'static str, u64>,
     pub(super) matcher_candidate_order_seen_slots: u64,
@@ -215,6 +219,19 @@ impl PerfCounters {
 
     pub(super) fn record_policy_decision(&self, elapsed: Duration) {
         self.policy_decisions.record(elapsed);
+    }
+
+    pub(super) fn record_matcher_candidates_by_source(
+        &self,
+        source: &'static str,
+        order: &'static str,
+        metrics: MatcherCandidateMetrics,
+    ) {
+        self.matcher_candidates_by_source
+            .record(source, metrics.count as u64);
+        self.matcher_candidate_order_by_source
+            .record(source, metrics.candidate_order.elapsed);
+        self.record_matcher_candidates(order, metrics);
     }
 
     pub(super) fn record_matcher_candidates(
@@ -429,8 +446,10 @@ impl PerfCounters {
             fuse_operations: self.fuse_operations.snapshot(),
             policy_decisions: self.policy_decisions.snapshot(),
             matcher_candidates: self.matcher_candidates.load(Ordering::Relaxed),
+            matcher_candidates_by_source: self.matcher_candidates_by_source.snapshot(),
             matcher_family_candidates: self.matcher_family_candidates.snapshot(),
             matcher_candidate_order: self.matcher_candidate_order.snapshot(),
+            matcher_candidate_order_by_source: self.matcher_candidate_order_by_source.snapshot(),
             matcher_candidate_order_duplicates: self
                 .matcher_candidate_order_duplicates
                 .load(Ordering::Relaxed),
@@ -519,6 +538,11 @@ impl PerfCounters {
         .expect("write to string");
         write_labeled_counts(
             &mut output,
+            "matcher_candidates_by_source",
+            &snapshot.matcher_candidates_by_source,
+        );
+        write_labeled_counts(
+            &mut output,
             "matcher_family_candidates",
             &snapshot.matcher_family_candidates,
         );
@@ -526,6 +550,11 @@ impl PerfCounters {
             &mut output,
             "matcher_candidate_order",
             &snapshot.matcher_candidate_order,
+        );
+        write_labeled_latency(
+            &mut output,
+            "matcher_candidate_order_by_source",
+            &snapshot.matcher_candidate_order_by_source,
         );
         writeln!(
             &mut output,

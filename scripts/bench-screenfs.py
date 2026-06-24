@@ -144,7 +144,10 @@ POLICY_HEAVY_COMPARABLE_WORKLOADS = [
     "metadata_lookup",
     "metadata_getattr",
     "metadata_access",
+]
+POLICY_HEAVY_SCREENFS_ONLY_WORKLOADS = [
     "matcher_hidden_stat_miss",
+    "matcher_readonly_access_wok",
 ]
 DEFAULT_SCREENFS_ONLY_WORKLOADS = [
     "hidden_stat_miss",
@@ -202,8 +205,8 @@ WORKLOAD_SETS: dict[str, dict[str, list[str]]] = {
         "screenfs_only": [],
     },
     "policy-heavy-matrix": {
-        "comparable": ["metadata_lookup", "metadata_getattr", "metadata_access"],
-        "screenfs_only": ["matcher_hidden_stat_miss"],
+        "comparable": list(POLICY_HEAVY_COMPARABLE_WORKLOADS),
+        "screenfs_only": list(POLICY_HEAVY_SCREENFS_ONLY_WORKLOADS),
     },
     "mutation-invalidation": {
         "comparable": [],
@@ -1334,6 +1337,29 @@ def matcher_hidden_stat_miss(root: Path, args: argparse.Namespace, side: str) ->
 
 
 
+def matcher_readonly_access_wok(root: Path, args: argparse.Namespace, side: str) -> None:
+    if args.matcher_extra_rules <= 0:
+        return
+    matcher_dir = root / ".screenfs-bench" / "matcher-heavy"
+    readonly_paths = [
+        matcher_dir / f"visible-{index:04d}" / f"readonly-{index:04d}.txt"
+        for index in range(args.matcher_extra_rules)
+    ]
+    for path in readonly_paths:
+        if not path.is_file():
+            raise RuntimeError(f"matcher_readonly_access_wok missing readonly fixture: {path}")
+    for index in range(args.matcher_misses):
+        path = readonly_paths[index % args.matcher_extra_rules]
+        writable = os.access(path, os.W_OK)
+        if side == "mounted":
+            if writable:
+                raise RuntimeError("matcher_readonly_access_wok expected W_OK denial through ScreenFS")
+            continue
+        if not writable:
+            raise RuntimeError("matcher_readonly_access_wok expected writable native fixture")
+
+
+
 def symlink_parent_mkdir_rmdir(root: Path, args: argparse.Namespace, _side: str) -> None:
     fixture_root = root / ".screenfs-bench" / "symlink-parent"
     real_parent = fixture_root / "real"
@@ -1478,6 +1504,7 @@ WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], Any]] = {
 SCREENFS_ONLY_WORKLOADS: dict[str, Callable[[Path, argparse.Namespace, str], Any]] = {
     "hidden_stat_miss": hidden_stat_miss,
     "matcher_hidden_stat_miss": matcher_hidden_stat_miss,
+    "matcher_readonly_access_wok": matcher_readonly_access_wok,
     "symlink_parent_mkdir_rmdir": symlink_parent_mkdir_rmdir,
     "pinned_symlink_parent_mkdir_rmdir": pinned_symlink_parent_mkdir_rmdir,
     "subtree_rename_cached_unrelated": subtree_rename_cached_unrelated,
@@ -1540,7 +1567,7 @@ def resolve_policy(args: argparse.Namespace) -> dict[str, Any]:
     notes: list[str] = []
     if args.matcher_extra_rules:
         notes.append(
-            "matcher_extra_rules appended synthetic hidden/readonly rules plus hidden/visible descendant directory carve-outs for matcher_hidden_stat_miss and matcher_descendant_readdir* attribution workloads"
+            "matcher_extra_rules appended synthetic hidden/readonly rules plus hidden/visible descendant directory carve-outs for matcher_hidden_stat_miss, matcher_readonly_access_wok, and matcher_descendant_readdir* attribution workloads"
         )
     if manual_policy_override_flags:
         joined = ", ".join(manual_policy_override_flags)
@@ -1566,6 +1593,7 @@ def resolve_policy(args: argparse.Namespace) -> dict[str, Any]:
         "fast_path_cache_eligible": fast_path_cache_eligible,
         "supports_hidden_stat_miss": hidden_paths_support_target(hidden_paths, HIDDEN_STAT_MISS_TARGET),
         "supports_matcher_hidden_stat_miss": args.matcher_extra_rules > 0,
+        "supports_matcher_readonly_access_wok": args.matcher_extra_rules > 0,
         "supports_matcher_descendant_directory": args.matcher_extra_rules > 0,
         "notes": notes,
     }
@@ -1603,6 +1631,8 @@ def resolve_workloads(args: argparse.Namespace, policy: dict[str, Any]) -> dict[
             if name == "hidden_stat_miss" and not policy["supports_hidden_stat_miss"]:
                 reason = f"{name} requires a hidden /.screenfs-bench/hidden rule in the selected policy"
             elif name == "matcher_hidden_stat_miss" and not policy["supports_matcher_hidden_stat_miss"]:
+                reason = f"{name} requires --matcher-extra-rules > 0"
+            elif name == "matcher_readonly_access_wok" and not policy["supports_matcher_readonly_access_wok"]:
                 reason = f"{name} requires --matcher-extra-rules > 0"
             if reason is None:
                 screenfs_only.append(name)

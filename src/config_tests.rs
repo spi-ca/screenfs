@@ -74,7 +74,7 @@ fn directory_child_visibility_batch_fast_path_requires_no_hidden_rules() {
     })
     .unwrap();
 
-    let batch = cfg.directory_child_visibility_batch();
+    let batch = cfg.directory_child_visibility_batch(&VirtualPath::root());
     assert!(!batch.uses_per_entry_visibility());
     for (path, is_dir) in [
         (VirtualPath::new("/file.txt"), false),
@@ -90,6 +90,66 @@ fn directory_child_visibility_batch_fast_path_requires_no_hidden_rules() {
 }
 
 #[test]
+fn directory_child_visibility_batch_parent_scopes_visible_subtree_frontier() {
+    let root = test_dir();
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::create_dir_all(&mount).unwrap();
+    let cfg = launch_from_args(LaunchArgs {
+        cli: CliArgs {
+            source_root: source,
+            mount_root: mount,
+            visibility_hidden_rules: vec![],
+            visibility_visible_rules: vec!["/workspace/project".to_string()],
+            mutability_readonly_rules: vec![],
+            mutability_writable_rules: vec![],
+        },
+        config_path: None,
+        visibility_default: Some(VisibilityDefault::Hidden),
+        mutability_default: None,
+    })
+    .unwrap();
+
+    let root_batch = cfg.directory_child_visibility_batch(&VirtualPath::root());
+    assert!(!root_batch.uses_per_entry_visibility());
+    assert_eq!(
+        root_batch.entry_is_readable(&VirtualPath::new("/workspace"), true),
+        cfg.entry_is_readable(&VirtualPath::new("/workspace"), true)
+    );
+    assert_eq!(
+        root_batch.entry_is_readable(&VirtualPath::new("/workspace"), false),
+        cfg.entry_is_readable(&VirtualPath::new("/workspace"), false)
+    );
+    assert_eq!(
+        root_batch.entry_is_readable(&VirtualPath::new("/other"), true),
+        cfg.entry_is_readable(&VirtualPath::new("/other"), true)
+    );
+
+    let workspace_batch = cfg.directory_child_visibility_batch(&VirtualPath::new("/workspace"));
+    assert!(!workspace_batch.uses_per_entry_visibility());
+    for (path, is_dir) in [
+        (VirtualPath::new("/workspace/project"), false),
+        (VirtualPath::new("/workspace/other"), true),
+    ] {
+        assert_eq!(
+            workspace_batch.entry_is_readable(&path, is_dir),
+            cfg.entry_is_readable(&path, is_dir),
+            "{path:?}"
+        );
+    }
+
+    let project_batch =
+        cfg.directory_child_visibility_batch(&VirtualPath::new("/workspace/project"));
+    assert!(project_batch.can_assume_all_visible());
+    assert_eq!(
+        project_batch.entry_is_readable(&VirtualPath::new("/workspace/project/file.txt"), false),
+        cfg.entry_is_readable(&VirtualPath::new("/workspace/project/file.txt"), false)
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn directory_child_visibility_batch_falls_back_for_rule_sensitive_shapes() {
     let source = test_dir();
     let cfg = launch(
@@ -101,7 +161,7 @@ fn directory_child_visibility_batch_falls_back_for_rule_sensitive_shapes() {
         vec![],
         vec![],
     );
-    let batch = cfg.directory_child_visibility_batch();
+    let batch = cfg.directory_child_visibility_batch(&VirtualPath::new("/home"));
     assert!(batch.uses_per_entry_visibility());
     for (path, is_dir) in [
         (VirtualPath::new("/home/me"), true),

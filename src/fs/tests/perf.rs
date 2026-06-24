@@ -369,6 +369,23 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
         snapshot.matcher_candidate_order.contains_key("path"),
         "{snapshot:?}"
     );
+    for label in [
+        "internal_hidden.path",
+        "hidden.path",
+        "visible.path",
+        "visible.descendant",
+    ] {
+        assert!(
+            snapshot.matcher_candidates_by_source.contains_key(label),
+            "missing matcher_candidates_by_source.{label}: {snapshot:?}"
+        );
+        assert!(
+            snapshot
+                .matcher_candidate_order_by_source
+                .contains_key(label),
+            "missing matcher_candidate_order_by_source.{label}: {snapshot:?}"
+        );
+    }
     assert!(
         snapshot.matcher_candidate_order_seen_slots > 0,
         "{snapshot:?}"
@@ -439,6 +456,59 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
         "{snapshot:?}"
     );
     assert!(snapshot.readdir_page_commit.count > 0, "{snapshot:?}");
+    std::fs::remove_dir_all(source).unwrap();
+}
+
+#[test]
+fn perf_counters_record_matcher_sources_for_visibility_and_mutability() {
+    let source = test_dir("perf-matcher-sources");
+    std::fs::create_dir(source.join("carve")).unwrap();
+    std::fs::write(source.join("carve/file.txt"), "hello").unwrap();
+    let fs = fs_for_axes(
+        &source,
+        Some(crate::cli::VisibilityDefault::Hidden),
+        vec!["./hidden/**".to_string()],
+        vec!["./carve/file.txt".to_string()],
+        Some(MutabilityDefault::Readonly),
+        vec![],
+        vec!["./carve/file.txt".to_string()],
+    );
+
+    let carve_inode = lookup_root_inode(&fs, "carve");
+    let file_inode = lookup_child_inode(&fs, carve_inode, "file.txt");
+    block_on(fs.access(dummy_req(), file_inode, libc::W_OK as u32)).unwrap();
+
+    let snapshot = fs.perf_snapshot().expect("perf counters enabled");
+    for label in [
+        "internal_hidden.path",
+        "hidden.path",
+        "visible.path",
+        "visible.descendant",
+        "readonly.path",
+        "writable.path",
+    ] {
+        assert!(
+            snapshot.matcher_candidates_by_source.contains_key(label),
+            "missing matcher_candidates_by_source.{label}: {snapshot:?}"
+        );
+        assert!(
+            snapshot
+                .matcher_candidate_order_by_source
+                .contains_key(label),
+            "missing matcher_candidate_order_by_source.{label}: {snapshot:?}"
+        );
+    }
+
+    let summary = fs.perf.summary();
+    assert!(
+        summary.contains("matcher_candidates_by_source.visible.path"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("matcher_candidate_order_by_source.writable.path"),
+        "{summary}"
+    );
+
     std::fs::remove_dir_all(source).unwrap();
 }
 

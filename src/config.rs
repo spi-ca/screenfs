@@ -3,8 +3,9 @@
 //! This module combines defaults, YAML config, CLI overrides, internal mount-root
 //! exclusion, and compiled matchers into the policy state used by FUSE handlers.
 
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::collections::BTreeSet;
+use std::ffi::{OsStr, OsString};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -54,9 +55,15 @@ pub enum MutabilityDecision {
     Readonly,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum DirectoryChildVisibilityMode {
     AllVisible,
+    ParentScopedVisibleSubtrees {
+        parent: VirtualPath,
+        fully_visible: bool,
+        visible_children: BTreeSet<OsString>,
+        bridge_children: BTreeSet<OsString>,
+    },
     PerEntry,
 }
 
@@ -73,8 +80,22 @@ impl MutabilityDecision {
 
 impl DirectoryChildVisibilityBatch<'_> {
     pub fn entry_is_readable(&self, path: &VirtualPath, is_directory: bool) -> bool {
-        match self.mode {
+        match &self.mode {
             DirectoryChildVisibilityMode::AllVisible => true,
+            DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
+                parent,
+                fully_visible,
+                visible_children,
+                bridge_children,
+            } => parent_scoped_entry_is_readable(
+                parent,
+                *fully_visible,
+                visible_children,
+                bridge_children,
+                path,
+                is_directory,
+            )
+            .unwrap_or_else(|| self.cfg.entry_is_readable(path, is_directory)),
             DirectoryChildVisibilityMode::PerEntry => {
                 self.cfg.entry_is_readable(path, is_directory)
             }
@@ -86,7 +107,38 @@ impl DirectoryChildVisibilityBatch<'_> {
     }
 
     pub fn can_assume_all_visible(&self) -> bool {
-        matches!(self.mode, DirectoryChildVisibilityMode::AllVisible)
+        matches!(
+            self.mode,
+            DirectoryChildVisibilityMode::AllVisible
+                | DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
+                    fully_visible: true,
+                    ..
+                }
+        )
+    }
+
+    pub fn parent_scoped_entry_is_readable(
+        &self,
+        path: &VirtualPath,
+        is_directory: bool,
+    ) -> Option<bool> {
+        match &self.mode {
+            DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
+                parent,
+                fully_visible,
+                visible_children,
+                bridge_children,
+            } => parent_scoped_entry_is_readable(
+                parent,
+                *fully_visible,
+                visible_children,
+                bridge_children,
+                path,
+                is_directory,
+            ),
+            DirectoryChildVisibilityMode::AllVisible => Some(true),
+            DirectoryChildVisibilityMode::PerEntry => None,
+        }
     }
 }
 
@@ -251,7 +303,10 @@ impl RuntimeConfig {
         }
     }
 
-    pub fn directory_child_visibility_batch(&self) -> DirectoryChildVisibilityBatch<'_> {
+    pub fn directory_child_visibility_batch(
+        &self,
+        parent: &VirtualPath,
+    ) -> DirectoryChildVisibilityBatch<'_> {
         let mode = if self.visibility_default == VisibilityDefault::Visible
             && self.hidden_rule_count == 0
             && self
@@ -259,10 +314,63 @@ impl RuntimeConfig {
                 .can_skip_symlink_target_visibility_check()
         {
             DirectoryChildVisibilityMode::AllVisible
+        } else if self.visibility_default == VisibilityDefault::Hidden
+            && self.hidden_rule_count == 0
+            && self
+                .internal_hidden_matcher
+                .can_skip_symlink_target_visibility_check()
+            && self.visible_rule_count > 0
+            && self
+                .visible_matcher
+                .descriptors()
+                .iter()
+                .all(RuleDescriptor::is_subtree)
+        {
+            self.parent_scoped_visible_subtree_mode(parent)
         } else {
             DirectoryChildVisibilityMode::PerEntry
         };
         DirectoryChildVisibilityBatch { cfg: self, mode }
+    }
+
+    fn parent_scoped_visible_subtree_mode(
+        &self,
+        parent: &VirtualPath,
+    ) -> DirectoryChildVisibilityMode {
+        let mut visible_children = BTreeSet::new();
+        let mut bridge_children = BTreeSet::new();
+        for descriptor in self.visible_matcher.descriptors() {
+            let anchor = descriptor.anchor();
+            if parent.starts_with(anchor) {
+                return DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
+                    parent: parent.clone(),
+                    fully_visible: true,
+                    visible_children: BTreeSet::new(),
+                    bridge_children: BTreeSet::new(),
+                };
+            }
+            if !anchor.starts_with(parent) {
+                continue;
+            }
+            let Ok(relative) = anchor.as_path().strip_prefix(parent.as_path()) else {
+                continue;
+            };
+            let mut components = relative.components();
+            let Some(Component::Normal(child_name)) = components.next() else {
+                continue;
+            };
+            if components.next().is_some() {
+                bridge_children.insert(child_name.to_os_string());
+            } else {
+                visible_children.insert(child_name.to_os_string());
+            }
+        }
+        DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
+            parent: parent.clone(),
+            fully_visible: false,
+            visible_children,
+            bridge_children,
+        }
     }
 
     pub fn can_skip_symlink_target_visibility_check(&self) -> bool {
@@ -369,6 +477,34 @@ impl RuntimeConfig {
             AxisChoice::Negative => false,
             AxisChoice::Positive => true,
         }
+    }
+}
+
+fn parent_scoped_entry_is_readable(
+    parent: &VirtualPath,
+    fully_visible: bool,
+    visible_children: &BTreeSet<OsString>,
+    bridge_children: &BTreeSet<OsString>,
+    path: &VirtualPath,
+    is_directory: bool,
+) -> Option<bool> {
+    if fully_visible {
+        return Some(true);
+    }
+    let relative = path.as_path().strip_prefix(parent.as_path()).ok()?;
+    let mut components = relative.components();
+    let Some(Component::Normal(child_name)) = components.next() else {
+        return None;
+    };
+    if components.next().is_some() {
+        return None;
+    }
+    if visible_children.contains(child_name) {
+        Some(true)
+    } else if bridge_children.contains(child_name) {
+        Some(is_directory)
+    } else {
+        Some(false)
     }
 }
 

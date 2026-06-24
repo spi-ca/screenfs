@@ -72,6 +72,7 @@ class PolicyResolutionTests(unittest.TestCase):
         self.assertFalse(policy["fast_path_cache_eligible"])
         self.assertTrue(policy["supports_hidden_stat_miss"])
         self.assertFalse(policy["supports_matcher_hidden_stat_miss"])
+        self.assertFalse(policy["supports_matcher_readonly_access_wok"])
 
     def test_fast_path_cache_eligible_preset_has_no_carve_outs(self) -> None:
         policy = bench.resolve_policy(make_args(policy_preset="fast-path-cache-eligible"))
@@ -87,6 +88,7 @@ class PolicyResolutionTests(unittest.TestCase):
         self.assertTrue(policy["fast_path_cache_eligible"])
         self.assertFalse(policy["supports_hidden_stat_miss"])
         self.assertFalse(policy["supports_matcher_hidden_stat_miss"])
+        self.assertFalse(policy["supports_matcher_readonly_access_wok"])
         self.assertIn(
             "effective policy remains cache-eligible for the current per-open read/write fast path",
             policy["notes"],
@@ -148,9 +150,10 @@ class PolicyResolutionTests(unittest.TestCase):
             ],
         )
         self.assertTrue(policy["supports_matcher_hidden_stat_miss"])
+        self.assertTrue(policy["supports_matcher_readonly_access_wok"])
         self.assertTrue(policy["supports_matcher_descendant_directory"])
         self.assertIn(
-            "matcher_extra_rules appended synthetic hidden/readonly rules plus hidden/visible descendant directory carve-outs for matcher_hidden_stat_miss and matcher_descendant_readdir* attribution workloads",
+            "matcher_extra_rules appended synthetic hidden/readonly rules plus hidden/visible descendant directory carve-outs for matcher_hidden_stat_miss, matcher_readonly_access_wok, and matcher_descendant_readdir* attribution workloads",
             policy["notes"],
         )
 
@@ -215,7 +218,10 @@ class WorkloadSelectionTests(unittest.TestCase):
         self.assertEqual(workloads["screenfs_only"], [])
         self.assertEqual(
             workloads["skipped"],
-            [{"name": "matcher_hidden_stat_miss", "reason": "matcher_hidden_stat_miss requires --matcher-extra-rules > 0"}],
+            [
+                {"name": "matcher_hidden_stat_miss", "reason": "matcher_hidden_stat_miss requires --matcher-extra-rules > 0"},
+                {"name": "matcher_readonly_access_wok", "reason": "matcher_readonly_access_wok requires --matcher-extra-rules > 0"},
+            ],
         )
 
     def test_policy_heavy_matrix_includes_matcher_when_rules_exist(self) -> None:
@@ -224,7 +230,7 @@ class WorkloadSelectionTests(unittest.TestCase):
         workloads = bench.resolve_workloads(args, policy)
 
         self.assertEqual(workloads["comparable"], ["metadata_lookup", "metadata_getattr", "metadata_access"])
-        self.assertEqual(workloads["screenfs_only"], ["matcher_hidden_stat_miss"])
+        self.assertEqual(workloads["screenfs_only"], ["matcher_hidden_stat_miss", "matcher_readonly_access_wok"])
         self.assertEqual(workloads["skipped"], [])
 
     def test_all_named_set_skips_matcher_descendant_workloads_without_rules(self) -> None:
@@ -273,7 +279,13 @@ class WorkloadSelectionTests(unittest.TestCase):
     def test_explicit_workloads_preserve_order_and_enable_matcher_when_rules_exist(self) -> None:
         args = make_args(
             matcher_extra_rules=2,
-            workload=["rand_read_4k", "matcher_hidden_stat_miss", "rand_read_4k", "small_open_read_close"],
+            workload=[
+                "rand_read_4k",
+                "matcher_hidden_stat_miss",
+                "matcher_readonly_access_wok",
+                "rand_read_4k",
+                "small_open_read_close",
+            ],
         )
         policy = bench.resolve_policy(args)
         workloads = bench.resolve_workloads(args, policy)
@@ -282,16 +294,21 @@ class WorkloadSelectionTests(unittest.TestCase):
         self.assertIsNone(workloads["requested_set"])
         self.assertEqual(
             workloads["requested_names"],
-            ["rand_read_4k", "matcher_hidden_stat_miss", "small_open_read_close"],
+            ["rand_read_4k", "matcher_hidden_stat_miss", "matcher_readonly_access_wok", "small_open_read_close"],
         )
         self.assertEqual(workloads["comparable"], ["rand_read_4k", "small_open_read_close"])
-        self.assertEqual(workloads["screenfs_only"], ["matcher_hidden_stat_miss"])
+        self.assertEqual(workloads["screenfs_only"], ["matcher_hidden_stat_miss", "matcher_readonly_access_wok"])
         self.assertEqual(workloads["skipped"], [])
 
     def test_explicit_incompatible_screenfs_only_workload_is_blocked(self) -> None:
         policy = bench.resolve_policy(make_args(policy_preset="fast-path-cache-eligible"))
         with self.assertRaisesRegex(SystemExit, "matcher_hidden_stat_miss requires --matcher-extra-rules > 0"):
             bench.resolve_workloads(make_args(policy_preset="fast-path-cache-eligible", workload=["matcher_hidden_stat_miss"]), policy)
+
+    def test_explicit_matcher_readonly_access_workload_without_rules_is_blocked(self) -> None:
+        policy = bench.resolve_policy(make_args(policy_preset="fast-path-cache-eligible"))
+        with self.assertRaisesRegex(SystemExit, "matcher_readonly_access_wok requires --matcher-extra-rules > 0"):
+            bench.resolve_workloads(make_args(policy_preset="fast-path-cache-eligible", workload=["matcher_readonly_access_wok"]), policy)
 
     def test_explicit_hidden_stat_miss_without_hidden_rule_is_blocked(self) -> None:
         policy = bench.resolve_policy(make_args(policy_preset="fast-path-cache-eligible"))
@@ -452,6 +469,26 @@ class WorkloadFunctionTests(unittest.TestCase):
                     if callable(cleanup):
                         cleanup()
 
+    def test_matcher_readonly_access_workload_uses_visible_readonly_fixture(self) -> None:
+        args = make_args(matcher_extra_rules=3, matcher_misses=5)
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            bench.prepare_fixture(root, args)
+
+            matcher_dir = root / ".screenfs-bench" / "matcher-heavy"
+            self.assertEqual(
+                sorted(path.name for path in matcher_dir.iterdir() if path.name.startswith("visible-")),
+                ["visible-0000", "visible-0001", "visible-0002"],
+            )
+            bench.matcher_readonly_access_wok(root, args, "native")
+
+    def test_matcher_readonly_access_workload_rejects_missing_mounted_fixture(self) -> None:
+        args = make_args(matcher_extra_rules=1, matcher_misses=1)
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            with self.assertRaisesRegex(RuntimeError, "missing readonly fixture"):
+                bench.matcher_readonly_access_wok(root, args, "mounted")
+
     def test_measure_workload_applies_read_fixture_cache_control_before_each_warmup_and_sample(self) -> None:
         args = make_args(cache_control="posix-fadvise-read-fixture", warmups=2, iterations=3)
         calls: list[list[str]] = []
@@ -514,12 +551,27 @@ class WorkloadFunctionTests(unittest.TestCase):
         os.symlink("worker-000000.bin", symlink_path)
         non_regular_path = read_root / "worker-999999.bin"
         non_regular_path.mkdir()
+        duplicate_source = read_root / "worker-000000.bin"
         write_native = self.root / ".screenfs-bench" / "write-native" / "worker-000000.bin"
         write_native.write_bytes(b"native-write")
         write_mounted = self.root / ".screenfs-bench" / "write-mounted" / "worker-000000.bin"
         write_mounted.write_bytes(b"mounted-write")
 
-        selected, skipped = bench.select_cache_control_read_fixture_files("concurrent_rand_read_write_4k", self.root)
+        with mock.patch.object(
+            bench,
+            "cache_control_candidate_paths",
+            return_value=[
+                duplicate_source,
+                duplicate_source,
+                symlink_path,
+                non_regular_path,
+                write_native,
+                write_mounted,
+            ],
+        ):
+            selected, skipped = bench.select_cache_control_read_fixture_files(
+                "concurrent_rand_read_write_4k", self.root
+            )
 
         self.assertTrue(all(path.is_file() for path in selected))
         self.assertTrue(all(path.parent == read_root for path in selected))
@@ -528,7 +580,7 @@ class WorkloadFunctionTests(unittest.TestCase):
         skipped_by_path = {item["path"]: item["reason"] for item in skipped}
         self.assertEqual(skipped_by_path[str(symlink_path)], "symlink")
         self.assertEqual(skipped_by_path[str(non_regular_path)], "non-regular")
-        self.assertTrue(any(item["reason"] == "duplicate-inode" for item in skipped))
+        self.assertEqual(skipped_by_path[str(duplicate_source)], "duplicate-inode")
 
     def test_symlink_parent_mutation_workload_leaves_no_children_behind(self) -> None:
         bench.symlink_parent_mkdir_rmdir(self.root, self.args, "native")

@@ -191,21 +191,25 @@ impl ScreenFs {
 
     #[cfg(feature = "perf-counters")]
     fn record_matcher_candidates_for_visibility(&self, path: &crate::path::VirtualPath) {
-        self.perf.record_matcher_candidates(
+        self.perf.record_matcher_candidates_by_source(
+            "internal_hidden.path",
             "path",
             self.cfg
                 .internal_hidden_matcher
                 .candidate_descriptor_metrics(path),
         );
-        self.perf.record_matcher_candidates(
+        self.perf.record_matcher_candidates_by_source(
+            "hidden.path",
             "path",
             self.cfg.hidden_matcher.candidate_descriptor_metrics(path),
         );
-        self.perf.record_matcher_candidates(
+        self.perf.record_matcher_candidates_by_source(
+            "visible.path",
             "path",
             self.cfg.visible_matcher.candidate_descriptor_metrics(path),
         );
-        self.perf.record_matcher_candidates(
+        self.perf.record_matcher_candidates_by_source(
+            "visible.descendant",
             "descendant",
             self.cfg
                 .visible_matcher
@@ -215,11 +219,13 @@ impl ScreenFs {
 
     #[cfg(feature = "perf-counters")]
     fn record_matcher_candidates_for_mutability(&self, path: &crate::path::VirtualPath) {
-        self.perf.record_matcher_candidates(
+        self.perf.record_matcher_candidates_by_source(
+            "readonly.path",
             "path",
             self.cfg.readonly_matcher.candidate_descriptor_metrics(path),
         );
-        self.perf.record_matcher_candidates(
+        self.perf.record_matcher_candidates_by_source(
+            "writable.path",
             "path",
             self.cfg.writable_matcher.candidate_descriptor_metrics(path),
         );
@@ -520,7 +526,11 @@ impl ScreenFs {
         let candidate_limit = (remaining / min_entry_size).saturating_add(1).max(1);
         let dir_file = self.open_confined(path, libc::O_RDONLY | libc::O_DIRECTORY, None)?;
         self.guard_opened_directory_target(path, &dir_file, false)?;
-        let child_visibility = self.cfg.directory_child_visibility_batch();
+        let child_visibility = if with_plus {
+            Some(self.cfg.directory_child_visibility_batch(path))
+        } else {
+            None
+        };
         let mut candidates = BTreeMap::new();
         #[cfg(feature = "perf-counters")]
         let mut scan_visibility_elapsed = std::time::Duration::default();
@@ -540,8 +550,16 @@ impl ScreenFs {
                 let name_bytes = entry.name.as_bytes();
                 #[cfg(feature = "perf-counters")]
                 let scan_visibility_start = Instant::now();
-                let readable = if child_visibility.can_assume_all_visible() {
-                    true
+                let readable = if let Some(child_visibility) = child_visibility.as_ref() {
+                    if child_visibility.can_assume_all_visible() {
+                        true
+                    } else if let Some(readable) =
+                        child_visibility.parent_scoped_entry_is_readable(&entry.child, entry.is_dir)
+                    {
+                        readable
+                    } else {
+                        self.entry_is_readable(&entry.child, entry.is_dir)
+                    }
                 } else {
                     self.entry_is_readable(&entry.child, entry.is_dir)
                 };
