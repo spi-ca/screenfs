@@ -1,0 +1,327 @@
+{
+  "after_bin": "/tmp/screenfs-rw-after-control",
+  "after_label": "control-b",
+  "before_bin": "/tmp/screenfs-rw-before-control",
+  "before_label": "control-a",
+  "bench_args": [
+    "--screenfs-source-root",
+    "/home/spi-ca/Codebase/screenfs",
+    "--perf-counters",
+    "--iterations",
+    "3",
+    "--warmups",
+    "1",
+    "--read-mib",
+    "256",
+    "--write-mib",
+    "256",
+    "--rand-io-ops",
+    "2048",
+    "--concurrency-workers",
+    "4",
+    "--policy-preset",
+    "fallback-unsafe-policy",
+    "--policy-label",
+    "read-write-concurrency-control",
+    "--workload-set",
+    "read-write-concurrency"
+  ],
+  "bench_script": "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+  "command_line": "scripts/bench-screenfs-series.py --before-bin /tmp/screenfs-rw-before-control --after-bin /tmp/screenfs-rw-after-control --before-label control-a --after-label control-b --pairs 3 --order alternate --output-dir docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs --stem fallback-concurrency --workload concurrent_rand_read_write_4k -- --screenfs-source-root /home/spi-ca/Codebase/screenfs --perf-counters --iterations 3 --warmups 1 --read-mib 256 --write-mib 256 --rand-io-ops 2048 --concurrency-workers 4 --policy-preset fallback-unsafe-policy --policy-label read-write-concurrency-control --workload-set read-write-concurrency",
+  "order": "alternate",
+  "pair_summaries": [
+    {
+      "missing_workloads": [],
+      "pair": 1,
+      "ratios": {
+        "concurrent_rand_read_write_4k": {
+          "p50_sec": 0.9738069430961843,
+          "p95_sec": 0.9211809247854513,
+          "p99_sec": 0.9168683518294083
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 2,
+      "ratios": {
+        "concurrent_rand_read_write_4k": {
+          "p50_sec": 0.9833995255880952,
+          "p95_sec": 0.9760838128487591,
+          "p99_sec": 0.9754540879229744
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 3,
+      "ratios": {
+        "concurrent_rand_read_write_4k": {
+          "p50_sec": 1.2356370783065982,
+          "p95_sec": 3.265576381107833,
+          "p99_sec": 3.425288933877964
+        }
+      }
+    }
+  ],
+  "pairs": 3,
+  "runs": [
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-rw-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "3",
+        "--warmups",
+        "1",
+        "--read-mib",
+        "256",
+        "--write-mib",
+        "256",
+        "--rand-io-ops",
+        "2048",
+        "--concurrency-workers",
+        "4",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "read-write-concurrency-control",
+        "--workload-set",
+        "read-write-concurrency",
+        "--output-json",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-before-control-a.json",
+        "md": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-before-control-a.md",
+        "svg": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-before-control-a.svg"
+      },
+      "pair": 1,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-rw-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "3",
+        "--warmups",
+        "1",
+        "--read-mib",
+        "256",
+        "--write-mib",
+        "256",
+        "--rand-io-ops",
+        "2048",
+        "--concurrency-workers",
+        "4",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "read-write-concurrency-control",
+        "--workload-set",
+        "read-write-concurrency",
+        "--output-json",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-after-control-b.json",
+        "md": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-after-control-b.md",
+        "svg": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair1-after-control-b.svg"
+      },
+      "pair": 1,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-rw-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "3",
+        "--warmups",
+        "1",
+        "--read-mib",
+        "256",
+        "--write-mib",
+        "256",
+        "--rand-io-ops",
+        "2048",
+        "--concurrency-workers",
+        "4",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "read-write-concurrency-control",
+        "--workload-set",
+        "read-write-concurrency",
+        "--output-json",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-after-control-b.json",
+        "md": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-after-control-b.md",
+        "svg": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-after-control-b.svg"
+      },
+      "pair": 2,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-rw-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "3",
+        "--warmups",
+        "1",
+        "--read-mib",
+        "256",
+        "--write-mib",
+        "256",
+        "--rand-io-ops",
+        "2048",
+        "--concurrency-workers",
+        "4",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "read-write-concurrency-control",
+        "--workload-set",
+        "read-write-concurrency",
+        "--output-json",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-before-control-a.json",
+        "md": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-before-control-a.md",
+        "svg": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair2-before-control-a.svg"
+      },
+      "pair": 2,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-rw-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "3",
+        "--warmups",
+        "1",
+        "--read-mib",
+        "256",
+        "--write-mib",
+        "256",
+        "--rand-io-ops",
+        "2048",
+        "--concurrency-workers",
+        "4",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "read-write-concurrency-control",
+        "--workload-set",
+        "read-write-concurrency",
+        "--output-json",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-before-control-a.json",
+        "md": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-before-control-a.md",
+        "svg": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-before-control-a.svg"
+      },
+      "pair": 3,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-rw-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "3",
+        "--warmups",
+        "1",
+        "--read-mib",
+        "256",
+        "--write-mib",
+        "256",
+        "--rand-io-ops",
+        "2048",
+        "--concurrency-workers",
+        "4",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "read-write-concurrency-control",
+        "--workload-set",
+        "read-write-concurrency",
+        "--output-json",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-after-control-b.json",
+        "md": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-after-control-b.md",
+        "svg": "docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/fallback-concurrency-btrfs/fallback-concurrency-pair3-after-control-b.svg"
+      },
+      "pair": 3,
+      "side": "after"
+    }
+  ],
+  "schema": "screenfs-benchmark-series-v1",
+  "summarized_workloads": [
+    "concurrent_rand_read_write_4k"
+  ],
+  "timestamp": "2026-06-24T15:13:59.737909+00:00"
+}

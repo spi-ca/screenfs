@@ -2,6 +2,9 @@
 
 This audit maps the current remaining-performance objective to checked-in evidence. It is a documentation-only completion readout, not a new performance claim.
 
+> Note: this is a historical/current completion readout. For new rule-sensitive `DirectoryChildVisibilityBatch` / parent-local DP `scan_visibility` work, use `docs/benchmarks.md`, `docs/performance-roadmap.md`, `current-next-performance-candidates.md`, `current-matcher-descendant-directory-smoke.md`, matcher-heavy same-binary/series controls, and `readdirplus-visibility-{batch-proof,classification-feasibility}` as the source-of-truth evidence set.
+
+
 ## Requirement mapping
 
 | requirement | current evidence | status |
@@ -21,7 +24,7 @@ This audit maps the current remaining-performance objective to checked-in eviden
 | --- | --- | --- |
 | kept fast-policy `readdirplus` claim | [`readdirplus-page-scan-claim/summary.md`](readdirplus-page-scan-claim/summary.md) | kept as the fast-policy/cache-eligible page-scan visibility batch claim; not a broad all-policy, matcher-heavy, or symlink-visible claim |
 | rejected `readdirplus` experiment | [`readdirplus-page-scan-path-join/summary.md`](readdirplus-page-scan-path-join/summary.md) | rejected page/scan retuning; before/after artifacts are archival evidence only |
-| current priority snapshot | [`current-next-performance-candidates.md`](current-next-performance-candidates.md) | fast-policy `readdirplus` page/scan is claim-grade, the rejected path-join implementation remains archival, and matcher-heavy policy path is the next unfinished lane |
+| current priority snapshot | [`current-next-performance-candidates.md`](current-next-performance-candidates.md) | fast-policy `readdirplus` page/scan is claim-grade, matcher-heavy no-writable mutability is rejected/not kept, the rejected path-join implementation remains archival, and matcher-heavy policy path is the next unfinished lane |
 
 ## Remaining candidate snapshot
 
@@ -31,7 +34,7 @@ This audit maps the current remaining-performance objective to checked-in eviden
 | read/write follow-up beyond fallback small-I/O baseline | `smoke` | [`read-write-small-io-guard-reuse/summary.md`](read-write-small-io-guard-reuse/summary.md) and [`read-write-small-io-guard-reuse/validation.log`](read-write-small-io-guard-reuse/validation.log) preserve the kept fallback baseline claim; broader current follow-up artifacts are coverage-only |
 | mutation invalidation breadth | `smoke` | [`current-mutation-invalidation-set-smoke.md`](current-mutation-invalidation-set-smoke.md) |
 | `open_confined` / `openat2` frequency | `claim` | [`open-confined-stat-child-open-path/summary.md`](open-confined-stat-child-open-path/summary.md), with [`current-open-confined-surface-smoke.md`](current-open-confined-surface-smoke.md) and [`current-metadata-opendir-smoke.md`](current-metadata-opendir-smoke.md) as historical attribution context |
-| matcher-heavy policy path | `smoke` | [`current-policy-heavy-matrix-smoke.md`](current-policy-heavy-matrix-smoke.md) |
+| matcher-heavy policy path | `smoke` | [`matcher-no-writable-mutability-fast-path/summary.md`](matcher-no-writable-mutability-fast-path/summary.md), with [`current-policy-heavy-matrix-smoke.md`](current-policy-heavy-matrix-smoke.md) as attribution/context |
 
 ## Completion conclusion
 

@@ -1,0 +1,28 @@
+Current matcher-heavy series control validation
+
+Commands observed after adding matcher-heavy-series-control/worktree-8720eb8 and updating references:
+
+1. python3 -m py_compile scripts/bench-screenfs.py scripts/bench-screenfs-series.py scripts/test_bench_screenfs.py scripts/test_bench_screenfs_workloads.py scripts/test_bench_screenfs_series.py
+   result: pass
+
+2. python3 -m unittest scripts.test_bench_screenfs scripts.test_bench_screenfs_workloads scripts.test_bench_screenfs_series
+   result: pass; 53 tests ran successfully
+
+3. git diff --check
+   result: pass
+
+4. cargo fmt --check
+   result: pass
+
+5. cargo +nightly-2026-02-19 check
+   result: pass
+
+6. /usr/bin/find README.md AGENTS.md docs -maxdepth 2 -type f -print
+   result: pass
+
+7. /usr/bin/find .pi/agents .pi/skills .pi/prompts .pi/extensions -maxdepth 3 -type f -print | sort
+   result: pass
+
+Notes:
+- The default stable cargo path is known in this environment to hit an existing compio-runtime 0.11.0 dependency E0425 issue; nightly-2026-02-19 is the Rust validation toolchain used successfully for this repo state.
+- This validation supports control/documentation evidence only, not a matcher-heavy performance claim.

@@ -1,0 +1,1420 @@
+{
+  "cache_control": {
+    "applications": 0,
+    "applied_files": [],
+    "errors": [],
+    "method": "warm",
+    "notes": [
+      "warm mode leaves cache state unchanged before warmups and measured samples"
+    ],
+    "scope": "no explicit cache eviction; existing warm-cache behavior",
+    "skipped": [],
+    "support_checked": true,
+    "timing_applied": false
+  },
+  "comparisons": {
+    "metadata_access": {
+      "mounted_median_sec": 0.0160437155,
+      "mounted_over_native_median": 12.185772911011291,
+      "mounted_p50_sec": 0.0160437155,
+      "mounted_p90_sec": 0.0174359024,
+      "mounted_p95_sec": 0.017854107199999997,
+      "mounted_p99_sec": 0.01818867104,
+      "native_median_sec": 0.001316594,
+      "native_p50_sec": 0.001316594,
+      "native_p90_sec": 0.0013254973999999998,
+      "native_p95_sec": 0.0013274162,
+      "native_p99_sec": 0.00132895124
+    },
+    "metadata_getattr": {
+      "mounted_median_sec": 0.014531344,
+      "mounted_over_native_median": 9.78875885571707,
+      "mounted_p50_sec": 0.014531344,
+      "mounted_p90_sec": 0.0152518469,
+      "mounted_p95_sec": 0.01525992395,
+      "mounted_p99_sec": 0.01526638559,
+      "native_median_sec": 0.001484493,
+      "native_p50_sec": 0.001484493,
+      "native_p90_sec": 0.0015043144999999998,
+      "native_p95_sec": 0.00153345425,
+      "native_p99_sec": 0.00155676605
+    },
+    "metadata_lookup": {
+      "mounted_median_sec": 0.010964743999999998,
+      "mounted_over_native_median": 7.716626745474512,
+      "mounted_p50_sec": 0.010964743999999998,
+      "mounted_p90_sec": 0.011251396399999999,
+      "mounted_p95_sec": 0.0113156087,
+      "mounted_p99_sec": 0.01136697854,
+      "native_median_sec": 0.0014209245,
+      "native_p50_sec": 0.0014209245,
+      "native_p90_sec": 0.0014611110000000002,
+      "native_p95_sec": 0.001470057,
+      "native_p99_sec": 0.0014772138
+    }
+  },
+  "environment": {
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "fusermount3": "fusermount3 version: 3.18.2",
+    "git_revision": "8720eb8d82ba11500b9efb9588ac17cb4f3d9de8",
+    "git_status_porcelain": "M docs/artifacts/current-all-five-performance-completion-audit.md\n M docs/artifacts/current-all-five-retry-completion-audit.md\n M docs/artifacts/current-next-performance-candidates.md\n M docs/artifacts/current-open-confined-frequency-completion-audit.md\n M docs/artifacts/current-performance-followup-completion-audit.md\n M docs/artifacts/current-policy-heavy-matrix-smoke.json\n M docs/artifacts/current-policy-heavy-matrix-smoke.md\n M docs/artifacts/current-policy-heavy-matrix-smoke.svg\n M docs/artifacts/current-remaining-performance-completion-audit.md\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M scripts/bench-screenfs.py\n M scripts/test_bench_screenfs_workloads.py\n M src/fs.rs\n M src/fs/perf.rs\n M src/fs/tests/perf.rs\n?? docs/artifacts/current-matcher-mutability-source-attribution-smoke/\n?? docs/artifacts/current-matcher-source-attribution-smoke/\n?? docs/artifacts/matcher-empty-family-lookup-skip/\n?? docs/artifacts/matcher-heavy-no-code-control/\n?? docs/artifacts/matcher-no-writable-mutability-fast-path/\n?? docs/artifacts/matcher-subtree-only-best-candidate/\n?? docs/artifacts/matcher-visible-default-short-circuit/",
+    "git_worktree_clean": false,
+    "harness_repo_root": "/home/spi-ca/Codebase/screenfs",
+    "mount_filesystem": {
+      "block_size": 4096,
+      "findmnt": "fuse screenfs rw,nosuid,nodev,relatime,user_id=1000,group_id=1000",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-iqupptjv/mount",
+      "stat_f_type": "fuse"
+    },
+    "platform": "Linux-7.1.1-1-spica-stable-git-x86_64-with-glibc2.43",
+    "python": "3.14.6",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "source_filesystem": {
+      "block_size": 4096,
+      "findmnt": "tmpfs tmpfs rw,nosuid,nodev,relatime,lazytime,inode64,huge=advise",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-iqupptjv/source",
+      "stat_f_type": "tmpfs"
+    },
+    "uname": "Linux ari14-lin 7.1.1-1-spica-stable-git #1 SMP PREEMPT Mon, 22 Jun 2026 15:54:46 +0000 x86_64 "
+  },
+  "harness": {
+    "argv": [
+      "python3",
+      "scripts/bench-screenfs.py",
+      "--screenfs-bin",
+      "/tmp/screenfs-matcher-control",
+      "--screenfs-source-root",
+      "/home/spi-ca/Codebase/screenfs",
+      "--perf-counters",
+      "--iterations",
+      "10",
+      "--warmups",
+      "3",
+      "--dir-entries",
+      "5000",
+      "--metadata-ops",
+      "200",
+      "--matcher-extra-rules",
+      "32",
+      "--matcher-misses",
+      "200",
+      "--policy-preset",
+      "fallback-unsafe-policy",
+      "--policy-label",
+      "matcher-heavy-no-code-control-before-pair3",
+      "--workload-set",
+      "policy-heavy-matrix",
+      "--output-json",
+      "docs/artifacts/matcher-heavy-no-code-control/before-policy-heavy-pair3.json",
+      "--output-md",
+      "docs/artifacts/matcher-heavy-no-code-control/before-policy-heavy-pair3.md",
+      "--output-svg",
+      "docs/artifacts/matcher-heavy-no-code-control/before-policy-heavy-pair3.svg"
+    ],
+    "command_line": "python3 scripts/bench-screenfs.py --screenfs-bin /tmp/screenfs-matcher-control --screenfs-source-root /home/spi-ca/Codebase/screenfs --perf-counters --iterations 10 --warmups 3 --dir-entries 5000 --metadata-ops 200 --matcher-extra-rules 32 --matcher-misses 200 --policy-preset fallback-unsafe-policy --policy-label matcher-heavy-no-code-control-before-pair3 --workload-set policy-heavy-matrix --output-json docs/artifacts/matcher-heavy-no-code-control/before-policy-heavy-pair3.json --output-md docs/artifacts/matcher-heavy-no-code-control/before-policy-heavy-pair3.md --output-svg docs/artifacts/matcher-heavy-no-code-control/before-policy-heavy-pair3.svg"
+  },
+  "mounted": [
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "metadata_lookup",
+      "samples_sec": [
+        0.011379821,
+        0.010968981,
+        0.010941016,
+        0.010981289,
+        0.010841555,
+        0.010690292,
+        0.010960507,
+        0.011217646,
+        0.010868524,
+        0.011237127
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.011379821,
+        "mean_sec": 0.0110086758,
+        "median_sec": 0.010964743999999998,
+        "min_sec": 0.010690292,
+        "p50_sec": 0.010964743999999998,
+        "p90_sec": 0.011251396399999999,
+        "p95_sec": 0.0113156087,
+        "p99_sec": 0.01136697854,
+        "q1_sec": 0.010886647,
+        "q3_sec": 0.01115855675,
+        "stdev_sec": 0.00020863875837905945
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "metadata_getattr",
+      "samples_sec": [
+        0.014493312,
+        0.015132316,
+        0.014356216,
+        0.015250052,
+        0.014281349,
+        0.014501369,
+        0.015268001,
+        0.014670162,
+        0.014561319,
+        0.014454184
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.015268001,
+        "mean_sec": 0.014696828,
+        "median_sec": 0.014531344,
+        "min_sec": 0.014281349,
+        "p50_sec": 0.014531344,
+        "p90_sec": 0.0152518469,
+        "p95_sec": 0.01525992395,
+        "p99_sec": 0.01526638559,
+        "q1_sec": 0.014463966,
+        "q3_sec": 0.0150167775,
+        "stdev_sec": 0.0003753749800079914
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "metadata_access",
+      "samples_sec": [
+        0.015869522,
+        0.016778179,
+        0.018272312,
+        0.016980671,
+        0.015695292,
+        0.01537897,
+        0.015835711,
+        0.017342968,
+        0.016154685,
+        0.015932746
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.018272312,
+        "mean_sec": 0.0164241056,
+        "median_sec": 0.0160437155,
+        "min_sec": 0.01537897,
+        "p50_sec": 0.0160437155,
+        "p90_sec": 0.0174359024,
+        "p95_sec": 0.017854107199999997,
+        "p99_sec": 0.01818867104,
+        "q1_sec": 0.01584416375,
+        "q3_sec": 0.016930048,
+        "stdev_sec": 0.000899788777747706
+      }
+    }
+  ],
+  "native": [
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "metadata_lookup",
+      "samples_sec": [
+        0.001479003,
+        0.001415291,
+        0.001391907,
+        0.001407865,
+        0.001427796,
+        0.001440485,
+        0.001392142,
+        0.001426558,
+        0.001459123,
+        0.001380306
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.001479003,
+        "mean_sec": 0.0014220476,
+        "median_sec": 0.0014209245,
+        "min_sec": 0.001380306,
+        "p50_sec": 0.0014209245,
+        "p90_sec": 0.0014611110000000002,
+        "p95_sec": 0.001470057,
+        "p99_sec": 0.0014772138,
+        "q1_sec": 0.00139607275,
+        "q3_sec": 0.00143731275,
+        "stdev_sec": 3.127616778244351e-05
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "metadata_getattr",
+      "samples_sec": [
+        0.001497839,
+        0.001479147,
+        0.001480984,
+        0.001483982,
+        0.001477444,
+        0.001562594,
+        0.001496765,
+        0.001485451,
+        0.001485004,
+        0.00148014
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.001562594,
+        "mean_sec": 0.001492935,
+        "median_sec": 0.001484493,
+        "min_sec": 0.001477444,
+        "p50_sec": 0.001484493,
+        "p90_sec": 0.0015043144999999998,
+        "p95_sec": 0.00153345425,
+        "p99_sec": 0.00155676605,
+        "q1_sec": 0.001480351,
+        "q3_sec": 0.0014939365,
+        "stdev_sec": 2.5444449458029584e-05
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "metadata_access",
+      "samples_sec": [
+        0.001316458,
+        0.001320357,
+        0.001310869,
+        0.001329335,
+        0.001325071,
+        0.001312922,
+        0.001311834,
+        0.001318155,
+        0.00131673,
+        0.001309911
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.001329335,
+        "mean_sec": 0.0013171642,
+        "median_sec": 0.001316594,
+        "min_sec": 0.001309911,
+        "p50_sec": 0.001316594,
+        "p90_sec": 0.0013254973999999998,
+        "p95_sec": 0.0013274162,
+        "p99_sec": 0.00132895124,
+        "q1_sec": 0.001312106,
+        "q3_sec": 0.0013198065000000001,
+        "stdev_sec": 6.334688535709116e-06
+      }
+    }
+  ],
+  "parameters": {
+    "cache_control": "warm",
+    "concurrency_workers": 4,
+    "dir_entries": 5000,
+    "hidden_misses": 2000,
+    "iterations": 10,
+    "matcher_extra_rules": 32,
+    "matcher_misses": 200,
+    "metadata_ops": 200,
+    "open_read_close_ops": 4096,
+    "rand_io_ops": 16384,
+    "read_mib": 64,
+    "small_files": 2000,
+    "small_io_bytes": 4096,
+    "small_io_ops": 1024,
+    "symlink_parent_mutations": 2000,
+    "sync_4k_fsync_every": 32,
+    "sync_bytes": 4096,
+    "sync_ops": 128,
+    "warmups": 3,
+    "write_mib": 64
+  },
+  "paths": {
+    "mount": "/tmp/screenfs-bench-iqupptjv/mount",
+    "source": "/tmp/screenfs-bench-iqupptjv/source",
+    "workdir": "/tmp/screenfs-bench-iqupptjv"
+  },
+  "policy": {
+    "built_in_screenfs_args": [
+      "--visibility-default",
+      "visible",
+      "--hidden",
+      "/.screenfs-bench/hidden",
+      "--mutability-default",
+      "writable",
+      "--readonly",
+      "/.screenfs-bench/readonly",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/descendant-root",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0000",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0000/readonly-0000.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0000/leaf-0000.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0001",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0001/readonly-0001.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0001/leaf-0001.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0002",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0002/readonly-0002.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0002/leaf-0002.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0003",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0003/readonly-0003.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0003/leaf-0003.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0004",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0004/readonly-0004.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0004/leaf-0004.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0005",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0005/readonly-0005.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0005/leaf-0005.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0006",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0006/readonly-0006.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0006/leaf-0006.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0007",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0007/readonly-0007.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0007/leaf-0007.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0008",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0008/readonly-0008.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0008/leaf-0008.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0009",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0009/readonly-0009.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0009/leaf-0009.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0010",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0010/readonly-0010.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0010/leaf-0010.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0011",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0011/readonly-0011.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0011/leaf-0011.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0012",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0012/readonly-0012.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0012/leaf-0012.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0013",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0013/readonly-0013.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0013/leaf-0013.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0014",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0014/readonly-0014.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0014/leaf-0014.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0015",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0015/readonly-0015.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0015/leaf-0015.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0016",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0016/readonly-0016.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0016/leaf-0016.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0017",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0017/readonly-0017.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0017/leaf-0017.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0018",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0018/readonly-0018.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0018/leaf-0018.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0019",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0019/readonly-0019.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0019/leaf-0019.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0020",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0020/readonly-0020.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0020/leaf-0020.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0021",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0021/readonly-0021.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0021/leaf-0021.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0022",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0022/readonly-0022.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0022/leaf-0022.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0023",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0023/readonly-0023.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0023/leaf-0023.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0024",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0024/readonly-0024.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0024/leaf-0024.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0025",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0025/readonly-0025.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0025/leaf-0025.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0026",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0026/readonly-0026.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0026/leaf-0026.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0027",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0027/readonly-0027.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0027/leaf-0027.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0028",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0028/readonly-0028.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0028/leaf-0028.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0029",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0029/readonly-0029.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0029/leaf-0029.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0030",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0030/readonly-0030.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0030/leaf-0030.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0031",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0031/readonly-0031.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0031/leaf-0031.txt"
+    ],
+    "description": "Historical default visible/writable policy with hidden and readonly carve-outs.",
+    "effective_bucket": "custom-unsafe-policy",
+    "extra_screenfs_args": [],
+    "fast_path_cache_eligible": false,
+    "hidden_paths": [
+      "/.screenfs-bench/hidden",
+      "/.screenfs-bench/matcher-heavy/descendant-root",
+      "/.screenfs-bench/matcher-heavy/hidden-0000",
+      "/.screenfs-bench/matcher-heavy/hidden-0001",
+      "/.screenfs-bench/matcher-heavy/hidden-0002",
+      "/.screenfs-bench/matcher-heavy/hidden-0003",
+      "/.screenfs-bench/matcher-heavy/hidden-0004",
+      "/.screenfs-bench/matcher-heavy/hidden-0005",
+      "/.screenfs-bench/matcher-heavy/hidden-0006",
+      "/.screenfs-bench/matcher-heavy/hidden-0007",
+      "/.screenfs-bench/matcher-heavy/hidden-0008",
+      "/.screenfs-bench/matcher-heavy/hidden-0009",
+      "/.screenfs-bench/matcher-heavy/hidden-0010",
+      "/.screenfs-bench/matcher-heavy/hidden-0011",
+      "/.screenfs-bench/matcher-heavy/hidden-0012",
+      "/.screenfs-bench/matcher-heavy/hidden-0013",
+      "/.screenfs-bench/matcher-heavy/hidden-0014",
+      "/.screenfs-bench/matcher-heavy/hidden-0015",
+      "/.screenfs-bench/matcher-heavy/hidden-0016",
+      "/.screenfs-bench/matcher-heavy/hidden-0017",
+      "/.screenfs-bench/matcher-heavy/hidden-0018",
+      "/.screenfs-bench/matcher-heavy/hidden-0019",
+      "/.screenfs-bench/matcher-heavy/hidden-0020",
+      "/.screenfs-bench/matcher-heavy/hidden-0021",
+      "/.screenfs-bench/matcher-heavy/hidden-0022",
+      "/.screenfs-bench/matcher-heavy/hidden-0023",
+      "/.screenfs-bench/matcher-heavy/hidden-0024",
+      "/.screenfs-bench/matcher-heavy/hidden-0025",
+      "/.screenfs-bench/matcher-heavy/hidden-0026",
+      "/.screenfs-bench/matcher-heavy/hidden-0027",
+      "/.screenfs-bench/matcher-heavy/hidden-0028",
+      "/.screenfs-bench/matcher-heavy/hidden-0029",
+      "/.screenfs-bench/matcher-heavy/hidden-0030",
+      "/.screenfs-bench/matcher-heavy/hidden-0031"
+    ],
+    "label": "matcher-heavy-no-code-control-before-pair3",
+    "manual_policy_override_flags": [],
+    "matcher_extra_rules": 32,
+    "notes": [
+      "matcher_extra_rules appended synthetic hidden/readonly rules plus hidden/visible descendant directory carve-outs for matcher_hidden_stat_miss, matcher_readonly_access_wok, and matcher_descendant_readdir* attribution workloads"
+    ],
+    "readonly_paths": [
+      "/.screenfs-bench/readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0000/readonly-0000.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0001/readonly-0001.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0002/readonly-0002.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0003/readonly-0003.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0004/readonly-0004.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0005/readonly-0005.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0006/readonly-0006.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0007/readonly-0007.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0008/readonly-0008.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0009/readonly-0009.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0010/readonly-0010.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0011/readonly-0011.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0012/readonly-0012.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0013/readonly-0013.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0014/readonly-0014.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0015/readonly-0015.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0016/readonly-0016.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0017/readonly-0017.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0018/readonly-0018.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0019/readonly-0019.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0020/readonly-0020.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0021/readonly-0021.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0022/readonly-0022.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0023/readonly-0023.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0024/readonly-0024.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0025/readonly-0025.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0026/readonly-0026.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0027/readonly-0027.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0028/readonly-0028.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0029/readonly-0029.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0030/readonly-0030.txt",
+      "/.screenfs-bench/matcher-heavy/visible-0031/readonly-0031.txt"
+    ],
+    "requested_bucket": "fallback-unsafe-policy",
+    "requested_preset": "fallback-unsafe-policy",
+    "supports_hidden_stat_miss": true,
+    "supports_matcher_descendant_directory": true,
+    "supports_matcher_hidden_stat_miss": true,
+    "supports_matcher_readonly_access_wok": true,
+    "visible_paths": [
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0000/leaf-0000.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0001/leaf-0001.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0002/leaf-0002.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0003/leaf-0003.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0004/leaf-0004.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0005/leaf-0005.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0006/leaf-0006.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0007/leaf-0007.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0008/leaf-0008.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0009/leaf-0009.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0010/leaf-0010.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0011/leaf-0011.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0012/leaf-0012.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0013/leaf-0013.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0014/leaf-0014.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0015/leaf-0015.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0016/leaf-0016.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0017/leaf-0017.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0018/leaf-0018.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0019/leaf-0019.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0020/leaf-0020.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0021/leaf-0021.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0022/leaf-0022.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0023/leaf-0023.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0024/leaf-0024.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0025/leaf-0025.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0026/leaf-0026.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0027/leaf-0027.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0028/leaf-0028.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0029/leaf-0029.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0030/leaf-0030.txt",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0031/leaf-0031.txt"
+    ]
+  },
+  "schema": "screenfs-benchmark-v2",
+  "screenfs": {
+    "binary": "/tmp/screenfs-matcher-control",
+    "binary_sha256": "5dcc2a2a633ff80c7c12becc36e4f9ffebf0b3602f583954a0e4f8d204d6bb78",
+    "command": [
+      "/tmp/screenfs-matcher-control",
+      "/tmp/screenfs-bench-iqupptjv/source",
+      "/tmp/screenfs-bench-iqupptjv/mount",
+      "--visibility-default",
+      "visible",
+      "--hidden",
+      "/.screenfs-bench/hidden",
+      "--mutability-default",
+      "writable",
+      "--readonly",
+      "/.screenfs-bench/readonly",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/descendant-root",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0000",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0000/readonly-0000.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0000/leaf-0000.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0001",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0001/readonly-0001.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0001/leaf-0001.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0002",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0002/readonly-0002.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0002/leaf-0002.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0003",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0003/readonly-0003.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0003/leaf-0003.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0004",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0004/readonly-0004.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0004/leaf-0004.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0005",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0005/readonly-0005.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0005/leaf-0005.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0006",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0006/readonly-0006.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0006/leaf-0006.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0007",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0007/readonly-0007.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0007/leaf-0007.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0008",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0008/readonly-0008.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0008/leaf-0008.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0009",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0009/readonly-0009.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0009/leaf-0009.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0010",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0010/readonly-0010.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0010/leaf-0010.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0011",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0011/readonly-0011.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0011/leaf-0011.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0012",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0012/readonly-0012.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0012/leaf-0012.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0013",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0013/readonly-0013.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0013/leaf-0013.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0014",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0014/readonly-0014.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0014/leaf-0014.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0015",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0015/readonly-0015.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0015/leaf-0015.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0016",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0016/readonly-0016.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0016/leaf-0016.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0017",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0017/readonly-0017.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0017/leaf-0017.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0018",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0018/readonly-0018.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0018/leaf-0018.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0019",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0019/readonly-0019.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0019/leaf-0019.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0020",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0020/readonly-0020.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0020/leaf-0020.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0021",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0021/readonly-0021.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0021/leaf-0021.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0022",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0022/readonly-0022.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0022/leaf-0022.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0023",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0023/readonly-0023.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0023/leaf-0023.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0024",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0024/readonly-0024.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0024/leaf-0024.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0025",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0025/readonly-0025.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0025/leaf-0025.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0026",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0026/readonly-0026.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0026/leaf-0026.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0027",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0027/readonly-0027.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0027/leaf-0027.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0028",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0028/readonly-0028.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0028/leaf-0028.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0029",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0029/readonly-0029.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0029/leaf-0029.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0030",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0030/readonly-0030.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0030/leaf-0030.txt",
+      "--hidden",
+      "/.screenfs-bench/matcher-heavy/hidden-0031",
+      "--readonly",
+      "/.screenfs-bench/matcher-heavy/visible-0031/readonly-0031.txt",
+      "--visible",
+      "/.screenfs-bench/matcher-heavy/descendant-root/branch-0031/leaf-0031.txt"
+    ],
+    "perf_counters_enabled": true,
+    "perf_summary": {
+      "metrics": {
+        "fuse_op.access": {
+          "avg_ns": 22851,
+          "count": 5201,
+          "max_ns": 100700,
+          "total_ns": 118851702
+        },
+        "fuse_op.getattr": {
+          "avg_ns": 13529,
+          "count": 3017,
+          "max_ns": 32788,
+          "total_ns": 40819972
+        },
+        "fuse_op.lookup": {
+          "avg_ns": 10803,
+          "count": 43269,
+          "max_ns": 191121,
+          "total_ns": 467475608
+        },
+        "fuse_op.statfs": {
+          "avg_ns": 4460,
+          "count": 2,
+          "max_ns": 5427,
+          "total_ns": 8921
+        },
+        "invalidations": {
+          "count": 0,
+          "evicted_entries": 0,
+          "invalidated_entries": 0,
+          "scanned_entries": 0
+        },
+        "matcher_candidate_order.descendant": {
+          "avg_ns": 551,
+          "count": 56688,
+          "max_ns": 36280,
+          "total_ns": 31242499
+        },
+        "matcher_candidate_order.path": {
+          "avg_ns": 494,
+          "count": 175264,
+          "max_ns": 10579,
+          "total_ns": 86740624
+        },
+        "matcher_candidate_order_ancestor_steps": {
+          "count": 806492
+        },
+        "matcher_candidate_order_ancestor_steps.descendant": {
+          "count": 195123
+        },
+        "matcher_candidate_order_ancestor_steps.path": {
+          "count": 611369
+        },
+        "matcher_candidate_order_by_source.hidden.path": {
+          "avg_ns": 695,
+          "count": 56688,
+          "max_ns": 10579,
+          "total_ns": 39448715
+        },
+        "matcher_candidate_order_by_source.internal_hidden.path": {
+          "avg_ns": 156,
+          "count": 56688,
+          "max_ns": 10060,
+          "total_ns": 8869573
+        },
+        "matcher_candidate_order_by_source.readonly.path": {
+          "avg_ns": 1038,
+          "count": 2600,
+          "max_ns": 2845,
+          "total_ns": 2700977
+        },
+        "matcher_candidate_order_by_source.visible.descendant": {
+          "avg_ns": 551,
+          "count": 56688,
+          "max_ns": 36280,
+          "total_ns": 31242499
+        },
+        "matcher_candidate_order_by_source.visible.path": {
+          "avg_ns": 621,
+          "count": 56688,
+          "max_ns": 8940,
+          "total_ns": 35257809
+        },
+        "matcher_candidate_order_by_source.writable.path": {
+          "avg_ns": 178,
+          "count": 2600,
+          "max_ns": 929,
+          "total_ns": 463550
+        },
+        "matcher_candidate_order_duplicates": {
+          "count": 0
+        },
+        "matcher_candidate_order_duplicates.descendant": {
+          "count": 0
+        },
+        "matcher_candidate_order_duplicates.path": {
+          "count": 0
+        },
+        "matcher_candidate_order_seen_slots": {
+          "count": 5641224
+        },
+        "matcher_candidate_order_seen_slots.descendant": {
+          "count": 1814016
+        },
+        "matcher_candidate_order_seen_slots.path": {
+          "count": 3827208
+        },
+        "matcher_candidates": {
+          "count": 614320
+        },
+        "matcher_candidates_by_source.hidden.path": {
+          "count": 2600
+        },
+        "matcher_candidates_by_source.internal_hidden.path": {
+          "count": 0
+        },
+        "matcher_candidates_by_source.readonly.path": {
+          "count": 2600
+        },
+        "matcher_candidates_by_source.visible.descendant": {
+          "count": 609120
+        },
+        "matcher_candidates_by_source.visible.path": {
+          "count": 0
+        },
+        "matcher_candidates_by_source.writable.path": {
+          "count": 0
+        },
+        "matcher_family_candidates.direct_child_glob": {
+          "count": 0
+        },
+        "matcher_family_candidates.recursive": {
+          "count": 0
+        },
+        "matcher_family_candidates.subtree": {
+          "count": 614320
+        },
+        "open_confined_openat2": {
+          "avg_ns": 771,
+          "count": 54088,
+          "max_ns": 25689,
+          "total_ns": 41731349
+        },
+        "open_like.post_open_revalidation.access": {
+          "avg_ns": 6337,
+          "count": 2601,
+          "max_ns": 15939,
+          "total_ns": 16483199
+        },
+        "open_like.pre_open_guard.access": {
+          "avg_ns": 18885,
+          "count": 5201,
+          "max_ns": 58873,
+          "total_ns": 98226006
+        },
+        "policy_decision": {
+          "avg_ns": 1359,
+          "count": 59288,
+          "max_ns": 10711,
+          "total_ns": 80626695
+        },
+        "read_guard_path": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "read_handle_snapshot": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "read_io": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdir_attr_generation_entries": {
+          "count": 0
+        },
+        "readdir_attr_generation_scan": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdir_candidate_selection": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdir_directory_scan": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdir_page_commit": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdir_symlink_visibility": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdirplus_attr_generation_entries": {
+          "count": 0
+        },
+        "readdirplus_attr_generation_scan": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdirplus_candidate_selection": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdirplus_directory_scan": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdirplus_page_commit": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdirplus_symlink_visibility": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "resolved_virtual_path": {
+          "avg_ns": 3284,
+          "count": 48886,
+          "max_ns": 27519,
+          "total_ns": 160546251
+        },
+        "resolved_virtual_path_from_open_fd": {
+          "avg_ns": 1165,
+          "count": 2601,
+          "max_ns": 10566,
+          "total_ns": 3032408
+        },
+        "resolved_virtual_path_from_path": {
+          "avg_ns": 3403,
+          "count": 46285,
+          "max_ns": 27519,
+          "total_ns": 157513843
+        },
+        "resolved_virtual_path_from_path_canonicalize": {
+          "avg_ns": 1090,
+          "count": 104633,
+          "max_ns": 25813,
+          "total_ns": 114139307
+        },
+        "resolved_virtual_path_from_path_component_walk": {
+          "avg_ns": 2976,
+          "count": 46285,
+          "max_ns": 26795,
+          "total_ns": 137787644
+        },
+        "resolved_virtual_path_from_path_source_root_confinement": {
+          "avg_ns": 113,
+          "count": 104633,
+          "max_ns": 2486,
+          "total_ns": 11833685
+        },
+        "resolved_virtual_path_from_path_virtual_conversion": {
+          "avg_ns": 362,
+          "count": 46285,
+          "max_ns": 14083,
+          "total_ns": 16779754
+        },
+        "source_root_path": {
+          "avg_ns": 1844,
+          "count": 48887,
+          "max_ns": 81682,
+          "total_ns": 90178810
+        },
+        "stat_child_no_follow": {
+          "avg_ns": 1366,
+          "count": 51487,
+          "max_ns": 44294,
+          "total_ns": 70362685
+        },
+        "stat_child_no_follow.attr_conversion": {
+          "avg_ns": 17,
+          "count": 48885,
+          "max_ns": 5481,
+          "total_ns": 858168
+        },
+        "stat_child_no_follow.host_fstat": {
+          "avg_ns": 235,
+          "count": 48885,
+          "max_ns": 36656,
+          "total_ns": 11498340
+        },
+        "stat_child_no_follow_context.path_guard_or_metadata": {
+          "avg_ns": 1366,
+          "count": 51487,
+          "max_ns": 44294,
+          "total_ns": 70362685
+        },
+        "state_read_lock_hold": {
+          "avg_ns": 63,
+          "count": 51487,
+          "max_ns": 3672,
+          "total_ns": 3248819
+        },
+        "state_read_lock_wait": {
+          "avg_ns": 25,
+          "count": 51487,
+          "max_ns": 901,
+          "total_ns": 1329127
+        },
+        "state_write_lock_hold": {
+          "avg_ns": 353,
+          "count": 38067,
+          "max_ns": 13107,
+          "total_ns": 13451022
+        },
+        "state_write_lock_wait": {
+          "avg_ns": 23,
+          "count": 38067,
+          "max_ns": 322,
+          "total_ns": 882793
+        },
+        "write_guard_mutation": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "write_handle_snapshot": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "write_io": {
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
+        }
+      },
+      "raw": "screenfs perf counters:\n  fuse_op.access: count=5201 total_ns=118851702 avg_ns=22851 max_ns=100700\n  fuse_op.getattr: count=3017 total_ns=40819972 avg_ns=13529 max_ns=32788\n  fuse_op.lookup: count=43269 total_ns=467475608 avg_ns=10803 max_ns=191121\n  fuse_op.statfs: count=2 total_ns=8921 avg_ns=4460 max_ns=5427\n  policy_decision: count=59288 total_ns=80626695 avg_ns=1359 max_ns=10711\n  matcher_candidates: count=614320\n  matcher_candidates_by_source.hidden.path: count=2600\n  matcher_candidates_by_source.internal_hidden.path: count=0\n  matcher_candidates_by_source.readonly.path: count=2600\n  matcher_candidates_by_source.visible.descendant: count=609120\n  matcher_candidates_by_source.visible.path: count=0\n  matcher_candidates_by_source.writable.path: count=0\n  matcher_family_candidates.direct_child_glob: count=0\n  matcher_family_candidates.recursive: count=0\n  matcher_family_candidates.subtree: count=614320\n  matcher_candidate_order.descendant: count=56688 total_ns=31242499 avg_ns=551 max_ns=36280\n  matcher_candidate_order.path: count=175264 total_ns=86740624 avg_ns=494 max_ns=10579\n  matcher_candidate_order_by_source.hidden.path: count=56688 total_ns=39448715 avg_ns=695 max_ns=10579\n  matcher_candidate_order_by_source.internal_hidden.path: count=56688 total_ns=8869573 avg_ns=156 max_ns=10060\n  matcher_candidate_order_by_source.readonly.path: count=2600 total_ns=2700977 avg_ns=1038 max_ns=2845\n  matcher_candidate_order_by_source.visible.descendant: count=56688 total_ns=31242499 avg_ns=551 max_ns=36280\n  matcher_candidate_order_by_source.visible.path: count=56688 total_ns=35257809 avg_ns=621 max_ns=8940\n  matcher_candidate_order_by_source.writable.path: count=2600 total_ns=463550 avg_ns=178 max_ns=929\n  matcher_candidate_order_duplicates: count=0\n  matcher_candidate_order_duplicates.descendant: count=0\n  matcher_candidate_order_duplicates.path: count=0\n  matcher_candidate_order_seen_slots: count=5641224\n  matcher_candidate_order_seen_slots.descendant: count=1814016\n  matcher_candidate_order_seen_slots.path: count=3827208\n  matcher_candidate_order_ancestor_steps: count=806492\n  matcher_candidate_order_ancestor_steps.descendant: count=195123\n  matcher_candidate_order_ancestor_steps.path: count=611369\n  state_read_lock_wait: count=51487 total_ns=1329127 avg_ns=25 max_ns=901\n  state_read_lock_hold: count=51487 total_ns=3248819 avg_ns=63 max_ns=3672\n  state_write_lock_wait: count=38067 total_ns=882793 avg_ns=23 max_ns=322\n  state_write_lock_hold: count=38067 total_ns=13451022 avg_ns=353 max_ns=13107\n  open_confined_openat2: count=54088 total_ns=41731349 avg_ns=771 max_ns=25689\n  open_like.pre_open_guard.access: count=5201 total_ns=98226006 avg_ns=18885 max_ns=58873\n  open_like.post_open_revalidation.access: count=2601 total_ns=16483199 avg_ns=6337 max_ns=15939\n  stat_child_no_follow: count=51487 total_ns=70362685 avg_ns=1366 max_ns=44294\n  stat_child_no_follow.attr_conversion: count=48885 total_ns=858168 avg_ns=17 max_ns=5481\n  stat_child_no_follow.host_fstat: count=48885 total_ns=11498340 avg_ns=235 max_ns=36656\n  stat_child_no_follow_context.path_guard_or_metadata: count=51487 total_ns=70362685 avg_ns=1366 max_ns=44294\n  source_root_path: count=48887 total_ns=90178810 avg_ns=1844 max_ns=81682\n  resolved_virtual_path: count=48886 total_ns=160546251 avg_ns=3284 max_ns=27519\n  resolved_virtual_path_from_path: count=46285 total_ns=157513843 avg_ns=3403 max_ns=27519\n  resolved_virtual_path_from_path_component_walk: count=46285 total_ns=137787644 avg_ns=2976 max_ns=26795\n  resolved_virtual_path_from_path_canonicalize: count=104633 total_ns=114139307 avg_ns=1090 max_ns=25813\n  resolved_virtual_path_from_path_source_root_confinement: count=104633 total_ns=11833685 avg_ns=113 max_ns=2486\n  resolved_virtual_path_from_path_virtual_conversion: count=46285 total_ns=16779754 avg_ns=362 max_ns=14083\n  resolved_virtual_path_from_open_fd: count=2601 total_ns=3032408 avg_ns=1165 max_ns=10566\n  read_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_guard_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_guard_mutation: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_directory_scan: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_scan: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_entries: count=0\n  readdir_symlink_visibility: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_candidate_selection: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_page_commit: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_directory_scan: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_attr_generation_scan: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_attr_generation_entries: count=0\n  readdirplus_symlink_visibility: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_candidate_selection: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_page_commit: count=0 total_ns=0 avg_ns=0 max_ns=0\n  invalidations: count=0 invalidated_entries=0 evicted_entries=0 scanned_entries=0"
+    },
+    "source": {
+      "git_revision": "8720eb8d82ba11500b9efb9588ac17cb4f3d9de8",
+      "git_status_porcelain": "M docs/artifacts/current-all-five-performance-completion-audit.md\n M docs/artifacts/current-all-five-retry-completion-audit.md\n M docs/artifacts/current-next-performance-candidates.md\n M docs/artifacts/current-open-confined-frequency-completion-audit.md\n M docs/artifacts/current-performance-followup-completion-audit.md\n M docs/artifacts/current-policy-heavy-matrix-smoke.json\n M docs/artifacts/current-policy-heavy-matrix-smoke.md\n M docs/artifacts/current-policy-heavy-matrix-smoke.svg\n M docs/artifacts/current-remaining-performance-completion-audit.md\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M scripts/bench-screenfs.py\n M scripts/test_bench_screenfs_workloads.py\n M src/fs.rs\n M src/fs/perf.rs\n M src/fs/tests/perf.rs\n?? docs/artifacts/current-matcher-mutability-source-attribution-smoke/\n?? docs/artifacts/current-matcher-source-attribution-smoke/\n?? docs/artifacts/matcher-empty-family-lookup-skip/\n?? docs/artifacts/matcher-heavy-no-code-control/\n?? docs/artifacts/matcher-no-writable-mutability-fast-path/\n?? docs/artifacts/matcher-subtree-only-best-candidate/\n?? docs/artifacts/matcher-visible-default-short-circuit/",
+      "git_worktree_clean": false,
+      "source_root": "/home/spi-ca/Codebase/screenfs",
+      "source_root_origin": "cli"
+    },
+    "stderr_log": "/tmp/screenfs-bench-iqupptjv/screenfs.stderr.log",
+    "stderr_preview": "y_source.hidden.path: count=56688 total_ns=39448715 avg_ns=695 max_ns=10579\n  matcher_candidate_order_by_source.internal_hidden.path: count=56688 total_ns=8869573 avg_ns=156 max_ns=10060\n  matcher_candidate_order_by_source.readonly.path: count=2600 total_ns=2700977 avg_ns=1038 max_ns=2845\n  matcher_candidate_order_by_source.visible.descendant: count=56688 total_ns=31242499 avg_ns=551 max_ns=36280\n  matcher_candidate_order_by_source.visible.path: count=56688 total_ns=35257809 avg_ns=621 max_ns=8940\n  matcher_candidate_order_by_source.writable.path: count=2600 total_ns=463550 avg_ns=178 max_ns=929\n  matcher_candidate_order_duplicates: count=0\n  matcher_candidate_order_duplicates.descendant: count=0\n  matcher_candidate_order_duplicates.path: count=0\n  matcher_candidate_order_seen_slots: count=5641224\n  matcher_candidate_order_seen_slots.descendant: count=1814016\n  matcher_candidate_order_seen_slots.path: count=3827208\n  matcher_candidate_order_ancestor_steps: count=806492\n  matcher_candidate_order_ancestor_steps.descendant: count=195123\n  matcher_candidate_order_ancestor_steps.path: count=611369\n  state_read_lock_wait: count=51487 total_ns=1329127 avg_ns=25 max_ns=901\n  state_read_lock_hold: count=51487 total_ns=3248819 avg_ns=63 max_ns=3672\n  state_write_lock_wait: count=38067 total_ns=882793 avg_ns=23 max_ns=322\n  state_write_lock_hold: count=38067 total_ns=13451022 avg_ns=353 max_ns=13107\n  open_confined_openat2: count=54088 total_ns=41731349 avg_ns=771 max_ns=25689\n  open_like.pre_open_guard.access: count=5201 total_ns=98226006 avg_ns=18885 max_ns=58873\n  open_like.post_open_revalidation.access: count=2601 total_ns=16483199 avg_ns=6337 max_ns=15939\n  stat_child_no_follow: count=51487 total_ns=70362685 avg_ns=1366 max_ns=44294\n  stat_child_no_follow.attr_conversion: count=48885 total_ns=858168 avg_ns=17 max_ns=5481\n  stat_child_no_follow.host_fstat: count=48885 total_ns=11498340 avg_ns=235 max_ns=36656\n  stat_child_no_follow_context.path_guard_or_metadata: count=51487 total_ns=70362685 avg_ns=1366 max_ns=44294\n  source_root_path: count=48887 total_ns=90178810 avg_ns=1844 max_ns=81682\n  resolved_virtual_path: count=48886 total_ns=160546251 avg_ns=3284 max_ns=27519\n  resolved_virtual_path_from_path: count=46285 total_ns=157513843 avg_ns=3403 max_ns=27519\n  resolved_virtual_path_from_path_component_walk: count=46285 total_ns=137787644 avg_ns=2976 max_ns=26795\n  resolved_virtual_path_from_path_canonicalize: count=104633 total_ns=114139307 avg_ns=1090 max_ns=25813\n  resolved_virtual_path_from_path_source_root_confinement: count=104633 total_ns=11833685 avg_ns=113 max_ns=2486\n  resolved_virtual_path_from_path_virtual_conversion: count=46285 total_ns=16779754 avg_ns=362 max_ns=14083\n  resolved_virtual_path_from_open_fd: count=2601 total_ns=3032408 avg_ns=1165 max_ns=10566\n  read_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_guard_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_guard_mutation: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_directory_scan: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_scan: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_entries: count=0\n  readdir_symlink_visibility: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_candidate_selection: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_page_commit: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_directory_scan: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_attr_generation_scan: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_attr_generation_entries: count=0\n  readdirplus_symlink_visibility: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_candidate_selection: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_page_commit: count=0 total_ns=0 avg_ns=0 max_ns=0\n  invalidations: count=0 invalidated_entries=0 evicted_entries=0 scanned_entries=0\n"
+  },
+  "screenfs_only": [
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "matcher_hidden_stat_miss",
+      "samples_sec": [
+        0.010647115,
+        0.010949145,
+        0.011716919,
+        0.009349977,
+        0.009186076,
+        0.011546233,
+        0.009502805,
+        0.009212827,
+        0.010159845,
+        0.010744955
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.011716919,
+        "mean_sec": 0.0103015897,
+        "median_sec": 0.01040348,
+        "min_sec": 0.009186076,
+        "p50_sec": 0.01040348,
+        "p90_sec": 0.011563301599999999,
+        "p95_sec": 0.0116401103,
+        "p99_sec": 0.011701557259999999,
+        "q1_sec": 0.009388184,
+        "q3_sec": 0.0108980975,
+        "stdev_sec": 0.000959228432992319
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "matcher_readonly_access_wok",
+      "samples_sec": [
+        0.023366622,
+        0.022148239,
+        0.022045422,
+        0.024481217,
+        0.02249019,
+        0.022665798,
+        0.022687392,
+        0.024316154,
+        0.022140368,
+        0.021739271
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.024481217,
+        "mean_sec": 0.0228080673,
+        "median_sec": 0.022577994,
+        "min_sec": 0.021739271,
+        "p50_sec": 0.022577994,
+        "p90_sec": 0.0243326603,
+        "p95_sec": 0.024406938649999998,
+        "p99_sec": 0.02446636133,
+        "q1_sec": 0.02214233575,
+        "q3_sec": 0.0231968145,
+        "stdev_sec": 0.0009502477426109056
+      }
+    }
+  ],
+  "timestamp": "2026-06-24T05:33:58.764599+00:00",
+  "workloads": {
+    "comparable": [
+      "metadata_lookup",
+      "metadata_getattr",
+      "metadata_access"
+    ],
+    "mode": "named-set",
+    "requested_names": [
+      "metadata_lookup",
+      "metadata_getattr",
+      "metadata_access",
+      "matcher_hidden_stat_miss",
+      "matcher_readonly_access_wok"
+    ],
+    "requested_set": "policy-heavy-matrix",
+    "screenfs_only": [
+      "matcher_hidden_stat_miss",
+      "matcher_readonly_access_wok"
+    ],
+    "skipped": []
+  }
+}

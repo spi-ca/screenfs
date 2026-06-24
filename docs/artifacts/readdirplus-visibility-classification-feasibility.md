@@ -19,10 +19,11 @@ The current page-scan attribution smoke shows scan-time visibility dominates the
 
 Source: [`current-readdirplus-page-scan-attribution-smoke/summary.md`](current-readdirplus-page-scan-attribution-smoke/summary.md).
 
-The pre-proof hot call was per-entry scan-time visibility. Current code now routes scan visibility through `directory_child_visibility_batch()`:
+The pre-proof hot call was per-entry scan-time visibility. Current code now routes `readdirplus` scan visibility through `directory_child_visibility_batch()`:
 
-- `src/fs.rs` `collect_child_directory_page()` builds a directory-local batch before scanning children.
+- `src/fs.rs` `collect_child_directory_page()` builds a directory-local batch only when `with_plus` is true; plain `readdir` continues to use the per-entry path.
 - For the trivial `visibility.default=visible` / no user hidden rule / no internal hidden rule shape, the batch can assume all direct children are visible and skip the per-entry scan-time policy call.
+- For `visibility.default=hidden`, no user hidden rule, no internal hidden rule, and visible descriptors that are all subtree anchors, the batch computes parent-local direct visible and bridge-visible child frontiers for the current `readdirplus` request.
 - For rule-sensitive shapes, `src/fs.rs` still falls back to `ScreenFs::entry_is_readable(&entry.child, entry.is_dir)` so perf/matcher counters and existing visibility semantics remain intact.
 - `src/config.rs` `entry_is_readable()` delegates to `visibility_decision()` and maps `Visible => true`, `BridgeVisible => is_directory`, `Hidden => false`.
 - `visibility_decision()` checks internal hidden rules, visible rules, then `visible_matcher.may_match_descendant_of(path)` for bridge-visible ancestors.
@@ -53,7 +54,7 @@ Conclusion: directory-local prefix classification is safe only for very narrow r
 
 ## Batch API direction
 
-The safer implementation direction is a request-local/directory-local batch API that preserves per-entry semantics while reducing repeated matcher setup/candidate discovery where equivalence is proven. The current proof implements only the narrow all-visible shape and keeps fallback for rule-sensitive cases.
+The safer implementation direction is a request-local/directory-local batch API that preserves per-entry semantics while reducing repeated matcher setup/candidate discovery where equivalence is proven. The first proof implemented only the narrow all-visible shape. The current implementation additionally keeps a `readdirplus`-only parent-scoped visible-subtree mode for default-hidden/no-hidden/no-internal-hidden policy shapes and falls back for broader rule-sensitive cases.
 
 Current/recommended shape:
 
@@ -63,15 +64,36 @@ struct DirectoryChildVisibilityBatch<'a> {
     mode: DirectoryChildVisibilityMode,
 }
 
+enum DirectoryChildVisibilityMode {
+    AllVisible,
+    ParentScopedVisibleSubtrees { /* request-local frontier */ },
+    PerEntry,
+}
+
 impl DirectoryChildVisibilityBatch<'_> {
     fn can_assume_all_visible(&self) -> bool {
-        matches!(self.mode, DirectoryChildVisibilityMode::AllVisible)
+        matches!(
+            self.mode,
+            DirectoryChildVisibilityMode::AllVisible
+                | DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
+                    fully_visible: true,
+                    ..
+                }
+        )
     }
 }
 
-// collect_child_directory_page():
-let readable = if child_visibility.can_assume_all_visible() {
-    true
+// collect_child_directory_page(): batch is built only when with_plus/readdirplus is true.
+let readable = if let Some(child_visibility) = child_visibility.as_ref() {
+    if child_visibility.can_assume_all_visible() {
+        true
+    } else if let Some(readable) =
+        child_visibility.parent_scoped_entry_is_readable(&entry.child, entry.is_dir)
+    {
+        readable
+    } else {
+        self.entry_is_readable(&entry.child, entry.is_dir)
+    }
 } else {
     self.entry_is_readable(&entry.child, entry.is_dir)
 };
@@ -84,6 +106,12 @@ Implementation must remain conservative:
 - keep candidate-order debug/metrics semantics unchanged unless separately tested;
 - use fallback for direct-child glob, recursive glob/literal, hidden/visible overlaps, and bridge-visible carve-out ambiguity until an equivalence test covers the case;
 - do not persist the batch beyond the current directory request.
+
+### Parent-local DP expansion guardrails
+
+The current parent-local DP / memoized `DirectoryChildVisibilityBatch` mode is a request-local helper for the current `readdirplus` directory scan. It covers only `visibility.default=hidden`, no hidden/internal-hidden rules, and visible rules whose descriptors are all subtree anchors; plain `readdir` and uncertain policy shapes still use the per-entry path. It must not become a cross-request visibility, path, or symlink cache, and it must not replace point-of-use symlink target checks or the returned-entry `readdirplus` policy recheck.
+
+Before any broader rule-sensitive mode is kept, it must prove equivalence against `entry_is_readable(child_path, is_directory)` for the exact child entries it classifies. Unknown or unproven shapes must fall back to `PerEntry`. In particular, fallback remains required until tests cover hidden subtree plus visible carve-out interactions, direct-child glob anchors, recursive literal/glob rules, broader `BridgeVisible => is_directory` boundaries, and hidden/visible overlap precedence.
 
 ## Verification plan for future expansions
 
@@ -110,6 +138,6 @@ Performance evidence must still use the `readdirplus` gate in `docs/benchmarks.m
 ## Conclusion
 
 - A scan visibility fast path was not previously applied to `collect_child_directory_page()`; only symlink-target and other separate fast paths existed.
-- Directory-local prefix classification is too easy to overgeneralize; use it only for proven trivial rule shapes.
+- Directory-local prefix classification is too easy to overgeneralize; use it only for proven rule shapes with explicit equivalence coverage.
 - A conservative directory child visibility batch API is the better implementation direction, but it should remain an equivalence-tested wrapper with fallback rather than a broad prefix classifier.
-- [`readdirplus-visibility-batch-proof/summary.md`](readdirplus-visibility-batch-proof/summary.md) records the first conservative proof: only the trivial `visibility.default=visible` / no hidden rule / no internal hidden rule shape uses an all-visible batch fast path, while rule-sensitive shapes still fall back to per-entry visibility.
+- [`readdirplus-visibility-batch-proof/summary.md`](readdirplus-visibility-batch-proof/summary.md) records the first conservative proof: the trivial `visibility.default=visible` / no hidden rule / no internal hidden rule shape uses an all-visible batch fast path. The current follow-up implementation also adds a `readdirplus`-only default-hidden/no-hidden/no-internal-hidden visible-subtree-anchor parent-local slice; broader rule-sensitive shapes still fall back to per-entry visibility and broader speed claims require matcher-descendant plus repeated/interleaved evidence.

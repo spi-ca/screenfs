@@ -1,0 +1,327 @@
+{
+  "after_bin": "/tmp/screenfs-parent-local-8720eb8d82ba/screenfs-after-parent-local",
+  "after_label": "parent-local",
+  "before_bin": "/tmp/screenfs-parent-local-8720eb8d82ba/screenfs-before-no-parent-local",
+  "before_label": "no-parent-local",
+  "bench_args": [
+    "--screenfs-source-root",
+    "/tmp/screenfs-parent-local-8720eb8d82ba/after",
+    "--perf-counters",
+    "--iterations",
+    "10",
+    "--warmups",
+    "3",
+    "--dir-entries",
+    "20000",
+    "--workload",
+    "readdirplus_basic",
+    "--policy-preset",
+    "fast-path-cache-eligible",
+    "--policy-label",
+    "parent-local-hidden-visible-anchor-20k",
+    "--extra-screenfs-arg=--visibility-default",
+    "--extra-screenfs-arg=hidden",
+    "--extra-screenfs-arg=--visible",
+    "--extra-screenfs-arg=/.screenfs-bench/read/seq.bin",
+    "--extra-screenfs-arg=--visible",
+    "--extra-screenfs-arg=/.screenfs-bench/dir-entries"
+  ],
+  "bench_script": "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+  "command_line": "scripts/bench-screenfs-series.py --before-bin /tmp/screenfs-parent-local-8720eb8d82ba/screenfs-before-no-parent-local --after-bin /tmp/screenfs-parent-local-8720eb8d82ba/screenfs-after-parent-local --before-label no-parent-local --after-label parent-local --pairs 3 --order alternate --output-dir docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k --stem hidden-visible-anchor-20k --workload readdirplus_basic -- --screenfs-source-root /tmp/screenfs-parent-local-8720eb8d82ba/after --perf-counters --iterations 10 --warmups 3 --dir-entries 20000 --workload readdirplus_basic --policy-preset fast-path-cache-eligible --policy-label parent-local-hidden-visible-anchor-20k --extra-screenfs-arg=--visibility-default --extra-screenfs-arg=hidden --extra-screenfs-arg=--visible --extra-screenfs-arg=/.screenfs-bench/read/seq.bin --extra-screenfs-arg=--visible --extra-screenfs-arg=/.screenfs-bench/dir-entries",
+  "order": "alternate",
+  "pair_summaries": [
+    {
+      "missing_workloads": [],
+      "pair": 1,
+      "ratios": {
+        "readdirplus_basic": {
+          "p50_sec": 1.0886905192578258,
+          "p95_sec": 0.9926190944937302,
+          "p99_sec": 0.9789287023819011
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 2,
+      "ratios": {
+        "readdirplus_basic": {
+          "p50_sec": 0.9211030468296689,
+          "p95_sec": 0.9623385406638916,
+          "p99_sec": 0.9650265572979282
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 3,
+      "ratios": {
+        "readdirplus_basic": {
+          "p50_sec": 0.8544894456407264,
+          "p95_sec": 0.8584570262680749,
+          "p99_sec": 0.8402175792345812
+        }
+      }
+    }
+  ],
+  "pairs": 3,
+  "runs": [
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/screenfs-before-no-parent-local",
+        "--screenfs-source-root",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/after",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "20000",
+        "--workload",
+        "readdirplus_basic",
+        "--policy-preset",
+        "fast-path-cache-eligible",
+        "--policy-label",
+        "parent-local-hidden-visible-anchor-20k",
+        "--extra-screenfs-arg=--visibility-default",
+        "--extra-screenfs-arg=hidden",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/read/seq.bin",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/dir-entries",
+        "--output-json",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-before-no-parent-local.json",
+        "--output-md",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-before-no-parent-local.md",
+        "--output-svg",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-before-no-parent-local.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-before-no-parent-local.json",
+        "md": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-before-no-parent-local.md",
+        "svg": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-before-no-parent-local.svg"
+      },
+      "pair": 1,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/screenfs-after-parent-local",
+        "--screenfs-source-root",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/after",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "20000",
+        "--workload",
+        "readdirplus_basic",
+        "--policy-preset",
+        "fast-path-cache-eligible",
+        "--policy-label",
+        "parent-local-hidden-visible-anchor-20k",
+        "--extra-screenfs-arg=--visibility-default",
+        "--extra-screenfs-arg=hidden",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/read/seq.bin",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/dir-entries",
+        "--output-json",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-after-parent-local.json",
+        "--output-md",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-after-parent-local.md",
+        "--output-svg",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-after-parent-local.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-after-parent-local.json",
+        "md": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-after-parent-local.md",
+        "svg": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair1-after-parent-local.svg"
+      },
+      "pair": 1,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/screenfs-after-parent-local",
+        "--screenfs-source-root",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/after",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "20000",
+        "--workload",
+        "readdirplus_basic",
+        "--policy-preset",
+        "fast-path-cache-eligible",
+        "--policy-label",
+        "parent-local-hidden-visible-anchor-20k",
+        "--extra-screenfs-arg=--visibility-default",
+        "--extra-screenfs-arg=hidden",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/read/seq.bin",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/dir-entries",
+        "--output-json",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-after-parent-local.json",
+        "--output-md",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-after-parent-local.md",
+        "--output-svg",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-after-parent-local.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-after-parent-local.json",
+        "md": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-after-parent-local.md",
+        "svg": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-after-parent-local.svg"
+      },
+      "pair": 2,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/screenfs-before-no-parent-local",
+        "--screenfs-source-root",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/after",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "20000",
+        "--workload",
+        "readdirplus_basic",
+        "--policy-preset",
+        "fast-path-cache-eligible",
+        "--policy-label",
+        "parent-local-hidden-visible-anchor-20k",
+        "--extra-screenfs-arg=--visibility-default",
+        "--extra-screenfs-arg=hidden",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/read/seq.bin",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/dir-entries",
+        "--output-json",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-before-no-parent-local.json",
+        "--output-md",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-before-no-parent-local.md",
+        "--output-svg",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-before-no-parent-local.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-before-no-parent-local.json",
+        "md": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-before-no-parent-local.md",
+        "svg": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair2-before-no-parent-local.svg"
+      },
+      "pair": 2,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/screenfs-before-no-parent-local",
+        "--screenfs-source-root",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/after",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "20000",
+        "--workload",
+        "readdirplus_basic",
+        "--policy-preset",
+        "fast-path-cache-eligible",
+        "--policy-label",
+        "parent-local-hidden-visible-anchor-20k",
+        "--extra-screenfs-arg=--visibility-default",
+        "--extra-screenfs-arg=hidden",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/read/seq.bin",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/dir-entries",
+        "--output-json",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-before-no-parent-local.json",
+        "--output-md",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-before-no-parent-local.md",
+        "--output-svg",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-before-no-parent-local.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-before-no-parent-local.json",
+        "md": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-before-no-parent-local.md",
+        "svg": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-before-no-parent-local.svg"
+      },
+      "pair": 3,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/screenfs-after-parent-local",
+        "--screenfs-source-root",
+        "/tmp/screenfs-parent-local-8720eb8d82ba/after",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "20000",
+        "--workload",
+        "readdirplus_basic",
+        "--policy-preset",
+        "fast-path-cache-eligible",
+        "--policy-label",
+        "parent-local-hidden-visible-anchor-20k",
+        "--extra-screenfs-arg=--visibility-default",
+        "--extra-screenfs-arg=hidden",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/read/seq.bin",
+        "--extra-screenfs-arg=--visible",
+        "--extra-screenfs-arg=/.screenfs-bench/dir-entries",
+        "--output-json",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-after-parent-local.json",
+        "--output-md",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-after-parent-local.md",
+        "--output-svg",
+        "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-after-parent-local.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-after-parent-local.json",
+        "md": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-after-parent-local.md",
+        "svg": "docs/artifacts/directory-child-visibility-parent-local-series/worktree-8720eb8d82ba/hidden-visible-anchor-readdirplus-20k/hidden-visible-anchor-20k-pair3-after-parent-local.svg"
+      },
+      "pair": 3,
+      "side": "after"
+    }
+  ],
+  "schema": "screenfs-benchmark-series-v1",
+  "summarized_workloads": [
+    "readdirplus_basic"
+  ],
+  "timestamp": "2026-06-24T22:21:48.456258+00:00"
+}

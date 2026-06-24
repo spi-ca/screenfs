@@ -1,0 +1,38 @@
+Current read/write follow-up attempt validation
+
+Commands observed after documenting and rerunning the read/write follow-up attempt:
+
+1. git diff --check
+   result: pass
+
+2. python3 -m py_compile scripts/bench-screenfs.py scripts/bench-screenfs-series.py scripts/test_bench_screenfs.py scripts/test_bench_screenfs_workloads.py scripts/test_bench_screenfs_series.py
+   result: pass
+
+3. python3 -m unittest scripts.test_bench_screenfs scripts.test_bench_screenfs_workloads scripts.test_bench_screenfs_series
+   result: pass; 53 tests ran successfully
+
+4. cargo fmt --check
+   result: pass
+
+5. cargo +nightly-2026-02-19 check
+   result: pass
+
+6. /usr/bin/find README.md AGENTS.md docs -maxdepth 2 -type f -print
+   result: pass
+
+7. /usr/bin/find .pi/agents .pi/skills .pi/prompts .pi/extensions -maxdepth 3 -type f -print | sort
+   result: pass
+
+FUSE context:
+
+- Earlier in this attempt, `ls -l /dev/fuse` reported `No such file or directory`, and tiny benchmark/direct mount checks failed before mount became usable.
+- A direct manual ScreenFS mount attempt reported the underlying `fusermount3` stderr:
+
+```text
+/usr/bin/fusermount3: fuse device /dev/fuse not found. Kernel module not loaded?
+Error: Custom { kind: Other, error: "fusermount3 failed" }
+```
+
+- Later, `/dev/fuse` became available and the same-binary fallback `read-write-concurrency` series control was collected successfully under `docs/artifacts/read-write-concurrency-series-control/worktree-8720eb8/`.
+
+This log supports only control/documentation and non-benchmark checks. It is not performance evidence and does not support a read/write speedup claim.

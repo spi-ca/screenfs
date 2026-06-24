@@ -2,6 +2,9 @@
 
 This audit maps the current performance follow-up goal to checked-in evidence and current-worktree implementation. It is a completion readout, not a new blanket speedup claim.
 
+> Note: this is a historical/current completion readout. For new rule-sensitive `DirectoryChildVisibilityBatch` / parent-local DP `scan_visibility` work, use `docs/benchmarks.md`, `docs/performance-roadmap.md`, `current-next-performance-candidates.md`, `current-matcher-descendant-directory-smoke.md`, matcher-heavy same-binary/series controls, and `readdirplus-visibility-{batch-proof,classification-feasibility}` as the source-of-truth evidence set.
+
+
 ## Requirement mapping
 
 | requirement | current evidence | status |
@@ -23,11 +26,11 @@ This audit maps the current performance follow-up goal to checked-in evidence an
 | read/write follow-up beyond fallback small-I/O baseline | `smoke` | `docs/artifacts/read-write-small-io-guard-reuse/summary.md` remains the kept fallback baseline claim; broader current follow-up artifacts are coverage-only |
 | mutation invalidation breadth | `smoke` | `docs/artifacts/current-mutation-invalidation-set-smoke.md` |
 | `open_confined` / `openat2` frequency | `claim` | `docs/artifacts/open-confined-stat-child-open-path/summary.md` + historical context in `docs/artifacts/current-open-confined-surface-smoke.md`, `docs/artifacts/current-metadata-opendir-smoke.md` |
-| matcher-heavy policy path | `smoke` | `docs/artifacts/current-policy-heavy-matrix-smoke.md` |
+| matcher-heavy policy path | `smoke` | `docs/artifacts/matcher-no-writable-mutability-fast-path/summary.md`, with `docs/artifacts/current-policy-heavy-matrix-smoke.md` as attribution/context |
 
 ## Remaining risks
 
 - The kept read/write claim is still narrow: fallback policy only; no separate fast-policy, storage-backed, or concurrency claim exists.
 - The kept `readdirplus` page-scan claim is scoped to fast-policy/cache-eligible; it does not prove broad all-policy, matcher-heavy, or symlink-visible wins.
-- Mutation invalidation and matcher-heavy rows still need dedicated before/after claim-grade pairs; future `open_confined` changes also need fresh same-matrix evidence beyond the current direct stat-child opened-object claim.
+- Mutation invalidation and broader matcher visible-descendant rows still need dedicated before/after claim-grade pairs; future `open_confined` changes also need fresh same-matrix evidence beyond the current direct stat-child opened-object claim.
 - Matcher-descendant proof is still weak for directory-heavy non-empty visible descendant cases; current matcher32 smoke is not enough for that claim.

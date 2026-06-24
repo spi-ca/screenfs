@@ -2,9 +2,9 @@
 
 ## Scope
 
-This bundle records a conservative implementation proof for a request-local/directory-local `DirectoryChildVisibilityBatch` used by the directory scan path. It is a proof/smoke artifact, not a claim-grade before/after performance bundle.
+This bundle records the first conservative implementation proof for a request-local/directory-local `DirectoryChildVisibilityBatch` used by the `readdirplus` directory scan path. It is a proof/smoke artifact, not a claim-grade before/after performance bundle.
 
-The implementation keeps broad prefix classification out of the fast path. It only skips per-entry scan-time policy evaluation for the trivial safe shape: `visibility.default=visible`, no user hidden rules, and no internal hidden mount-root rule. All rule-sensitive shapes fall back to the existing `entry_is_readable()` path.
+The original proof scope kept broad prefix classification out of the fast path and only skipped per-entry scan-time policy evaluation for the trivial safe shape: `visibility.default=visible`, no user hidden rules, and no internal hidden mount-root rule. The current implementation also has a later parent-local slice for `visibility.default=hidden`, no user hidden rules, no internal hidden mount-root rule, and visible descriptors that are all subtree anchors; that later slice is `readdirplus`-only and has no kept speed claim. Broader rule-sensitive shapes still fall back to the existing `entry_is_readable()` path and need matcher-descendant plus repeated/interleaved evidence before any speed claim.
 
 The following guardrails remain unchanged:
 

@@ -1,0 +1,506 @@
+{
+  "after_bin": "/tmp/screenfs-series-after-control",
+  "after_label": "control-b",
+  "before_bin": "/tmp/screenfs-series-before-control",
+  "before_label": "control-a",
+  "bench_args": [
+    "--screenfs-source-root",
+    "/home/spi-ca/Codebase/screenfs",
+    "--perf-counters",
+    "--iterations",
+    "10",
+    "--warmups",
+    "3",
+    "--dir-entries",
+    "5000",
+    "--metadata-ops",
+    "200",
+    "--matcher-extra-rules",
+    "32",
+    "--matcher-misses",
+    "200",
+    "--policy-preset",
+    "fallback-unsafe-policy",
+    "--policy-label",
+    "matcher-series-control",
+    "--workload-set",
+    "policy-heavy-matrix"
+  ],
+  "bench_script": "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+  "command_line": "scripts/bench-screenfs-series.py --before-bin /tmp/screenfs-series-before-control --after-bin /tmp/screenfs-series-after-control --before-label control-a --after-label control-b --pairs 4 --order alternate --output-dir docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32 --stem policy-heavy --workload metadata_lookup --workload metadata_getattr --workload metadata_access --workload matcher_hidden_stat_miss --workload matcher_readonly_access_wok -- --screenfs-source-root /home/spi-ca/Codebase/screenfs --perf-counters --iterations 10 --warmups 3 --dir-entries 5000 --metadata-ops 200 --matcher-extra-rules 32 --matcher-misses 200 --policy-preset fallback-unsafe-policy --policy-label matcher-series-control --workload-set policy-heavy-matrix",
+  "order": "alternate",
+  "pair_summaries": [
+    {
+      "missing_workloads": [],
+      "pair": 1,
+      "ratios": {
+        "matcher_hidden_stat_miss": {
+          "p50_sec": 1.1881104291403772,
+          "p95_sec": 1.1410160774617268,
+          "p99_sec": 1.1272904344305197
+        },
+        "matcher_readonly_access_wok": {
+          "p50_sec": 0.8109884127961324,
+          "p95_sec": 0.802864881334886,
+          "p99_sec": 0.8072206558226702
+        },
+        "metadata_access": {
+          "p50_sec": 1.0811121063717495,
+          "p95_sec": 1.033799696914176,
+          "p99_sec": 1.0449070009816765
+        },
+        "metadata_getattr": {
+          "p50_sec": 0.7281169385344515,
+          "p95_sec": 0.7428699039210411,
+          "p99_sec": 0.7497230968093195
+        },
+        "metadata_lookup": {
+          "p50_sec": 0.7672445262436038,
+          "p95_sec": 0.7386339995798101,
+          "p99_sec": 0.7411395634331548
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 2,
+      "ratios": {
+        "matcher_hidden_stat_miss": {
+          "p50_sec": 1.3627993952544,
+          "p95_sec": 1.4942934781458481,
+          "p99_sec": 1.5038705943366444
+        },
+        "matcher_readonly_access_wok": {
+          "p50_sec": 1.007065907644792,
+          "p95_sec": 0.895341148901311,
+          "p99_sec": 0.9223114851800286
+        },
+        "metadata_access": {
+          "p50_sec": 1.4343992879147198,
+          "p95_sec": 1.4720094206677765,
+          "p99_sec": 1.4312757721558882
+        },
+        "metadata_getattr": {
+          "p50_sec": 0.9520345206274794,
+          "p95_sec": 0.988604909781807,
+          "p99_sec": 1.0053919383601788
+        },
+        "metadata_lookup": {
+          "p50_sec": 1.0181838065587208,
+          "p95_sec": 0.9862563889973386,
+          "p99_sec": 0.9497568392695309
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 3,
+      "ratios": {
+        "matcher_hidden_stat_miss": {
+          "p50_sec": 1.4214347467318527,
+          "p95_sec": 1.5592711282280651,
+          "p99_sec": 1.5639085825633119
+        },
+        "matcher_readonly_access_wok": {
+          "p50_sec": 1.3525243079688898,
+          "p95_sec": 1.4399472103962194,
+          "p99_sec": 1.4426934136121217
+        },
+        "metadata_access": {
+          "p50_sec": 1.381736344377083,
+          "p95_sec": 1.4038015080137516,
+          "p99_sec": 1.4141557895984145
+        },
+        "metadata_getattr": {
+          "p50_sec": 1.3967452225067953,
+          "p95_sec": 1.4297241026967635,
+          "p99_sec": 1.4173437702309528
+        },
+        "metadata_lookup": {
+          "p50_sec": 1.4252207957114729,
+          "p95_sec": 1.4025208009816186,
+          "p99_sec": 1.431505361107235
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 4,
+      "ratios": {
+        "matcher_hidden_stat_miss": {
+          "p50_sec": 1.1368640432044326,
+          "p95_sec": 0.847801452032652,
+          "p99_sec": 0.8356624166800467
+        },
+        "matcher_readonly_access_wok": {
+          "p50_sec": 1.2453119976941043,
+          "p95_sec": 1.2110361791626176,
+          "p99_sec": 1.2044901745557721
+        },
+        "metadata_access": {
+          "p50_sec": 0.9165694194089639,
+          "p95_sec": 0.8148454702426803,
+          "p99_sec": 0.8002599482476394
+        },
+        "metadata_getattr": {
+          "p50_sec": 0.9515960251206068,
+          "p95_sec": 0.8169167951260301,
+          "p99_sec": 0.8355428606308111
+        },
+        "metadata_lookup": {
+          "p50_sec": 1.0881740183129025,
+          "p95_sec": 0.8927690343370129,
+          "p99_sec": 0.8485667823007826
+        }
+      }
+    }
+  ],
+  "pairs": 4,
+  "runs": [
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "5000",
+        "--metadata-ops",
+        "200",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "200",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-before-control-a.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-before-control-a.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-before-control-a.svg"
+      },
+      "pair": 1,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "5000",
+        "--metadata-ops",
+        "200",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "200",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-after-control-b.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-after-control-b.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair1-after-control-b.svg"
+      },
+      "pair": 1,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "5000",
+        "--metadata-ops",
+        "200",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "200",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-after-control-b.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-after-control-b.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-after-control-b.svg"
+      },
+      "pair": 2,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "5000",
+        "--metadata-ops",
+        "200",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "200",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-before-control-a.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-before-control-a.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair2-before-control-a.svg"
+      },
+      "pair": 2,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "5000",
+        "--metadata-ops",
+        "200",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "200",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-before-control-a.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-before-control-a.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-before-control-a.svg"
+      },
+      "pair": 3,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "5000",
+        "--metadata-ops",
+        "200",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "200",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-after-control-b.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-after-control-b.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair3-after-control-b.svg"
+      },
+      "pair": 3,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "5000",
+        "--metadata-ops",
+        "200",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "200",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-after-control-b.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-after-control-b.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-after-control-b.svg"
+      },
+      "pair": 4,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "5000",
+        "--metadata-ops",
+        "200",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "200",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-before-control-a.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-before-control-a.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/policy-heavy-matrix-matcher32/policy-heavy-pair4-before-control-a.svg"
+      },
+      "pair": 4,
+      "side": "before"
+    }
+  ],
+  "schema": "screenfs-benchmark-series-v1",
+  "summarized_workloads": [
+    "matcher_hidden_stat_miss",
+    "matcher_readonly_access_wok",
+    "metadata_access",
+    "metadata_getattr",
+    "metadata_lookup"
+  ],
+  "timestamp": "2026-06-24T13:04:25.775379+00:00"
+}

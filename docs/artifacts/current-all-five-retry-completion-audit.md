@@ -25,7 +25,7 @@ These labels are historical for the completion point of this retry. The current 
 - `open_confined` / `openat2`: remained `smoke` at this audit point; fresh fd-path candidate rejected.
 - `readdirplus` page/scan: historical retry remained `slice`; the later fast-policy/cache-eligible batch fast path is now claim-grade in [`readdirplus-page-scan-claim/summary.md`](readdirplus-page-scan-claim/summary.md).
 - mutation invalidation breadth: remained `smoke`; fresh prefix-range candidate rejected.
-- matcher-heavy policy path: remained `smoke`; fresh rank-0 early-stop candidate rejected.
+- matcher-heavy policy path: historical only for this retry, remained `smoke` at this audit point; fresh rank-0 early-stop candidate rejected. The later no-writable mutability fast path is rejected current evidence in [`matcher-no-writable-mutability-fast-path/summary.md`](matcher-no-writable-mutability-fast-path/summary.md).
 - read/write follow-up: remained `smoke` beyond the prior fallback small-I/O claim; fresh fast snapshot-path candidate rejected.
 
 ## Completion conclusion

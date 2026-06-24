@@ -1,0 +1,243 @@
+{
+  "after_bin": "/tmp/screenfs-matcher-control",
+  "after_label": "control-b",
+  "before_bin": "/tmp/screenfs-matcher-control",
+  "before_label": "control-a",
+  "bench_args": [
+    "--screenfs-source-root",
+    "/home/spi-ca/Codebase/screenfs",
+    "--perf-counters",
+    "--iterations",
+    "1",
+    "--warmups",
+    "1",
+    "--dir-entries",
+    "10",
+    "--metadata-ops",
+    "5",
+    "--matcher-extra-rules",
+    "1",
+    "--matcher-misses",
+    "5",
+    "--policy-preset",
+    "fallback-unsafe-policy",
+    "--policy-label",
+    "series-smoke",
+    "--workload-set",
+    "policy-heavy-matrix"
+  ],
+  "bench_script": "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+  "command_line": "scripts/bench-screenfs-series.py --before-bin /tmp/screenfs-matcher-control --after-bin /tmp/screenfs-matcher-control --before-label control-a --after-label control-b --pairs 2 --order alternate --output-dir /tmp/screenfs-series-smoke --stem smoke --workload metadata_lookup --workload matcher_hidden_stat_miss -- --screenfs-source-root /home/spi-ca/Codebase/screenfs --perf-counters --iterations 1 --warmups 1 --dir-entries 10 --metadata-ops 5 --matcher-extra-rules 1 --matcher-misses 5 --policy-preset fallback-unsafe-policy --policy-label series-smoke --workload-set policy-heavy-matrix",
+  "order": "alternate",
+  "pair_summaries": [
+    {
+      "missing_workloads": [],
+      "pair": 1,
+      "ratios": {
+        "matcher_hidden_stat_miss": {
+          "p50_sec": 0.6773813215494741,
+          "p95_sec": 0.6773813215494741,
+          "p99_sec": 0.6773813215494741
+        },
+        "metadata_lookup": {
+          "p50_sec": 4.344174635955855,
+          "p95_sec": 4.344174635955855,
+          "p99_sec": 4.344174635955855
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 2,
+      "ratios": {
+        "matcher_hidden_stat_miss": {
+          "p50_sec": 0.8823687782869548,
+          "p95_sec": 0.8823687782869548,
+          "p99_sec": 0.8823687782869548
+        },
+        "metadata_lookup": {
+          "p50_sec": 0.5394857060767132,
+          "p95_sec": 0.5394857060767132,
+          "p99_sec": 0.5394857060767132
+        }
+      }
+    }
+  ],
+  "pairs": 2,
+  "runs": [
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-matcher-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "1",
+        "--warmups",
+        "1",
+        "--dir-entries",
+        "10",
+        "--metadata-ops",
+        "5",
+        "--matcher-extra-rules",
+        "1",
+        "--matcher-misses",
+        "5",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "series-smoke",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "/tmp/screenfs-series-smoke/smoke-pair1-before-control-a.json",
+        "--output-md",
+        "/tmp/screenfs-series-smoke/smoke-pair1-before-control-a.md",
+        "--output-svg",
+        "/tmp/screenfs-series-smoke/smoke-pair1-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "/tmp/screenfs-series-smoke/smoke-pair1-before-control-a.json",
+        "md": "/tmp/screenfs-series-smoke/smoke-pair1-before-control-a.md",
+        "svg": "/tmp/screenfs-series-smoke/smoke-pair1-before-control-a.svg"
+      },
+      "pair": 1,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-matcher-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "1",
+        "--warmups",
+        "1",
+        "--dir-entries",
+        "10",
+        "--metadata-ops",
+        "5",
+        "--matcher-extra-rules",
+        "1",
+        "--matcher-misses",
+        "5",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "series-smoke",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "/tmp/screenfs-series-smoke/smoke-pair1-after-control-b.json",
+        "--output-md",
+        "/tmp/screenfs-series-smoke/smoke-pair1-after-control-b.md",
+        "--output-svg",
+        "/tmp/screenfs-series-smoke/smoke-pair1-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "/tmp/screenfs-series-smoke/smoke-pair1-after-control-b.json",
+        "md": "/tmp/screenfs-series-smoke/smoke-pair1-after-control-b.md",
+        "svg": "/tmp/screenfs-series-smoke/smoke-pair1-after-control-b.svg"
+      },
+      "pair": 1,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-matcher-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "1",
+        "--warmups",
+        "1",
+        "--dir-entries",
+        "10",
+        "--metadata-ops",
+        "5",
+        "--matcher-extra-rules",
+        "1",
+        "--matcher-misses",
+        "5",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "series-smoke",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "/tmp/screenfs-series-smoke/smoke-pair2-after-control-b.json",
+        "--output-md",
+        "/tmp/screenfs-series-smoke/smoke-pair2-after-control-b.md",
+        "--output-svg",
+        "/tmp/screenfs-series-smoke/smoke-pair2-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "/tmp/screenfs-series-smoke/smoke-pair2-after-control-b.json",
+        "md": "/tmp/screenfs-series-smoke/smoke-pair2-after-control-b.md",
+        "svg": "/tmp/screenfs-series-smoke/smoke-pair2-after-control-b.svg"
+      },
+      "pair": 2,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-matcher-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "1",
+        "--warmups",
+        "1",
+        "--dir-entries",
+        "10",
+        "--metadata-ops",
+        "5",
+        "--matcher-extra-rules",
+        "1",
+        "--matcher-misses",
+        "5",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "series-smoke",
+        "--workload-set",
+        "policy-heavy-matrix",
+        "--output-json",
+        "/tmp/screenfs-series-smoke/smoke-pair2-before-control-a.json",
+        "--output-md",
+        "/tmp/screenfs-series-smoke/smoke-pair2-before-control-a.md",
+        "--output-svg",
+        "/tmp/screenfs-series-smoke/smoke-pair2-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "/tmp/screenfs-series-smoke/smoke-pair2-before-control-a.json",
+        "md": "/tmp/screenfs-series-smoke/smoke-pair2-before-control-a.md",
+        "svg": "/tmp/screenfs-series-smoke/smoke-pair2-before-control-a.svg"
+      },
+      "pair": 2,
+      "side": "before"
+    }
+  ],
+  "schema": "screenfs-benchmark-series-v1",
+  "summarized_workloads": [
+    "matcher_hidden_stat_miss",
+    "metadata_lookup"
+  ],
+  "timestamp": "2026-06-24T07:48:58.356584+00:00"
+}

@@ -1,0 +1,443 @@
+{
+  "after_bin": "/tmp/screenfs-series-after-control",
+  "after_label": "control-b",
+  "before_bin": "/tmp/screenfs-series-before-control",
+  "before_label": "control-a",
+  "bench_args": [
+    "--screenfs-source-root",
+    "/home/spi-ca/Codebase/screenfs",
+    "--perf-counters",
+    "--iterations",
+    "10",
+    "--warmups",
+    "3",
+    "--dir-entries",
+    "200",
+    "--metadata-ops",
+    "512",
+    "--matcher-extra-rules",
+    "32",
+    "--matcher-misses",
+    "2000",
+    "--policy-preset",
+    "fallback-unsafe-policy",
+    "--policy-label",
+    "matcher-series-control",
+    "--workload-set",
+    "matcher-descendant-directory"
+  ],
+  "bench_script": "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+  "command_line": "scripts/bench-screenfs-series.py --before-bin /tmp/screenfs-series-before-control --after-bin /tmp/screenfs-series-after-control --before-label control-a --after-label control-b --pairs 4 --order alternate --output-dir docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32 --stem descendant --workload matcher_descendant_readdir --workload matcher_descendant_readdirplus -- --screenfs-source-root /home/spi-ca/Codebase/screenfs --perf-counters --iterations 10 --warmups 3 --dir-entries 200 --metadata-ops 512 --matcher-extra-rules 32 --matcher-misses 2000 --policy-preset fallback-unsafe-policy --policy-label matcher-series-control --workload-set matcher-descendant-directory",
+  "order": "alternate",
+  "pair_summaries": [
+    {
+      "missing_workloads": [],
+      "pair": 1,
+      "ratios": {
+        "matcher_descendant_readdir": {
+          "p50_sec": 1.227005202091202,
+          "p95_sec": 0.750716104648806,
+          "p99_sec": 0.6055208028699979
+        },
+        "matcher_descendant_readdirplus": {
+          "p50_sec": 0.9810842444608764,
+          "p95_sec": 1.8137259992348367,
+          "p99_sec": 2.2100823239999015
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 2,
+      "ratios": {
+        "matcher_descendant_readdir": {
+          "p50_sec": 0.8758033958153727,
+          "p95_sec": 0.789862353824533,
+          "p99_sec": 0.7435145804508556
+        },
+        "matcher_descendant_readdirplus": {
+          "p50_sec": 0.7345678335660993,
+          "p95_sec": 0.6935445651601504,
+          "p99_sec": 0.6899276135019732
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 3,
+      "ratios": {
+        "matcher_descendant_readdir": {
+          "p50_sec": 1.2686296988523902,
+          "p95_sec": 1.0851288576938096,
+          "p99_sec": 1.0817136731872634
+        },
+        "matcher_descendant_readdirplus": {
+          "p50_sec": 1.3171646868452271,
+          "p95_sec": 1.4234316384312662,
+          "p99_sec": 1.4254880143882995
+        }
+      }
+    },
+    {
+      "missing_workloads": [],
+      "pair": 4,
+      "ratios": {
+        "matcher_descendant_readdir": {
+          "p50_sec": 1.0215822990749779,
+          "p95_sec": 1.0301406470996908,
+          "p99_sec": 1.0588743946629595
+        },
+        "matcher_descendant_readdirplus": {
+          "p50_sec": 0.9024135067124492,
+          "p95_sec": 0.7237337769539947,
+          "p99_sec": 0.6341057200298997
+        }
+      }
+    }
+  ],
+  "pairs": 4,
+  "runs": [
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "200",
+        "--metadata-ops",
+        "512",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "2000",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "matcher-descendant-directory",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-before-control-a.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-before-control-a.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-before-control-a.svg"
+      },
+      "pair": 1,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "200",
+        "--metadata-ops",
+        "512",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "2000",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "matcher-descendant-directory",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-after-control-b.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-after-control-b.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair1-after-control-b.svg"
+      },
+      "pair": 1,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "200",
+        "--metadata-ops",
+        "512",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "2000",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "matcher-descendant-directory",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-after-control-b.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-after-control-b.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-after-control-b.svg"
+      },
+      "pair": 2,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "200",
+        "--metadata-ops",
+        "512",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "2000",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "matcher-descendant-directory",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-before-control-a.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-before-control-a.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair2-before-control-a.svg"
+      },
+      "pair": 2,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "200",
+        "--metadata-ops",
+        "512",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "2000",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "matcher-descendant-directory",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-before-control-a.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-before-control-a.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-before-control-a.svg"
+      },
+      "pair": 3,
+      "side": "before"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "200",
+        "--metadata-ops",
+        "512",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "2000",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "matcher-descendant-directory",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-after-control-b.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-after-control-b.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair3-after-control-b.svg"
+      },
+      "pair": 3,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-after-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "200",
+        "--metadata-ops",
+        "512",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "2000",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "matcher-descendant-directory",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-after-control-b.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-after-control-b.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-after-control-b.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-after-control-b.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-after-control-b.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-after-control-b.svg"
+      },
+      "pair": 4,
+      "side": "after"
+    },
+    {
+      "argv": [
+        "/usr/bin/python3",
+        "/home/spi-ca/Codebase/screenfs/scripts/bench-screenfs.py",
+        "--screenfs-bin",
+        "/tmp/screenfs-series-before-control",
+        "--screenfs-source-root",
+        "/home/spi-ca/Codebase/screenfs",
+        "--perf-counters",
+        "--iterations",
+        "10",
+        "--warmups",
+        "3",
+        "--dir-entries",
+        "200",
+        "--metadata-ops",
+        "512",
+        "--matcher-extra-rules",
+        "32",
+        "--matcher-misses",
+        "2000",
+        "--policy-preset",
+        "fallback-unsafe-policy",
+        "--policy-label",
+        "matcher-series-control",
+        "--workload-set",
+        "matcher-descendant-directory",
+        "--output-json",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-before-control-a.json",
+        "--output-md",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-before-control-a.md",
+        "--output-svg",
+        "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-before-control-a.svg"
+      ],
+      "outputs": {
+        "json": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-before-control-a.json",
+        "md": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-before-control-a.md",
+        "svg": "docs/artifacts/matcher-heavy-series-control/worktree-8720eb8/matcher-descendant-directory-matcher32/descendant-pair4-before-control-a.svg"
+      },
+      "pair": 4,
+      "side": "before"
+    }
+  ],
+  "schema": "screenfs-benchmark-series-v1",
+  "summarized_workloads": [
+    "matcher_descendant_readdir",
+    "matcher_descendant_readdirplus"
+  ],
+  "timestamp": "2026-06-24T13:04:34.092532+00:00"
+}
