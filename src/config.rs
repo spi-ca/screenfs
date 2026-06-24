@@ -54,9 +54,39 @@ pub enum MutabilityDecision {
     Readonly,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectoryChildVisibilityMode {
+    AllVisible,
+    PerEntry,
+}
+
+pub struct DirectoryChildVisibilityBatch<'a> {
+    cfg: &'a RuntimeConfig,
+    mode: DirectoryChildVisibilityMode,
+}
+
 impl MutabilityDecision {
     pub fn is_readonly(self) -> bool {
         matches!(self, Self::Readonly)
+    }
+}
+
+impl DirectoryChildVisibilityBatch<'_> {
+    pub fn entry_is_readable(&self, path: &VirtualPath, is_directory: bool) -> bool {
+        match self.mode {
+            DirectoryChildVisibilityMode::AllVisible => true,
+            DirectoryChildVisibilityMode::PerEntry => {
+                self.cfg.entry_is_readable(path, is_directory)
+            }
+        }
+    }
+
+    pub fn uses_per_entry_visibility(&self) -> bool {
+        matches!(self.mode, DirectoryChildVisibilityMode::PerEntry)
+    }
+
+    pub fn can_assume_all_visible(&self) -> bool {
+        matches!(self.mode, DirectoryChildVisibilityMode::AllVisible)
     }
 }
 
@@ -219,6 +249,20 @@ impl RuntimeConfig {
             VisibilityDecision::BridgeVisible => is_directory,
             VisibilityDecision::Hidden => false,
         }
+    }
+
+    pub fn directory_child_visibility_batch(&self) -> DirectoryChildVisibilityBatch<'_> {
+        let mode = if self.visibility_default == VisibilityDefault::Visible
+            && self.hidden_rule_count == 0
+            && self
+                .internal_hidden_matcher
+                .can_skip_symlink_target_visibility_check()
+        {
+            DirectoryChildVisibilityMode::AllVisible
+        } else {
+            DirectoryChildVisibilityMode::PerEntry
+        };
+        DirectoryChildVisibilityBatch { cfg: self, mode }
     }
 
     pub fn can_skip_symlink_target_visibility_check(&self) -> bool {

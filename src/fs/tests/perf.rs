@@ -443,6 +443,42 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
 }
 
 #[test]
+fn perf_counters_record_scan_visibility_batch_skips_trivial_policy_shape() {
+    let root = test_dir("perf-scan-visibility-batch");
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir_all(source.join("listing")).unwrap();
+    std::fs::write(source.join("listing/file.txt"), "hello").unwrap();
+    let fs = fs_for_external_mount(&source, &mount);
+
+    let listing = lookup_root_inode(&fs, "listing");
+    let fh = open_directory_handle(&fs, listing);
+    let before = fs.perf_snapshot().expect("perf counters enabled");
+
+    let entries = block_on(fs.readdirplus(dummy_req(), listing, fh, 2, 4096)).unwrap();
+    let after = fs.perf_snapshot().expect("perf counters enabled");
+    let names = entries
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["file.txt"]);
+    assert_eq!(
+        after.policy_decisions.count - before.policy_decisions.count,
+        2,
+        "trivial visible policy should skip scan-time child policy decisions but keep directory guard and returned-entry recheck: {before:?}\n{after:?}"
+    );
+    assert!(
+        after
+            .readdirplus_scan_splits
+            .contains_key("scan_visibility"),
+        "{after:?}"
+    );
+
+    block_on(fs.releasedir(dummy_req(), listing, fh, 0)).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
     let source = test_dir("perf-open-like-splits");
     std::fs::write(source.join("file.txt"), "hello").unwrap();

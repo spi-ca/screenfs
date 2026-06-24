@@ -520,6 +520,7 @@ impl ScreenFs {
         let candidate_limit = (remaining / min_entry_size).saturating_add(1).max(1);
         let dir_file = self.open_confined(path, libc::O_RDONLY | libc::O_DIRECTORY, None)?;
         self.guard_opened_directory_target(path, &dir_file, false)?;
+        let child_visibility = self.cfg.directory_child_visibility_batch();
         let mut candidates = BTreeMap::new();
         #[cfg(feature = "perf-counters")]
         let mut scan_visibility_elapsed = std::time::Duration::default();
@@ -539,7 +540,11 @@ impl ScreenFs {
                 let name_bytes = entry.name.as_bytes();
                 #[cfg(feature = "perf-counters")]
                 let scan_visibility_start = Instant::now();
-                let readable = self.entry_is_readable(&entry.child, entry.is_dir);
+                let readable = if child_visibility.can_assume_all_visible() {
+                    true
+                } else {
+                    self.entry_is_readable(&entry.child, entry.is_dir)
+                };
                 #[cfg(feature = "perf-counters")]
                 {
                     scan_visibility_elapsed += scan_visibility_start.elapsed();
