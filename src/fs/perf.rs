@@ -55,12 +55,14 @@ pub(super) struct PerfCounters {
     read_size_buckets: LabeledLatencyCounters,
     write_size_buckets: LabeledLatencyCounters,
     readdir_directory_scan: LatencyCounter,
+    readdir_scan_splits: LabeledLatencyCounters,
     readdir_attr_generation: LatencyCounter,
     readdir_attr_entries: AtomicU64,
     readdir_symlink_visibility: LatencyCounter,
     readdir_candidate_selection: LatencyCounter,
     readdir_page_commit: LatencyCounter,
     readdirplus_directory_scan: LatencyCounter,
+    readdirplus_scan_splits: LabeledLatencyCounters,
     readdirplus_attr_generation: LatencyCounter,
     readdirplus_attr_entries: AtomicU64,
     readdirplus_symlink_visibility: LatencyCounter,
@@ -137,12 +139,14 @@ pub(crate) struct PerfSnapshot {
     pub(super) read_size_buckets: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) write_size_buckets: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) readdir_directory_scan: LatencySnapshot,
+    pub(super) readdir_scan_splits: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) readdir_attr_generation: LatencySnapshot,
     pub(super) readdir_attr_entries: u64,
     pub(super) readdir_symlink_visibility: LatencySnapshot,
     pub(super) readdir_candidate_selection: LatencySnapshot,
     pub(super) readdir_page_commit: LatencySnapshot,
     pub(super) readdirplus_directory_scan: LatencySnapshot,
+    pub(super) readdirplus_scan_splits: BTreeMap<&'static str, LatencySnapshot>,
     pub(super) readdirplus_attr_generation: LatencySnapshot,
     pub(super) readdirplus_attr_entries: u64,
     pub(super) readdirplus_symlink_visibility: LatencySnapshot,
@@ -370,6 +374,14 @@ impl PerfCounters {
         self.readdirplus_directory_scan.record(elapsed);
     }
 
+    pub(super) fn record_readdir_scan_split(&self, label: &'static str, elapsed: Duration) {
+        self.readdir_scan_splits.record(label, elapsed);
+    }
+
+    pub(super) fn record_readdirplus_scan_split(&self, label: &'static str, elapsed: Duration) {
+        self.readdirplus_scan_splits.record(label, elapsed);
+    }
+
     pub(super) fn record_readdir_attr_generation(&self, entries: u64, elapsed: Duration) {
         self.record_directory_attr_generation(false, entries, elapsed);
     }
@@ -473,12 +485,14 @@ impl PerfCounters {
             read_size_buckets: self.read_size_buckets.snapshot(),
             write_size_buckets: self.write_size_buckets.snapshot(),
             readdir_directory_scan: self.readdir_directory_scan.snapshot(),
+            readdir_scan_splits: self.readdir_scan_splits.snapshot(),
             readdir_attr_generation: self.readdir_attr_generation.snapshot(),
             readdir_attr_entries: self.readdir_attr_entries.load(Ordering::Relaxed),
             readdir_symlink_visibility: self.readdir_symlink_visibility.snapshot(),
             readdir_candidate_selection: self.readdir_candidate_selection.snapshot(),
             readdir_page_commit: self.readdir_page_commit.snapshot(),
             readdirplus_directory_scan: self.readdirplus_directory_scan.snapshot(),
+            readdirplus_scan_splits: self.readdirplus_scan_splits.snapshot(),
             readdirplus_attr_generation: self.readdirplus_attr_generation.snapshot(),
             readdirplus_attr_entries: self.readdirplus_attr_entries.load(Ordering::Relaxed),
             readdirplus_symlink_visibility: self.readdirplus_symlink_visibility.snapshot(),
@@ -658,6 +672,7 @@ impl PerfCounters {
             "readdir_directory_scan",
             snapshot.readdir_directory_scan,
         );
+        write_labeled_latency(&mut output, "readdir_scan", &snapshot.readdir_scan_splits);
         write_latency(
             &mut output,
             "readdir_attr_generation_scan",
@@ -688,6 +703,11 @@ impl PerfCounters {
             &mut output,
             "readdirplus_directory_scan",
             snapshot.readdirplus_directory_scan,
+        );
+        write_labeled_latency(
+            &mut output,
+            "readdirplus_scan",
+            &snapshot.readdirplus_scan_splits,
         );
         write_latency(
             &mut output,

@@ -350,6 +350,7 @@ fn timespec_from_setattr(value: SetAttrTime) -> libc::timespec {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct DirectoryScanStats {
+    pub(super) name_child_path_materialization: Duration,
     pub(super) attr_generation: Duration,
     pub(super) attr_entries: u64,
 }
@@ -387,31 +388,23 @@ impl ScreenFs {
 
     pub(super) fn stat_child_no_follow_with_resolver(
         &self,
-        resolver: &mut RequestPathResolver<'_>,
+        _resolver: &mut RequestPathResolver<'_>,
         path: &VirtualPath,
         ino: u64,
     ) -> Result<FileAttr, i32> {
         self.measure_stat_child_no_follow_total("path_guard_or_metadata", || {
-            self.stat_child_no_follow_inner(resolver, path, ino)
+            self.stat_child_no_follow_inner(path, ino)
         })
     }
 
-    fn stat_child_no_follow_inner(
-        &self,
-        resolver: &mut RequestPathResolver<'_>,
-        path: &VirtualPath,
-        ino: u64,
-    ) -> Result<FileAttr, i32> {
-        if path.as_path() == Path::new("/") {
-            let file = self.open_confined(path, libc::O_PATH | libc::O_DIRECTORY, None)?;
-            return self.stat_child_no_follow_attr_for_file(&file, ino);
-        }
-        let (parent, parent_dir, name) =
-            self.measure_stat_child_no_follow_split("parent_open", || self.open_parent_dir(path))?;
-        self.measure_stat_child_no_follow_split("directory_revalidation", || {
-            self.guard_opened_directory_at_path_with_resolver(resolver, &parent, &parent_dir, false)
-        })?;
-        self.stat_child_no_follow_attr_at(&parent_dir, &name, ino)
+    fn stat_child_no_follow_inner(&self, path: &VirtualPath, ino: u64) -> Result<FileAttr, i32> {
+        let flags = if path.as_path() == Path::new("/") {
+            libc::O_PATH | libc::O_DIRECTORY
+        } else {
+            libc::O_PATH | libc::O_NOFOLLOW
+        };
+        let file = self.open_confined(path, flags, None)?;
+        self.stat_child_no_follow_attr_for_file(&file, ino)
     }
 
     fn stat_child_no_follow_attr_for_file(&self, file: &File, ino: u64) -> Result<FileAttr, i32> {
@@ -623,11 +616,18 @@ pub(super) fn visit_dir_entries(
         }
 
         #[cfg(feature = "perf-counters")]
-        let attr_generation_start = Instant::now();
+        let name_child_path_materialization_start = Instant::now();
         let name_os = OsStr::from_bytes(name_bytes).to_os_string();
         let child = base.join_child(&name_os);
         let ino = start_offset + seen + 1;
         let dirent_kind = file_type_from_dirent_type(dent.d_type);
+        #[cfg(feature = "perf-counters")]
+        {
+            stats.name_child_path_materialization +=
+                name_child_path_materialization_start.elapsed();
+        }
+        #[cfg(feature = "perf-counters")]
+        let attr_generation_start = Instant::now();
         let (attr, kind) = match (require_attr, dirent_kind) {
             (false, Some(kind)) => (synthetic_attr_for_dirent(kind, ino), kind),
             _ => {

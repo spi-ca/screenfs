@@ -522,6 +522,8 @@ impl ScreenFs {
         self.guard_opened_directory_target(path, &dir_file, false)?;
         let mut candidates = BTreeMap::new();
         #[cfg(feature = "perf-counters")]
+        let mut scan_visibility_elapsed = std::time::Duration::default();
+        #[cfg(feature = "perf-counters")]
         let mut symlink_visibility_elapsed = std::time::Duration::default();
         #[cfg(feature = "perf-counters")]
         let mut candidate_selection_elapsed = std::time::Duration::default();
@@ -535,7 +537,14 @@ impl ScreenFs {
             |name_bytes| resume_name.is_none_or(|resume| name_bytes > resume),
             |entry| {
                 let name_bytes = entry.name.as_bytes();
-                if !self.entry_is_readable(&entry.child, entry.is_dir) {
+                #[cfg(feature = "perf-counters")]
+                let scan_visibility_start = Instant::now();
+                let readable = self.entry_is_readable(&entry.child, entry.is_dir);
+                #[cfg(feature = "perf-counters")]
+                {
+                    scan_visibility_elapsed += scan_visibility_start.elapsed();
+                }
+                if !readable {
                     return Ok(());
                 }
                 if entry.is_symlink {
@@ -573,6 +582,14 @@ impl ScreenFs {
             if with_plus {
                 self.perf
                     .record_readdirplus_directory_scan(directory_scan_elapsed);
+                self.perf.record_readdirplus_scan_split(
+                    "name_child_path_materialization",
+                    scan.name_child_path_materialization,
+                );
+                self.perf
+                    .record_readdirplus_scan_split("scan_visibility", scan_visibility_elapsed);
+                self.perf
+                    .record_readdirplus_scan_split("scan_fallback_attr", scan.attr_generation);
                 self.perf
                     .record_readdirplus_attr_generation(scan.attr_entries, scan.attr_generation);
                 self.perf
@@ -582,6 +599,14 @@ impl ScreenFs {
             } else {
                 self.perf
                     .record_readdir_directory_scan(directory_scan_elapsed);
+                self.perf.record_readdir_scan_split(
+                    "name_child_path_materialization",
+                    scan.name_child_path_materialization,
+                );
+                self.perf
+                    .record_readdir_scan_split("scan_visibility", scan_visibility_elapsed);
+                self.perf
+                    .record_readdir_scan_split("scan_fallback_attr", scan.attr_generation);
                 self.perf
                     .record_readdir_attr_generation(scan.attr_entries, scan.attr_generation);
                 self.perf
@@ -600,18 +625,38 @@ impl ScreenFs {
                 entry.attr = self.stat_child_no_follow(&child, 0)?;
                 entry.kind = backing::file_type_from_mode(entry.attr.mode);
                 #[cfg(feature = "perf-counters")]
-                self.perf
-                    .record_readdirplus_attr_generation(1, attr_generation_start.elapsed());
+                {
+                    let elapsed = attr_generation_start.elapsed();
+                    self.perf.record_readdirplus_attr_generation(1, elapsed);
+                    self.perf
+                        .record_readdirplus_scan_split("returned_attr_hydration", elapsed);
+                }
                 let is_dir = matches!(entry.kind, fractal_fuse::FileType::Directory);
-                if !self.entry_is_readable(&child, is_dir) {
+                #[cfg(feature = "perf-counters")]
+                let returned_recheck_start = Instant::now();
+                let readable = self.entry_is_readable(&child, is_dir);
+                #[cfg(feature = "perf-counters")]
+                self.perf.record_readdirplus_scan_split(
+                    "returned_policy_recheck",
+                    returned_recheck_start.elapsed(),
+                );
+                if !readable {
                     continue;
                 }
-                if matches!(entry.kind, fractal_fuse::FileType::Symlink)
-                    && self
+                if matches!(entry.kind, fractal_fuse::FileType::Symlink) {
+                    #[cfg(feature = "perf-counters")]
+                    let returned_symlink_start = Instant::now();
+                    let visible = self
                         .guard_resolved_target_visibility_if_needed(&child)
-                        .is_err()
-                {
-                    continue;
+                        .is_ok();
+                    #[cfg(feature = "perf-counters")]
+                    self.perf.record_readdirplus_scan_split(
+                        "returned_symlink_visibility",
+                        returned_symlink_start.elapsed(),
+                    );
+                    if !visible {
+                        continue;
+                    }
                 }
             }
             let snapshot_entry = DirectorySnapshotEntry {

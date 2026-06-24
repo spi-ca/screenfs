@@ -18,13 +18,15 @@ This audit maps the `3bac07ab-4d99-4a66-93d2-25a446b28134` goal requirements to 
 | Required validation commands and artifact checks | `docs/artifacts/current-all-five-retry-validation.log` records the all-five retry's `python3 -m py_compile`, 11+32 Python tests, `cargo fmt --check`, `cargo check`, `cargo check --features perf-counters`, `cargo clippy --all-targets --all-features`, `cargo test --all-targets --all-features` (188 lib + 1 main), JSON parse (`json-ok 28 files`), required `/usr/bin/find` checks, and `git diff --check`. Later sync follow-up validation is intentionally separate. | verified |
 | Subagent review/validation with blockers cleared | Final parallel reviewer/security-reviewer/researcher reported no blockers for the all-five retry evidence and validation. Per-lane follow-up reviews also reported no blockers after fixes. | verified |
 
-## Current lane labels after this retry
+## Lane labels after this retry
 
-- `open_confined` / `openat2`: remains `smoke`; fresh fd-path candidate rejected.
-- `readdirplus` page/scan: remains `slice`; fresh bounded candidate-set candidate rejected.
-- mutation invalidation breadth: remains `smoke`; fresh prefix-range candidate rejected.
-- matcher-heavy policy path: remains `smoke`; fresh rank-0 early-stop candidate rejected.
-- read/write follow-up: remains `smoke` beyond the prior fallback small-I/O claim; fresh fast snapshot-path candidate rejected.
+These labels are historical for the completion point of this retry. The current canonical status has since changed: `open_confined` / `openat2` is now a kept `claim` via [`open-confined-stat-child-open-path/summary.md`](open-confined-stat-child-open-path/summary.md), and current status should be read from [`current-next-performance-candidates.md`](current-next-performance-candidates.md), [`../performance-roadmap.md`](../performance-roadmap.md), and [`../benchmarks.md`](../benchmarks.md).
+
+- `open_confined` / `openat2`: remained `smoke` at this audit point; fresh fd-path candidate rejected.
+- `readdirplus` page/scan: remained `slice`; fresh bounded candidate-set candidate rejected.
+- mutation invalidation breadth: remained `smoke`; fresh prefix-range candidate rejected.
+- matcher-heavy policy path: remained `smoke`; fresh rank-0 early-stop candidate rejected.
+- read/write follow-up: remained `smoke` beyond the prior fallback small-I/O claim; fresh fast snapshot-path candidate rejected.
 
 ## Completion conclusion
 

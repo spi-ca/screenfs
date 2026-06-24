@@ -49,7 +49,7 @@ fn perf_counters_record_lookup_getattr_stat_reuse() {
     );
     assert_eq!(
         labeled_latency_count(&after_lookup.stat_child_no_follow_splits, "parent_open"),
-        1,
+        0,
         "{after_lookup:?}"
     );
     assert_eq!(
@@ -57,12 +57,17 @@ fn perf_counters_record_lookup_getattr_stat_reuse() {
             &after_lookup.stat_child_no_follow_splits,
             "directory_revalidation",
         ),
+        0,
+        "{after_lookup:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_lookup.stat_child_no_follow_splits, "host_fstat"),
         1,
         "{after_lookup:?}"
     );
     assert_eq!(
         labeled_latency_count(&after_lookup.stat_child_no_follow_splits, "host_fstatat"),
-        1,
+        0,
         "{after_lookup:?}"
     );
     assert_eq!(
@@ -87,7 +92,25 @@ fn perf_counters_record_lookup_getattr_stat_reuse() {
     );
     assert_eq!(
         labeled_latency_count(&after_getattr.stat_child_no_follow_splits, "parent_open"),
+        0,
+        "{after_getattr:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_getattr.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        0,
+        "{after_getattr:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_getattr.stat_child_no_follow_splits, "host_fstat"),
         2,
+        "{after_getattr:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_getattr.stat_child_no_follow_splits, "host_fstatat"),
+        0,
         "{after_getattr:?}"
     );
     assert_eq!(
@@ -116,7 +139,7 @@ fn perf_counters_record_missing_lookup_stat_failure_reuse() {
     assert_eq!(snapshot.stat_child_no_follow.count, 1, "{snapshot:?}");
     assert_eq!(
         labeled_latency_count(&snapshot.stat_child_no_follow_splits, "parent_open"),
-        1,
+        0,
         "{snapshot:?}"
     );
     assert_eq!(
@@ -124,12 +147,17 @@ fn perf_counters_record_missing_lookup_stat_failure_reuse() {
             &snapshot.stat_child_no_follow_splits,
             "directory_revalidation",
         ),
-        1,
+        0,
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&snapshot.stat_child_no_follow_splits, "host_fstat"),
+        0,
         "{snapshot:?}"
     );
     assert_eq!(
         labeled_latency_count(&snapshot.stat_child_no_follow_splits, "host_fstatat"),
-        1,
+        0,
         "{snapshot:?}"
     );
     assert_eq!(
@@ -244,8 +272,26 @@ fn perf_counters_record_readlink_stat_reuse() {
         "{after_readlink:?}"
     );
     assert_eq!(
+        labeled_latency_count(&after_readlink.stat_child_no_follow_splits, "parent_open"),
+        1,
+        "{after_readlink:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_readlink.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        1,
+        "{after_readlink:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_readlink.stat_child_no_follow_splits, "host_fstat"),
+        1,
+        "{after_readlink:?}"
+    );
+    assert_eq!(
         labeled_latency_count(&after_readlink.stat_child_no_follow_splits, "host_fstatat"),
-        2,
+        1,
         "{after_readlink:?}"
     );
     let summary = fs.perf.summary();
@@ -255,6 +301,10 @@ fn perf_counters_record_readlink_stat_reuse() {
     );
     assert!(
         summary.contains("stat_child_no_follow.directory_revalidation"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("stat_child_no_follow.host_fstat"),
         "{summary}"
     );
     assert!(
@@ -333,6 +383,19 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
         "{snapshot:?}"
     );
     assert!(snapshot.readdirplus_attr_entries > 0, "{snapshot:?}");
+    for label in [
+        "name_child_path_materialization",
+        "scan_visibility",
+        "scan_fallback_attr",
+        "returned_attr_hydration",
+        "returned_policy_recheck",
+        "returned_symlink_visibility",
+    ] {
+        assert!(
+            snapshot.readdirplus_scan_splits.contains_key(label),
+            "missing {label}: {snapshot:?}"
+        );
+    }
     assert!(
         snapshot.readdirplus_symlink_visibility.count > 0,
         "{snapshot:?}"
@@ -347,6 +410,22 @@ fn perf_counters_record_policy_state_open_and_readdirplus_attr_work() {
     let _ = block_on(fs.readdir(dummy_req(), FUSE_ROOT_ID, fh, 0, 4096)).unwrap();
     let snapshot = fs.perf_snapshot().expect("perf counters enabled");
     assert!(snapshot.readdir_attr_generation.count > 0, "{snapshot:?}");
+    assert!(
+        snapshot
+            .readdir_scan_splits
+            .contains_key("name_child_path_materialization"),
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot.readdir_scan_splits.contains_key("scan_visibility"),
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot
+            .readdir_scan_splits
+            .contains_key("scan_fallback_attr"),
+        "{snapshot:?}"
+    );
     assert!(
         snapshot.readdir_attr_entries <= snapshot.readdirplus_attr_entries,
         "{snapshot:?}"
@@ -397,6 +476,22 @@ fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
         ) + 1,
         "{before_open:?}\n{after_open:?}"
     );
+    assert_eq!(
+        labeled_latency_count(&after_open.stat_child_no_follow_splits, "host_fstat"),
+        labeled_latency_count(&before_open.stat_child_no_follow_splits, "host_fstat") + 1,
+        "{before_open:?}\n{after_open:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_open.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        labeled_latency_count(
+            &before_open.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        "{before_open:?}\n{after_open:?}"
+    );
     assert!(after_open.open_confined.count > before_open.open_confined.count);
     assert!(
         after_open.resolved_virtual_path_from_open_fd.count
@@ -428,6 +523,22 @@ fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
         ) + 1,
         "{before_opendir:?}\n{after_opendir:?}"
     );
+    assert_eq!(
+        labeled_latency_count(&after_opendir.stat_child_no_follow_splits, "host_fstat"),
+        labeled_latency_count(&before_opendir.stat_child_no_follow_splits, "host_fstat") + 1,
+        "{before_opendir:?}\n{after_opendir:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_opendir.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        labeled_latency_count(
+            &before_opendir.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        "{before_opendir:?}\n{after_opendir:?}"
+    );
 
     let before_access = fs.perf_snapshot().expect("perf counters enabled");
     block_on(fs.access(dummy_req(), file_inode, libc::W_OK as u32)).unwrap();
@@ -451,6 +562,22 @@ fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
             &before_access.stat_child_no_follow_context,
             "path_guard_or_metadata",
         ) + 1,
+        "{before_access:?}\n{after_access:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(&after_access.stat_child_no_follow_splits, "host_fstat"),
+        labeled_latency_count(&before_access.stat_child_no_follow_splits, "host_fstat") + 1,
+        "{before_access:?}\n{after_access:?}"
+    );
+    assert_eq!(
+        labeled_latency_count(
+            &after_access.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
+        labeled_latency_count(
+            &before_access.stat_child_no_follow_splits,
+            "directory_revalidation",
+        ),
         "{before_access:?}\n{after_access:?}"
     );
 
@@ -481,15 +608,7 @@ fn perf_counters_record_open_like_guard_and_revalidation_splits_on_success() {
         "{summary}"
     );
     assert!(
-        summary.contains("stat_child_no_follow.parent_open"),
-        "{summary}"
-    );
-    assert!(
-        summary.contains("stat_child_no_follow.directory_revalidation"),
-        "{summary}"
-    );
-    assert!(
-        summary.contains("stat_child_no_follow.host_fstatat"),
+        summary.contains("stat_child_no_follow.host_fstat"),
         "{summary}"
     );
     assert!(
@@ -732,14 +851,14 @@ fn perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe() {
     assert_eq!(
         after_read.resolved_virtual_path_from_path.count
             - before_read.resolved_virtual_path_from_path.count,
-        2,
-        "read should still re-resolve both the requested path and the symlink-safe parent walk: {before_read:?}\n{after_read:?}"
+        1,
+        "read should still re-resolve the requested path even without a parent-walk stat path: {before_read:?}\n{after_read:?}"
     );
     assert_eq!(
         after_read.resolved_virtual_path_from_open_fd.count
             - before_read.resolved_virtual_path_from_open_fd.count,
-        2,
-        "read should still revalidate both the parent directory fd and the opened file fd: {before_read:?}\n{after_read:?}"
+        1,
+        "read should still revalidate the opened file fd even without parent-dir revalidation: {before_read:?}\n{after_read:?}"
     );
 
     let write_source = test_dir("perf-data-split-write-guard-fallback");
@@ -781,14 +900,14 @@ fn perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe() {
     assert_eq!(
         after_write.resolved_virtual_path_from_path.count
             - before_write.resolved_virtual_path_from_path.count,
-        2,
-        "write should still re-resolve both the requested path and the symlink-safe parent walk: {before_write:?}\n{after_write:?}"
+        1,
+        "write should still re-resolve the requested path even without a parent-walk stat path: {before_write:?}\n{after_write:?}"
     );
     assert_eq!(
         after_write.resolved_virtual_path_from_open_fd.count
             - before_write.resolved_virtual_path_from_open_fd.count,
-        2,
-        "write should still revalidate both the parent directory fd and the opened file fd: {before_write:?}\n{after_write:?}"
+        1,
+        "write should still revalidate the opened file fd even without parent-dir revalidation: {before_write:?}\n{after_write:?}"
     );
 
     std::fs::remove_dir_all(read_source).unwrap();
