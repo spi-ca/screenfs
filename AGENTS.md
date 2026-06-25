@@ -17,6 +17,7 @@
 - hidden path는 가능한 한 `ENOENT`로 처리하고 `Permission denied`로 존재를 노출하지 않는다.
 - current contract는 `visibility`/`mutability` 2축 모델만 취급하고, hidden `ENOENT` precedence와 axis별 most-specific rule wins 규칙을 유지한다.
 - 현재 CLI/config surface와 historical pre-removal evidence를 혼동하지 않는다. pre-removal transcript는 archival evidence로만 읽는다.
+- mount lifecycle/shutdown 관련 claim은 `SIGINT`/`SIGTERM` detection, cancellation handoff, FUSE serve loop graceful exit, explicit `fusermount3 -u <mountpoint>` cleanup, lazy-unmount manual fallback guidance evidence 없이 완료로 처리하지 않는다.
 - `docs/guidelines/**`는 명시적 요청 없이는 수정하지 않는다.
 - 사용자의 기존 변경사항을 덮어쓰지 말고 변경 전후 diff를 확인한다.
 

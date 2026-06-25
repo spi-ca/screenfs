@@ -41,8 +41,6 @@ Recommended verification shape:
 
 ```json
 {
-  "type": "parallel",
-  "label": "qa-review",
   "tasks": [
     {
       "agent": "software-qa",
@@ -52,10 +50,11 @@ Recommended verification shape:
       "agent": "software-reviewer",
       "task": "Review diffs, evidence, maintainability, and completion readiness for: $ARGUMENTS"
     }
-  ]
+  ],
+  "mode": "spawn"
 }
 ```
 
 If project-local subagent confirmation is required, do not try to bypass it. Ask for confirmation or perform the same role-by-role workflow in the root agent.
 
-Do not finish until every explicit requirement is mapped to current evidence from files, commands, diffs, tests, logs, or artifacts. If validation or review finds blockers, update the plan, fix the cause, and re-run the relevant checks.
+Do not finish until every explicit requirement is mapped to current evidence from files, commands, diffs, tests, logs, or artifacts. Mount lifecycle/shutdown changes specifically require evidence for `SIGINT`/`SIGTERM` handling, cancellation handoff, graceful FUSE serve-loop exit, explicit `fusermount3 -u <mountpoint>` cleanup, and any operator-visible lazy-unmount fallback/manual command guidance. If validation or review finds blockers, update the plan, fix the cause, and re-run the relevant checks.

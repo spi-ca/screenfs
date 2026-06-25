@@ -76,6 +76,7 @@ Recommended large-workflow order:
 - 사용자 요구사항, 시스템 제약, 설계, 구현, QA, 리뷰가 current evidence로 연결된다.
 - 작은 작업에서 subagent를 생략했다면 root agent가 해당 관점의 판단을 요약한다.
 - `software-developer` 병렬 lane을 썼다면 lane별 allowed files, changed files, validation, conflict 여부가 남아 있다.
+- mount lifecycle/shutdown 변경이라면 `SIGINT`/`SIGTERM` trigger, cancellation handoff, FUSE serve-loop graceful exit, explicit `fusermount3 -u <mountpoint>` cleanup, normal unmount failure 시 lazy-unmount option/manual guidance evidence가 current evidence로 남아 있다.
 - `.pi/agents`를 편집했거나 이 문서의 frontmatter summary를 갱신했다면 summary/count가 실제 `.pi/agents/*.md`와 일치한다.
 - Guardrail inventory를 바꾸면 실제 `.pi/extensions/*.json` 핵심 필드와 current/legacy 역할을 대조한 current evidence를 남긴다.
 - current implementation evidence와 target contract를 섞지 않는다.
