@@ -14,8 +14,8 @@
 1. [Project README](../README.md): 프로젝트 요약, CLI/config quick reference, examples
 2. [Requirements](requirements.md): 목적, 전제, non-goals, 사용자-facing 요구사항
 3. [Design](design.md): visibility/mutability 의미론, rule grammar, operation contract
-4. [Architecture](architecture.md): 모듈 경계, request flow, runtime boundary
-5. [Operations](operations.md): 검증 명령, smoke/evidence 기록 규칙, current evidence map
+4. [Architecture](architecture.md): 모듈 경계, request flow, runtime boundary, mount lifecycle evidence expectations
+5. [Operations](operations.md): 검증 명령, shutdown/unmount 포함 smoke/evidence 기록 규칙, current evidence map
 6. [Benchmarks](benchmarks.md): formal performance benchmark workflow
 7. [Performance roadmap](performance-roadmap.md): measure-first 성능 backlog와 deferred 후보
 
@@ -39,7 +39,7 @@ screenfs/
 
 | Area | Responsibility |
 | --- | --- |
-| `src/main.rs` | binary entrypoint, mount option 구성, `Session::run(ScreenFs::new(cfg))` 진입 |
+| `src/main.rs` | binary entrypoint, mount option 구성, FUSE session run/shutdown orchestration |
 | `src/lib.rs` | public module export, non-root 실행 guard |
 | `src/cli.rs` | CLI parsing, config override flags, help/fail-fast surface |
 | `src/config.rs` | runtime config, policy source/precedence, internal mount-root hidden rule, matcher compilation |
@@ -93,6 +93,7 @@ Current baseline artifacts:
 - [Default-writable smoke](artifacts/current-default-writable-smoke-transcript.md)
 - [Visible direct-child/subtree compatibility smoke](artifacts/current-compatibility-pattern-smoke-transcript.md)
 - [FUSE transport contract evidence](artifacts/current-fuse-transport-contract-evidence.md)
+- [Shutdown signal smoke](artifacts/current-shutdown-signal-smoke.md)
 - [File data-path async feasibility](artifacts/current-file-data-path-async-feasibility.md)
 - [State-lock concurrency evidence](artifacts/current-state-lock-concurrency-evidence.md)
 - [TOCTOU hardening evidence](artifacts/current-toctou-hardening-evidence.md)

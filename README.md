@@ -22,6 +22,7 @@ real / -> screenfs mount root -> sandbox/chroot consumer
 - **Precedence**: hidden 또는 fully visible이 아닌 symlink target의 `ENOENT`가 mutability `EROFS`보다 항상 우선한다.
 - **Bridge-visible ancestor**: visible carve-out에 도달하기 위한 ancestor는 traverse/list 전용으로 노출될 수 있고 mutation은 `EROFS`다.
 - **No masking overlay**: `/dev/null` bind, 빈 파일, tmpfs masking처럼 이름을 남기는 masking이나 privileged mount에 의존하지 않는다.
+- **Shutdown cleanup target**: mount lifecycle 변경은 `SIGINT`/`SIGTERM` 감지, cancellation handoff, FUSE serve-loop graceful exit, explicit `fusermount3 -u <mount-root>` cleanup 근거가 있어야 완료다. 일반 unmount 실패 시 lazy unmount는 자동 fallback이 아니라 option/manual command guidance로 다룬다.
 
 ## CLI quick reference
 

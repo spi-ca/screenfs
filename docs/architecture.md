@@ -27,6 +27,7 @@ hidden `ENOENT`가 mutability `EROFS`보다 먼저 적용된다. mount-level `ro
 - mount는 `fusermount3`, FUSE3, `FUSE_OVER_IO_URING` 협상 성공 기준이다.
 - `FUSE_OVER_IO_URING`은 FUSE request/reply transport 요구이며 backing filesystem 전체를 host-side `io_uring`로 전환한다는 뜻이 아니다.
 - 기본 접근 모델은 mount owner와 동일 host uid다. `allow_other`와 chroot/user namespace 구성은 상위 supervisor 책임이다.
+- mount lifecycle/shutdown 변경은 `SIGINT`/`SIGTERM` 감지, cancellation handoff, FUSE serve loop graceful exit, explicit `fusermount3 -u <mount-root>` cleanup, 일반 unmount 실패 시 lazy-unmount option/manual guidance까지 current evidence로 남겨야 완료다.
 - `/proc`, `/sys`, `/dev`, `/run`의 native semantics 재현도 ScreenFS 단독 책임이 아니다.
 
 ## 3. Module architecture
@@ -37,7 +38,7 @@ Current module responsibilities:
 
 | Module | Responsibility |
 | --- | --- |
-| `src/main.rs` | mount option 구성, `Session::run(ScreenFs::new(cfg))` 진입 |
+| `src/main.rs` | mount option 구성, FUSE session run/shutdown orchestration |
 | `src/cli.rs` | launch input parsing, CLI/config override validation, help/fail-fast surface |
 | `src/config.rs` | `RuntimeConfig`, internal mount-root hidden rule, policy source/precedence, matcher compilation |
 | `src/path.rs` | lexical virtual path normalization, source-root rebasing, symlink target lexical resolution |
