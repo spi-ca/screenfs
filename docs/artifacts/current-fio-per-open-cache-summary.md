@@ -64,7 +64,7 @@ This auxiliary warm-cache tmpfs fio smoke runs ScreenFS with default `visible`/`
 
 ## Focused correctness and regression coverage
 
-- [`../../src/fs/tests/perf.rs`](../../src/fs/tests/perf.rs): `perf_counters_record_data_path_splits_on_success`, `perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe`, `perf_counters_record_data_path_splits_on_snapshot_guard_and_io_failures`, `perf_counters_keep_fallocate_and_copy_file_range_on_per_call_policy_path`
+- [`src/fs/tests/perf.rs`](../../src/fs/tests/perf.rs) / `src/fs/tests/perf/**`: `perf_counters_record_data_path_splits_on_success`, `perf_counters_record_data_path_splits_recheck_policy_when_cache_not_safe`, `perf_counters_record_data_path_splits_on_snapshot_guard_and_io_failures`, `perf_counters_keep_fallocate_and_copy_file_range_on_per_call_policy_path`
 - [`../../src/fs/tests/data_mutations.rs`](../../src/fs/tests/data_mutations.rs): `cache_eligible_opened_file_read_write_keep_pinned_fd_after_host_rename`, `cache_eligible_opened_file_read_write_keep_pinned_fd_after_ancestor_rename`, `cache_eligible_opened_file_read_write_keep_pinned_fd_after_unlink`, `opened_file_read_keeps_pinned_fd_after_host_rename_but_write_fails_closed`, `opened_file_read_write_fail_closed_after_host_rename_into_hidden_subtree`
 - [`../../src/fs/tests/symlinks_access_create.rs`](../../src/fs/tests/symlinks_access_create.rs): `cache_eligible_opened_symlink_read_keeps_pinned_fd_after_final_retarget`, `cache_eligible_opened_symlink_read_keeps_pinned_fd_after_ancestor_retarget`, `opened_symlink_read_revalidates_hidden_target_after_retarget`
 - [`../../src/fs/tests/mutability.rs`](../../src/fs/tests/mutability.rs): `opened_symlink_write_revalidates_readonly_target_after_retarget`

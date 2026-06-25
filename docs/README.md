@@ -50,7 +50,7 @@ screenfs/
 | `src/fs/guards.rs` | visibility/mutability guards, symlink target checks, mutation coordinate checks |
 | `src/fs/backing.rs` | source-root confinement, fd/dirfd-relative host filesystem delegation |
 | `src/fs/state.rs` | inode/path map, refs, file/dir handles, directory cookie state |
-| `src/fs/perf.rs` | optional `perf-counters` feature metrics |
+| `src/fs/perf.rs`, `src/fs/perf/**` | optional `perf-counters` feature metrics |
 | `src/*_tests.rs` | CLI/config/path/matcher/errors standalone regression coverage |
 | `src/fs/tests/**` | mount 없는 filesystem behavior regression coverage |
 
