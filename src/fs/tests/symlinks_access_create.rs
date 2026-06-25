@@ -424,6 +424,56 @@ fn cache_eligible_opened_symlink_read_keeps_pinned_fd_after_ancestor_retarget() 
 }
 
 #[test]
+fn opened_readdir_rejects_retargeted_symlink_to_bridge_visible_directory() {
+    let dir = test_dir("opened-readdir-bridge-visible-retarget");
+    std::fs::create_dir_all(dir.join("public/child")).unwrap();
+    std::fs::create_dir_all(dir.join("target/child")).unwrap();
+    std::os::unix::fs::symlink("public", dir.join("alias")).unwrap();
+    let fs = fs_for_axes(
+        &dir,
+        Some(crate::cli::VisibilityDefault::Hidden),
+        Vec::new(),
+        vec![
+            "/alias".to_string(),
+            "/public".to_string(),
+            "/target/child".to_string(),
+        ],
+        None,
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let target_inode = lookup_root_inode(&fs, "target");
+    let target_fh = open_directory_handle(&fs, target_inode);
+    let target_names: Vec<String> =
+        block_on(fs.readdirplus(dummy_req(), target_inode, target_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(target_names.contains(&"child".to_string()));
+    block_on(fs.releasedir(dummy_req(), target_inode, target_fh, 0)).unwrap();
+
+    let alias_inode = fs
+        .reply_entry_for_path(VirtualPath::new("/alias"))
+        .unwrap()
+        .attr
+        .ino;
+    let alias_handle =
+        block_on(fs.opendir(dummy_req(), alias_inode, libc::O_RDONLY as u32)).unwrap();
+
+    std::fs::remove_file(dir.join("alias")).unwrap();
+    std::os::unix::fs::symlink("target", dir.join("alias")).unwrap();
+
+    assert_eq!(
+        block_on(fs.readdir(dummy_req(), alias_inode, alias_handle.fh, 0, 4096)).unwrap_err(),
+        ENOENT
+    );
+    block_on(fs.releasedir(dummy_req(), alias_inode, alias_handle.fh, 0)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn deleted_source_root_resolved_path_fails_closed() {
     let source = test_dir("deleted-source-root-resolve");
     let fs = fs_for(&source, Vec::new(), Vec::new());
@@ -533,6 +583,46 @@ fn readonly_create_returns_erofs_instead_of_enosys() {
     ))
     .unwrap_err();
     assert_eq!(err, libc::EROFS);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn opened_directory_at_path_rejects_final_symlink_to_bridge_visible_target() {
+    let dir = test_dir("opened-dir-at-path-bridge-visible-symlink");
+    std::fs::create_dir_all(dir.join("target/child")).unwrap();
+    std::os::unix::fs::symlink("target", dir.join("alias")).unwrap();
+    let fs = fs_for_axes(
+        &dir,
+        Some(crate::cli::VisibilityDefault::Hidden),
+        Vec::new(),
+        vec!["/alias".to_string(), "/target/child".to_string()],
+        None,
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let direct = fs
+        .open_confined(
+            &VirtualPath::new("/target"),
+            libc::O_PATH | libc::O_DIRECTORY,
+            None,
+        )
+        .unwrap();
+    fs.guard_opened_directory_at_path(&VirtualPath::new("/target"), &direct, false)
+        .unwrap();
+
+    let alias = fs
+        .open_confined(
+            &VirtualPath::new("/alias"),
+            libc::O_PATH | libc::O_DIRECTORY,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        fs.guard_opened_directory_at_path(&VirtualPath::new("/alias"), &alias, false)
+            .unwrap_err(),
+        ENOENT
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 
