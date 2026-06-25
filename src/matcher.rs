@@ -183,6 +183,18 @@ impl PathRuleMatcher {
             })
     }
 
+    // Hot-path callers can stream raw descendant candidates here without
+    // allocating the debug `descendant_candidate_order()` vector.
+    pub(crate) fn visit_descendant_candidate_descriptors(
+        &self,
+        path: &VirtualPath,
+        mut visit: impl FnMut(&RuleDescriptor),
+    ) {
+        self.index.visit_descendant_candidates(path, |index| {
+            visit(&self.descriptors[index]);
+        });
+    }
+
     pub fn descendant_candidate_descriptor_count(&self, path: &VirtualPath) -> usize {
         self.index.descendant_candidate_order(path).len()
     }

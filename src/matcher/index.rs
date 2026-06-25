@@ -251,7 +251,14 @@ impl MatcherIndex {
         candidates.extend(&self.recursive_order);
     }
 
-    fn visit_descendant_candidates(&self, path: &VirtualPath, mut visit: impl FnMut(usize)) {
+    // This streams raw descendant candidates for hot-path callers; debug helpers
+    // that need canonical candidate ordering should keep using
+    // `descendant_candidate_order()`.
+    pub(super) fn visit_descendant_candidates(
+        &self,
+        path: &VirtualPath,
+        mut visit: impl FnMut(usize),
+    ) {
         if let Some(indices) = self.bridge_subtree_descendant_by_path.get(path.as_path()) {
             for index in indices {
                 visit(*index);

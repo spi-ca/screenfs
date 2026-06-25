@@ -147,7 +147,7 @@ impl ScreenFs {
     }
 
     #[cfg(all(test, feature = "perf-counters"))]
-    pub(super) fn perf_snapshot(&self) -> Option<PerfSnapshot> {
+    pub(in crate::fs) fn perf_snapshot(&self) -> Option<PerfSnapshot> {
         Some(self.perf.snapshot())
     }
 
@@ -309,6 +309,27 @@ impl ScreenFs {
         let result = self.cfg.entry_is_readable(path, is_directory);
         perf.record_policy_decision(start.elapsed());
         result
+    }
+
+    fn child_directory_entry_is_readable(
+        &self,
+        child_visibility: Option<&crate::config::DirectoryChildVisibilityBatch<'_>>,
+        path: &crate::path::VirtualPath,
+        is_directory: bool,
+    ) -> bool {
+        if let Some(child_visibility) = child_visibility {
+            if child_visibility.can_assume_all_visible() {
+                true
+            } else if let Some(readable) =
+                child_visibility.parent_scoped_entry_is_readable(path, is_directory)
+            {
+                readable
+            } else {
+                self.entry_is_readable(path, is_directory)
+            }
+        } else {
+            self.entry_is_readable(path, is_directory)
+        }
     }
 
     #[cfg(not(feature = "perf-counters"))]
@@ -550,19 +571,11 @@ impl ScreenFs {
                 let name_bytes = entry.name.as_bytes();
                 #[cfg(feature = "perf-counters")]
                 let scan_visibility_start = Instant::now();
-                let readable = if let Some(child_visibility) = child_visibility.as_ref() {
-                    if child_visibility.can_assume_all_visible() {
-                        true
-                    } else if let Some(readable) =
-                        child_visibility.parent_scoped_entry_is_readable(&entry.child, entry.is_dir)
-                    {
-                        readable
-                    } else {
-                        self.entry_is_readable(&entry.child, entry.is_dir)
-                    }
-                } else {
-                    self.entry_is_readable(&entry.child, entry.is_dir)
-                };
+                let readable = self.child_directory_entry_is_readable(
+                    child_visibility.as_ref(),
+                    &entry.child,
+                    entry.is_dir,
+                );
                 #[cfg(feature = "perf-counters")]
                 {
                     scan_visibility_elapsed += scan_visibility_start.elapsed();
@@ -657,7 +670,11 @@ impl ScreenFs {
                 let is_dir = matches!(entry.kind, fractal_fuse::FileType::Directory);
                 #[cfg(feature = "perf-counters")]
                 let returned_recheck_start = Instant::now();
-                let readable = self.entry_is_readable(&child, is_dir);
+                let readable = self.child_directory_entry_is_readable(
+                    child_visibility.as_ref(),
+                    &child,
+                    is_dir,
+                );
                 #[cfg(feature = "perf-counters")]
                 self.perf.record_readdirplus_scan_split(
                     "returned_policy_recheck",

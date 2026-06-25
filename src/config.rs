@@ -337,34 +337,39 @@ impl RuntimeConfig {
         &self,
         parent: &VirtualPath,
     ) -> DirectoryChildVisibilityMode {
+        if self.visible_matcher.matches_path(parent) {
+            return DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
+                parent: parent.clone(),
+                fully_visible: true,
+                visible_children: BTreeSet::new(),
+                bridge_children: BTreeSet::new(),
+            };
+        }
+
         let mut visible_children = BTreeSet::new();
         let mut bridge_children = BTreeSet::new();
-        for descriptor in self.visible_matcher.descriptors() {
-            let anchor = descriptor.anchor();
-            if parent.starts_with(anchor) {
-                return DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
-                    parent: parent.clone(),
-                    fully_visible: true,
-                    visible_children: BTreeSet::new(),
-                    bridge_children: BTreeSet::new(),
+        self.visible_matcher
+            .visit_descendant_candidate_descriptors(parent, |descriptor| {
+                if !descriptor.is_subtree() {
+                    return;
+                }
+                let anchor = descriptor.anchor();
+                if !anchor.starts_with(parent) {
+                    return;
+                }
+                let Ok(relative) = anchor.as_path().strip_prefix(parent.as_path()) else {
+                    return;
                 };
-            }
-            if !anchor.starts_with(parent) {
-                continue;
-            }
-            let Ok(relative) = anchor.as_path().strip_prefix(parent.as_path()) else {
-                continue;
-            };
-            let mut components = relative.components();
-            let Some(Component::Normal(child_name)) = components.next() else {
-                continue;
-            };
-            if components.next().is_some() {
-                bridge_children.insert(child_name.to_os_string());
-            } else {
-                visible_children.insert(child_name.to_os_string());
-            }
-        }
+                let mut components = relative.components();
+                let Some(Component::Normal(child_name)) = components.next() else {
+                    return;
+                };
+                if components.next().is_some() {
+                    bridge_children.insert(child_name.to_os_string());
+                } else {
+                    visible_children.insert(child_name.to_os_string());
+                }
+            });
         DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
             parent: parent.clone(),
             fully_visible: false,

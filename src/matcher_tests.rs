@@ -112,6 +112,48 @@ fn matcher_indexes_candidates_by_family_and_normalized_anchor() {
 }
 
 #[test]
+fn descendant_candidate_descriptor_visit_streams_parent_frontier_subtrees() {
+    let root = test_dir();
+    let source = root.join("source");
+    let cwd = source.join("workspace/app");
+    fs::create_dir_all(&cwd).unwrap();
+    let context = test_context(&source, &cwd, None);
+
+    let matcher = PathRuleMatcher::new(
+        [
+            "/workspace/project",
+            "/workspace/project/docs",
+            "/workspace/other",
+            "/outside",
+        ],
+        Vec::new(),
+        &context,
+    )
+    .unwrap();
+
+    let parent = VirtualPath::new("/workspace");
+    let mut visited = Vec::new();
+    matcher.visit_descendant_candidate_descriptors(&parent, |descriptor| {
+        visited.push(descriptor.anchor().as_path().display().to_string());
+    });
+    visited.sort();
+
+    assert_eq!(
+        matcher.descendant_candidate_descriptor_count(&parent),
+        visited.len()
+    );
+    assert_eq!(
+        visited,
+        vec![
+            "/workspace/other".to_string(),
+            "/workspace/project".to_string(),
+            "/workspace/project/docs".to_string(),
+        ]
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn canonical_glob_families_preserve_match_ranges_and_specificity() {
     let root = test_dir();
     let source = root.join("source");

@@ -150,6 +150,64 @@ fn directory_child_visibility_batch_parent_scopes_visible_subtree_frontier() {
 }
 
 #[test]
+fn directory_child_visibility_batch_parent_scope_matches_per_entry_for_indexed_subtrees() {
+    let root = test_dir();
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::create_dir_all(&mount).unwrap();
+    let cfg = launch_from_args(LaunchArgs {
+        cli: CliArgs {
+            source_root: source,
+            mount_root: mount,
+            visibility_hidden_rules: vec![],
+            visibility_visible_rules: vec![
+                "/workspace/project".to_string(),
+                "/workspace/shared/assets".to_string(),
+                "/workspace/tools".to_string(),
+                "/other/place".to_string(),
+            ],
+            mutability_readonly_rules: vec![],
+            mutability_writable_rules: vec![],
+        },
+        config_path: None,
+        visibility_default: Some(VisibilityDefault::Hidden),
+        mutability_default: None,
+    })
+    .unwrap();
+
+    let workspace_batch = cfg.directory_child_visibility_batch(&VirtualPath::new("/workspace"));
+    assert!(!workspace_batch.uses_per_entry_visibility());
+    for (path, is_dir) in [
+        (VirtualPath::new("/workspace/project"), true),
+        (VirtualPath::new("/workspace/shared"), true),
+        (VirtualPath::new("/workspace/shared"), false),
+        (VirtualPath::new("/workspace/tools"), false),
+        (VirtualPath::new("/workspace/other"), true),
+    ] {
+        assert_eq!(
+            workspace_batch.entry_is_readable(&path, is_dir),
+            cfg.entry_is_readable(&path, is_dir),
+            "{path:?} dir={is_dir}"
+        );
+    }
+
+    let shared_batch = cfg.directory_child_visibility_batch(&VirtualPath::new("/workspace/shared"));
+    assert!(!shared_batch.uses_per_entry_visibility());
+    for (path, is_dir) in [
+        (VirtualPath::new("/workspace/shared/assets"), true),
+        (VirtualPath::new("/workspace/shared/other"), true),
+    ] {
+        assert_eq!(
+            shared_batch.entry_is_readable(&path, is_dir),
+            cfg.entry_is_readable(&path, is_dir),
+            "{path:?}"
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn directory_child_visibility_batch_falls_back_for_rule_sensitive_shapes() {
     let source = test_dir();
     let cfg = launch(
