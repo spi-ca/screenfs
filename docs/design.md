@@ -134,6 +134,9 @@ Conflict and fail-fast:
 - 같은 축의 opposite-polarity same-specificity conflict는 invalid configuration이다.
 - overlap/containment를 증명할 수 없는 broader glob 조합은 fail-fast다.
 - `HOME` 없음, source-root 밖 cwd/expanded path, `~user`, prefix 내부 wildcard, unanchored `**/*`, `*`, `a*b`, `*secret*`, multi-recursive descendant form은 fail-fast다.
+- same-axis opposite-polarity conflict error는 axis label과 normalized descriptor를 함께 출력한다. 현재 메시지 shape는 `hidden and visible rules conflict at the same normalized specificity: hidden rule [...], visible rule [...]`, `readonly and writable rules have overlapping glob targets without provable containment: ...`다.
+- `visibility.visible` recursive glob rejection은 이유, offending normalized rule, 대안을 함께 준다. 현재 메시지 shape는 `invalid visible pattern: recursive visible globs are unsupported because they require recursive bridge discovery: visible rule [...]; prefer an explicit subtree visible rule such as /dir or /dir/**`다.
+- config/path/glob parse failure도 mount 전에 raw config path, raw offending rule, 또는 normalized rule descriptor를 포함해 보고한다. 예: `failed to parse config <path>: ...`, `rule path resolves outside source_root: <rule>`, `unsupported glob: <rule>`.
 
 ## 7. State, cache, and concurrency
 

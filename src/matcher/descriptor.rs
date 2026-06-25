@@ -231,6 +231,10 @@ impl LiteralPathTail {
         other.0.len() >= tail.len() && other.0.windows(tail.len()).any(|window| window == tail)
     }
 
+    fn display_tail(&self) -> String {
+        self.0.join("/")
+    }
+
     pub(super) fn could_match_descendant_under(
         &self,
         path: &VirtualPath,
@@ -241,6 +245,15 @@ impl LiteralPathTail {
 }
 
 impl GlobPattern {
+    fn describe(&self) -> String {
+        match self {
+            Self::Any => "*".to_string(),
+            Self::Basename(name) => name.clone(),
+            Self::Prefix(prefix) => format!("{prefix}*"),
+            Self::Suffix(suffix) => format!("*{suffix}"),
+        }
+    }
+
     pub(super) fn matches_component(&self, component: Component<'_>) -> bool {
         match component {
             Component::Normal(part) => self.matches_name(&part.to_string_lossy()),
@@ -291,6 +304,27 @@ impl RuleDescriptor {
 
     pub fn specificity(&self) -> RuleSpecificity {
         self.specificity
+    }
+
+    pub(crate) fn describe_normalized_rule(&self) -> String {
+        match &self.target {
+            RuleTarget::Subtree => format!("subtree {}", self.anchor),
+            RuleTarget::Glob { recursive, pattern } => format!(
+                "{}glob anchor={} pattern={}",
+                if *recursive {
+                    "recursive "
+                } else {
+                    "direct-child "
+                },
+                self.anchor,
+                pattern.describe()
+            ),
+            RuleTarget::RecursiveLiteralSubtree { tail } => format!(
+                "recursive literal subtree anchor={} tail={}",
+                self.anchor,
+                tail.display_tail()
+            ),
+        }
     }
 
     pub fn has_less_specific_ancestor_of(&self, other: &Self) -> bool {

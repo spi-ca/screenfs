@@ -654,11 +654,11 @@ where
 }
 
 fn reject_recursive_visible_bridge_discovery(visible: &PathRuleMatcher) -> Result<(), String> {
-    if visible.has_recursive_bridge_discovery_rule() {
-        return Err(
-            "invalid visible pattern: recursive visible globs are unsupported because they require recursive bridge discovery; prefer an explicit subtree visible rule such as /dir or /dir/**"
-                .to_string(),
-        );
+    if let Some(rule) = visible.first_recursive_bridge_discovery_rule() {
+        return Err(format!(
+            "invalid visible pattern: recursive visible globs are unsupported because they require recursive bridge discovery: visible rule [{}]; prefer an explicit subtree visible rule such as /dir or /dir/**",
+            rule.describe_normalized_rule()
+        ));
     }
     Ok(())
 }
@@ -675,12 +675,16 @@ fn validate_opposite_rules(
         for positive_rule in positive.descriptors() {
             if same_conflict_coordinate(negative_rule, positive_rule) {
                 return Err(format!(
-                    "{negative_label} and {positive_label} rules conflict at the same normalized specificity"
+                    "{negative_label} and {positive_label} rules conflict at the same normalized specificity: {negative_label} rule [{}], {positive_label} rule [{}]",
+                    negative_rule.describe_normalized_rule(),
+                    positive_rule.describe_normalized_rule()
                 ));
             }
             if negative_rule.has_unproven_overlap_with(positive_rule) {
                 return Err(format!(
-                    "{negative_label} and {positive_label} rules have overlapping glob targets without provable containment"
+                    "{negative_label} and {positive_label} rules have overlapping glob targets without provable containment: {negative_label} rule [{}], {positive_label} rule [{}]",
+                    negative_rule.describe_normalized_rule(),
+                    positive_rule.describe_normalized_rule()
                 ));
             }
         }

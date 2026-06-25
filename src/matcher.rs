@@ -208,9 +208,13 @@ impl PathRuleMatcher {
     }
 
     pub fn has_recursive_bridge_discovery_rule(&self) -> bool {
+        self.first_recursive_bridge_discovery_rule().is_some()
+    }
+
+    pub(crate) fn first_recursive_bridge_discovery_rule(&self) -> Option<&RuleDescriptor> {
         self.descriptors
             .iter()
-            .any(RuleDescriptor::requires_recursive_bridge_discovery)
+            .find(|descriptor| descriptor.requires_recursive_bridge_discovery())
     }
 
     pub fn can_skip_symlink_target_visibility_check(&self) -> bool {

@@ -138,7 +138,7 @@ impl CliArgs {
 // `LaunchArgs` parses the full process argv, including optional config paths
 // and per-axis override defaults.
 impl LaunchArgs {
-    const USAGE_LINE: &str = "usage: screenfs <source-root> <mount-root> [--config <path>] [--visibility-default <visible|hidden>] [--hidden <pattern> ...] [--visible <pattern> ...] [--mutability-default <writable|readonly>] [--readonly <pattern> ...] [--writable <pattern> ...]";
+    const USAGE_LINE: &str = "usage: screenfs <source-root> <mount-root> [--config <path>] [--visibility-default <visible|hidden>] [--hidden <pattern>]... [--visible <pattern>]... [--mutability-default <writable|readonly>] [--readonly <pattern>]... [--writable <pattern>]...";
 
     pub fn wants_help<I, S>(args: I) -> bool
     where
@@ -294,7 +294,7 @@ Rules and precedence:
   - Within each axis, the most-specific matching rule wins; no match uses that axis default.
   - Same-axis opposite rules with the same normalized anchor and specificity are invalid.
   - Bridge-visible ancestors support stat/traversal/listing only so visible carve-outs are reachable without exposing siblings.
-  - Supported glob inputs share the same normalization contract across hidden, visible, readonly, and writable rules.
+  - Supported glob inputs share normalization semantics, but visibility.visible only accepts discovery-free exact/subtree and direct-child anchor forms; recursive visible globs fail fast with a replacement hint.
 
 Examples:
   screenfs / /tmp/screenfs-root --hidden /home/me/.ssh --hidden '/**/*.pem'
@@ -321,6 +321,7 @@ Examples:
 Notes:
   - Run as a non-root user.
   - <MOUNT_ROOT> must already exist.
+  - Invalid config or rule grammar fails before mount and reports the offending path/rule; recursive visible globs also suggest explicit subtree replacements.
 "
         .to_string()
     }

@@ -440,6 +440,14 @@ fn unprovable_opposite_glob_overlap_fails_fast() {
         ),
         "{err}"
     );
+    assert!(
+        err.contains("readonly rule [recursive glob anchor=/workspace pattern=*.json]"),
+        "{err}"
+    );
+    assert!(
+        err.contains("writable rule [recursive glob anchor=/workspace/tmp pattern=*.lock]"),
+        "{err}"
+    );
     std::fs::remove_dir_all(source).unwrap();
 }
 
@@ -763,6 +771,11 @@ fn visible_recursive_literal_directory_shorthand_rejects_recursive_bridge_discov
         "{err}"
     );
     assert!(err.contains("recursive bridge discovery"), "{err}");
+    assert!(err.contains("visible rule ["), "{err}");
+    assert!(
+        err.contains("prefer an explicit subtree visible rule such as /dir or /dir/**"),
+        "{err}"
+    );
     std::fs::remove_dir_all(source).unwrap();
 }
 
@@ -788,6 +801,14 @@ fn shorthand_and_trailing_descendant_forms_conflict_at_same_normalized_specifici
     .unwrap_err();
     assert!(
         err.contains("readonly and writable rules conflict at the same normalized specificity"),
+        "{err}"
+    );
+    assert!(
+        err.contains("readonly rule [recursive literal subtree anchor=/ tail=.git/hooks]"),
+        "{err}"
+    );
+    assert!(
+        err.contains("writable rule [recursive literal subtree anchor=/ tail=.git/hooks]"),
         "{err}"
     );
     std::fs::remove_dir_all(source).unwrap();
@@ -857,6 +878,11 @@ fn visible_rules_reject_recursive_bridge_discovery_but_keep_discovery_free_forms
                 "{rule}: {err}"
             );
             assert!(err.contains("recursive bridge discovery"), "{rule}: {err}");
+            assert!(err.contains("visible rule ["), "{rule}: {err}");
+            assert!(
+                err.contains("prefer an explicit subtree visible rule such as /dir or /dir/**"),
+                "{rule}: {err}"
+            );
         }
     }
     std::fs::remove_dir_all(source).unwrap();
@@ -973,12 +999,16 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
                 mutability_readonly_rules: vec![],
                 mutability_writable_rules: vec![],
             },
-            config_path: Some(config_path),
+            config_path: Some(config_path.clone()),
             visibility_default: None,
             mutability_default: None,
         })
         .unwrap_err();
-        assert!(err.contains("failed to parse config"));
+        assert!(
+            err.contains(&format!("failed to parse config {}", config_path.display())),
+            "{err}"
+        );
+        assert!(err.contains("unsupported_field"), "{err}");
 
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
@@ -994,7 +1024,9 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             mutability_default: None,
         })
         .unwrap_err();
-        assert!(err.contains("hidden and visible rules conflict"));
+        assert!(err.contains("hidden and visible rules conflict"), "{err}");
+        assert!(err.contains("hidden rule [subtree /same]"), "{err}");
+        assert!(err.contains("visible rule [subtree /same]"), "{err}");
 
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
@@ -1010,7 +1042,15 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             mutability_default: None,
         })
         .unwrap_err();
-        assert!(err.contains("hidden and visible rules conflict"));
+        assert!(err.contains("hidden and visible rules conflict"), "{err}");
+        assert!(
+            err.contains("hidden rule [direct-child glob anchor=/ pattern=*.pem]"),
+            "{err}"
+        );
+        assert!(
+            err.contains("visible rule [direct-child glob anchor=/ pattern=*.pem]"),
+            "{err}"
+        );
 
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
@@ -1026,7 +1066,15 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             mutability_default: None,
         })
         .unwrap_err();
-        assert!(err.contains("recursive visible globs are unsupported"));
+        assert!(
+            err.contains("recursive visible globs are unsupported"),
+            "{err}"
+        );
+        assert!(err.contains("visible rule ["), "{err}");
+        assert!(
+            err.contains("prefer an explicit subtree visible rule such as /dir or /dir/**"),
+            "{err}"
+        );
 
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
@@ -1042,7 +1090,9 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             mutability_default: None,
         })
         .unwrap_err();
-        assert!(err.contains("hidden and visible rules conflict"));
+        assert!(err.contains("hidden and visible rules conflict"), "{err}");
+        assert!(err.contains("hidden rule [subtree /same]"), "{err}");
+        assert!(err.contains("visible rule [subtree /same]"), "{err}");
 
         let err = RuntimeConfig::from_launch(LaunchArgs {
             cli: CliArgs {
@@ -1058,7 +1108,15 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             mutability_default: None,
         })
         .unwrap_err();
-        assert!(err.contains("recursive visible globs are unsupported"));
+        assert!(
+            err.contains("recursive visible globs are unsupported"),
+            "{err}"
+        );
+        assert!(err.contains("visible rule ["), "{err}");
+        assert!(
+            err.contains("prefer an explicit subtree visible rule such as /dir or /dir/**"),
+            "{err}"
+        );
     }
     std::fs::remove_dir_all(source).unwrap();
 }

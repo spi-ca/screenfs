@@ -74,6 +74,16 @@ fn reports_missing_required_positionals() {
 }
 
 #[test]
+fn compact_usage_marks_repeatable_policy_options_as_repeatable_flags() {
+    let usage = CliArgs::usage();
+    assert!(usage.contains("[--hidden <pattern>]..."), "{usage}");
+    assert!(usage.contains("[--visible <pattern>]..."), "{usage}");
+    assert!(usage.contains("[--readonly <pattern>]..."), "{usage}");
+    assert!(usage.contains("[--writable <pattern>]..."), "{usage}");
+    assert!(!usage.contains("--hidden <pattern> ..."), "{usage}");
+}
+
+#[test]
 fn reports_unknown_and_missing_option_arguments() {
     let err = CliArgs::parse_from(["screenfs", "/", "/mnt", "--bad"]).unwrap_err();
     assert!(err.contains("unknown option: --bad"));

@@ -90,6 +90,13 @@ Rules:
 - containment/overlap을 증명할 수 없는 반대 polarity glob 조합은 fail-fast다.
 - `HOME` 없음, source-root 밖 cwd/expanded path, `~user`, prefix 내부 wildcard, `*`, `a*b`, `*secret*`, `**/*`, multi-recursive 또는 ambiguous descendant form은 fail-fast다.
 
+### Validation and error reporting requirements
+
+- launch는 mount 전에 config read/parse failure, unsupported rule grammar, path normalization failure, same-axis opposite-polarity conflict를 즉시 거부해야 한다.
+- error message는 사용자가 추가 추적 없이 수정할 수 있도록 최소한 offending config path, raw rule, 또는 normalized rule descriptor를 포함해야 한다.
+- same-axis opposite-polarity conflict는 axis label과 normalized rule descriptor를 함께 포함해야 한다.
+- 구현이 canonical fix를 아는 경우 메시지에 repair hint를 포함해야 한다. 현재 대표 사례는 recursive `visibility.visible` glob rejection이며 offending normalized visible rule과 explicit subtree visible rule 대안(예: `/dir`, `/dir/**`)을 함께 제시한다.
+
 ## 6. Performance and memory requirements
 
 - whole-root metadata workload를 고려해 matcher와 directory listing은 bounded해야 한다.
