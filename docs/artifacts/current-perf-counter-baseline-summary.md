@@ -18,6 +18,10 @@ scripts/bench-screenfs.py --build --perf-counters --iterations 3 --warmups 1 \
   --output-json docs/artifacts/current-perf-counter-benchmark-result.json \
   --output-md docs/artifacts/current-perf-counter-benchmark-result.md \
   --output-svg docs/artifacts/current-perf-counter-benchmark-result.svg
+scripts/render-svg-png.py \
+  docs/artifacts/current-perf-counter-benchmark-result.svg \
+  docs/artifacts/current-perf-counter-benchmark-result.png \
+  --scale 2
 ```
 
 ## Baseline attribution
@@ -62,6 +66,7 @@ The smoke comparison does not support a user-visible speedup claim. Treat the co
 - [`current-perf-counter-benchmark-result.json`](current-perf-counter-benchmark-result.json) — machine-readable benchmark result and `screenfs.perf_summary` source of truth for the checked-in smoke run
 - [`current-perf-counter-benchmark-result.md`](current-perf-counter-benchmark-result.md) — human-readable summary with raw perf counter block
 - [`current-perf-counter-benchmark-result.svg`](current-perf-counter-benchmark-result.svg) — box plot generated from the same raw samples
+- [`current-perf-counter-benchmark-result.png`](current-perf-counter-benchmark-result.png) — 2x raster render generated from the SVG for readable text in rendered documentation
 
 ## Embedded structured data
 

@@ -6,7 +6,7 @@ This artifact reruns the supplemental fio attribution with the managed `contrib/
 
 - Passthrough implementation: managed `contrib/fractal-passthrough` helper built at `/home/spi-ca/Codebase/screenfs/contrib/fractal-passthrough/target/release/fractal_passthrough`
 - Policy caveat: this is an explicit custom unsafe shape, not the official harness `fallback-unsafe-policy` preset, because the carve-outs target `/hidden` and `/readonly` instead of `/.screenfs-bench/**`
-- Mount/provenance caveats: non-root FUSE run with `fusermount3 3.18.2`; `managed-fio-attribution-env.json` records command lines, binary SHA256 values, and dirty worktree status
+- Mount/provenance caveats: non-root FUSE run with `fusermount3 version: 3.18.2`; `managed-fio-attribution-env.json` records command lines, binary SHA256 values, and dirty worktree status
 - Passthrough safety caveat: `contrib/fractal-passthrough` is only a minimal FUSE floor. It does not implement ScreenFS source-root confinement, visibility/mutability policy, or external-symlink safety checks, so use only a trusted private scratch tree with no external symlinks and do not treat it as a policy-equivalent baseline
 
 ## Files
@@ -32,11 +32,11 @@ This artifact reruns the supplemental fio attribution with the managed `contrib/
 
 | job | native mean clat µs | passthrough mean clat µs | ScreenFS mean clat µs | passthrough/native | ScreenFS/passthrough |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `seq_write_128k` | 28.542 | 37.872 | 129.200 | 1.33x | 3.41x |
-| `seq_read_128k` | 14.863 | 54.377 | 119.726 | 3.66x | 2.20x |
-| `rand_write_4k` | 0.424 | 6.483 | 37.695 | 15.29x | 5.81x |
-| `rand_read_4k` | 0.794 | 11.956 | 32.851 | 15.06x | 2.75x |
-| `sync_write_4k` | 0.457 | 8.069 | 46.200 | 17.65x | 5.73x |
+| `seq_write_128k` | 57.595 | 71.385 | 110.522 | 1.24x | 1.55x |
+| `seq_read_128k` | 42.039 | 73.745 | 97.691 | 1.75x | 1.32x |
+| `rand_write_4k` | 0.499 | 7.236 | 38.805 | 14.51x | 5.36x |
+| `rand_read_4k` | 1.011 | 13.114 | 27.746 | 12.97x | 2.12x |
+| `sync_write_4k` | 1.862 | 8.626 | 36.749 | 4.63x | 4.26x |
 
 ## ScreenFS perf split excerpt
 
@@ -44,12 +44,12 @@ This artifact reruns the supplemental fio attribution with the managed `contrib/
 
 | counter | count | avg ns | share |
 | --- | ---: | ---: | ---: |
-| `read_handle_snapshot` | 88725 | 272 | 2.2% of `fuse_op.read` |
-| `read_guard_path` | 88725 | 10585 | 84.4% of `fuse_op.read` |
-| `read_io` | 88725 | 1512 | 12.1% of `fuse_op.read` |
-| `write_handle_snapshot` | 78242 | 228 | 1.4% of `fuse_op.write` |
-| `write_guard_mutation` | 78242 | 14014 | 88.5% of `fuse_op.write` |
-| `write_io` | 78242 | 1409 | 8.9% of `fuse_op.write` |
+| `read_handle_snapshot` | 105120 | 195 | 1.9% of `fuse_op.read` |
+| `read_guard_path` | 105120 | 9031 | 86.0% of `fuse_op.read` |
+| `read_io` | 105120 | 1114 | 10.6% of `fuse_op.read` |
+| `write_handle_snapshot` | 76007 | 219 | 1.4% of `fuse_op.write` |
+| `write_guard_mutation` | 76007 | 14408 | 89.0% of `fuse_op.write` |
+| `write_io` | 76007 | 1387 | 8.6% of `fuse_op.write` |
 
 ## Boxplot style contract
 
@@ -59,7 +59,7 @@ This artifact reruns the supplemental fio attribution with the managed `contrib/
 - y-axis: linear completion latency in µs, fixed `0..250` tick range
 - series colors: native gray, managed passthrough blue, ScreenFS red
 - markers: p95 orange dot, mean black diamond; box is p25/p50/p75 and whiskers are p1/p99
-- rendering: regenerate PNG from SVG with `rsvg-convert -w 3200 -h 1800 docs/artifacts/managed-fio-attribution-boxplot.svg -o docs/artifacts/managed-fio-attribution-boxplot.png`
+- rendering: regenerate PNG from SVG with `scripts/managed-fio-attribution.py --render-only --png-scale 2` or `rsvg-convert -w 3200 -h 1800 docs/artifacts/managed-fio-attribution-boxplot.svg -o docs/artifacts/managed-fio-attribution-boxplot.png`
 
 Do not switch this artifact to log scale or a different layout unless the summary and README explicitly call out the visual break from prior artifacts.
 

@@ -1906,6 +1906,7 @@ def render_box_plot_svg(result: dict[str, Any]) -> str:
 
     lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="white"/>',
         "<style>",
         "text{font-family:Inter,Pretendard,Arial,sans-serif;fill:#111827;font-size:13px}",
         ".axis{stroke:#64748b;stroke-width:1}.grid{stroke:#e2e8f0;stroke-width:1}.median{stroke:#111827;stroke-width:2}.whisker{stroke:#475569;stroke-width:1.5}.sample{fill:#0f172a;opacity:.35}",
