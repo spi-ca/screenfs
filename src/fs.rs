@@ -555,6 +555,11 @@ impl ScreenFs {
                 None
             }
         };
+        let can_skip_symlink_visibility = self.cfg.can_skip_symlink_target_visibility_check();
+        let scan_needs_child_path = child_visibility
+            .as_ref()
+            .is_none_or(|batch| !batch.can_assume_all_visible())
+            || !can_skip_symlink_visibility;
         let mut candidates = BTreeMap::new();
         #[cfg(feature = "perf-counters")]
         let mut scan_visibility_elapsed = std::time::Duration::default();
@@ -569,16 +574,27 @@ impl ScreenFs {
             path,
             3,
             false,
+            scan_needs_child_path,
             |name_bytes| resume_name.is_none_or(|resume| name_bytes > resume),
             |entry| {
                 let name_bytes = entry.name.as_bytes();
                 #[cfg(feature = "perf-counters")]
                 let scan_visibility_start = Instant::now();
-                let readable = self.child_directory_entry_is_readable(
-                    child_visibility.as_ref(),
-                    &entry.child,
-                    entry.is_dir,
-                );
+                let readable = if child_visibility
+                    .as_ref()
+                    .is_some_and(|batch| batch.can_assume_all_visible())
+                {
+                    true
+                } else {
+                    let child = entry.child.as_ref().expect(
+                        "directory scan must materialize child paths when visibility needs them",
+                    );
+                    self.child_directory_entry_is_readable(
+                        child_visibility.as_ref(),
+                        child,
+                        entry.is_dir,
+                    )
+                };
                 #[cfg(feature = "perf-counters")]
                 {
                     scan_visibility_elapsed += scan_visibility_start.elapsed();
@@ -586,11 +602,14 @@ impl ScreenFs {
                 if !readable {
                     return Ok(());
                 }
-                if entry.is_symlink {
+                if entry.is_symlink && !can_skip_symlink_visibility {
                     #[cfg(feature = "perf-counters")]
                     let symlink_visibility_start = Instant::now();
+                    let child = entry.child.as_ref().expect(
+                        "directory scan must materialize child paths when symlink visibility needs them",
+                    );
                     let visible = self
-                        .guard_resolved_target_visibility_if_needed(&entry.child)
+                        .guard_resolved_target_visibility_if_needed(child)
                         .is_ok();
                     #[cfg(feature = "perf-counters")]
                     {
@@ -657,7 +676,29 @@ impl ScreenFs {
 
         let mut remaining = remaining;
         for (_, mut entry) in candidates {
-            let child = entry.child.clone();
+            let child = if let Some(child) = entry.child.take() {
+                child
+            } else {
+                #[cfg(feature = "perf-counters")]
+                let child_materialization_start = Instant::now();
+                let child = path.join_child(&entry.name);
+                #[cfg(feature = "perf-counters")]
+                {
+                    let elapsed = child_materialization_start.elapsed();
+                    if with_plus {
+                        self.perf.record_readdirplus_scan_split(
+                            "returned_child_path_materialization",
+                            elapsed,
+                        );
+                    } else {
+                        self.perf.record_readdir_scan_split(
+                            "returned_child_path_materialization",
+                            elapsed,
+                        );
+                    }
+                }
+                child
+            };
             if with_plus {
                 #[cfg(feature = "perf-counters")]
                 let attr_generation_start = Instant::now();

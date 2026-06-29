@@ -234,6 +234,72 @@ fn default_hidden_subtree_batch_keeps_readdirplus_bridge_and_symlink_filters() {
 }
 
 #[test]
+fn default_visible_hidden_subtree_batch_keeps_direct_child_glob_bridge_in_readdir_variants() {
+    let dir = test_dir("default-visible-hidden-subtree-direct-glob-bridge");
+    std::fs::create_dir_all(dir.join("workspace/certs")).unwrap();
+    std::fs::create_dir_all(dir.join("workspace/private")).unwrap();
+    std::fs::write(dir.join("workspace/certs/key.pem"), b"ok").unwrap();
+    std::fs::write(dir.join("workspace/certs/note.txt"), b"hidden").unwrap();
+    std::fs::write(dir.join("workspace/private/secret.txt"), b"hidden").unwrap();
+    std::fs::write(dir.join("workspace/readme.txt"), b"visible").unwrap();
+    let fs = fs_for_axes(
+        &dir,
+        Some(crate::cli::VisibilityDefault::Visible),
+        vec![
+            "/workspace/certs".to_string(),
+            "/workspace/private".to_string(),
+        ],
+        vec!["/workspace/certs/*.pem".to_string()],
+        None,
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let workspace = fs
+        .reply_entry_for_path(VirtualPath::new("/workspace"))
+        .unwrap()
+        .attr
+        .ino;
+
+    let readdir_fh = open_directory_handle(&fs, workspace);
+    let readdir_names: Vec<String> =
+        block_on(fs.readdir(dummy_req(), workspace, readdir_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(readdir_names.contains(&"certs".to_string()));
+    assert!(readdir_names.contains(&"readme.txt".to_string()));
+    assert!(!readdir_names.contains(&"private".to_string()));
+    block_on(fs.releasedir(dummy_req(), workspace, readdir_fh, 0)).unwrap();
+
+    let readdirplus_fh = open_directory_handle(&fs, workspace);
+    let readdirplus_names: Vec<String> =
+        block_on(fs.readdirplus(dummy_req(), workspace, readdirplus_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(readdirplus_names.contains(&"certs".to_string()));
+    assert!(readdirplus_names.contains(&"readme.txt".to_string()));
+    assert!(!readdirplus_names.contains(&"private".to_string()));
+    block_on(fs.releasedir(dummy_req(), workspace, readdirplus_fh, 0)).unwrap();
+
+    let certs = lookup_child_inode(&fs, workspace, "certs");
+    let certs_fh = open_directory_handle(&fs, certs);
+    let certs_names: Vec<String> = block_on(fs.readdir(dummy_req(), certs, certs_fh, 0, 4096))
+        .unwrap()
+        .into_iter()
+        .map(|entry| String::from_utf8(entry.name).unwrap())
+        .collect();
+    assert!(certs_names.contains(&"key.pem".to_string()));
+    assert!(!certs_names.contains(&"note.txt".to_string()));
+    block_on(fs.releasedir(dummy_req(), certs, certs_fh, 0)).unwrap();
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn default_hidden_subtree_batch_keeps_readdir_bridge_and_symlink_filters() {
     let dir = default_hidden_subtree_batch_fixture("default-hidden-subtree-batch-readdir");
     let fs = fs_for_axes(

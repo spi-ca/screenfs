@@ -218,6 +218,12 @@ fn perf_counters_record_scan_visibility_batch_skips_trivial_policy_shape() {
             .contains_key("scan_visibility"),
         "{after:?}"
     );
+    assert!(
+        after
+            .readdirplus_scan_splits
+            .contains_key("returned_child_path_materialization"),
+        "{after:?}"
+    );
 
     block_on(fs.releasedir(dummy_req(), listing, fh, 0)).unwrap();
 
@@ -237,6 +243,12 @@ fn perf_counters_record_scan_visibility_batch_skips_trivial_policy_shape() {
     );
     assert!(
         after.readdir_scan_splits.contains_key("scan_visibility"),
+        "{after:?}"
+    );
+    assert!(
+        after
+            .readdir_scan_splits
+            .contains_key("returned_child_path_materialization"),
         "{after:?}"
     );
 

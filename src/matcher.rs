@@ -183,6 +183,18 @@ impl PathRuleMatcher {
             })
     }
 
+    pub(crate) fn may_match_descendant_of_other_than_same_subtree(
+        &self,
+        path: &VirtualPath,
+    ) -> bool {
+        self.index.has_global_descendant_match
+            || self.index.any_matching_descendant_candidate(path, |index| {
+                let descriptor = &self.descriptors[index];
+                descriptor.may_match_descendant_of(path)
+                    && !(descriptor.is_subtree() && descriptor.anchor() == path)
+            })
+    }
+
     // Hot-path callers can stream raw descendant candidates here without
     // allocating the debug `descendant_candidate_order()` vector.
     pub(crate) fn visit_descendant_candidate_descriptors(

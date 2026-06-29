@@ -90,6 +90,79 @@ fn directory_child_visibility_batch_fast_path_requires_no_hidden_rules() {
 }
 
 #[test]
+fn directory_child_visibility_batch_parent_scopes_hidden_subtree_frontier() {
+    let root = test_dir();
+    let source = root.join("source");
+    let mount = root.join("mount");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::create_dir_all(&mount).unwrap();
+    let cfg = launch_from_args(LaunchArgs {
+        cli: CliArgs {
+            source_root: source,
+            mount_root: mount,
+            visibility_hidden_rules: vec![
+                "/workspace/secret".to_string(),
+                "/workspace/nested/secret".to_string(),
+                "/workspace/certs".to_string(),
+                "/other/hidden".to_string(),
+            ],
+            visibility_visible_rules: vec![
+                "/workspace/secret/project".to_string(),
+                "/workspace/certs/*.pem".to_string(),
+            ],
+            mutability_readonly_rules: vec![],
+            mutability_writable_rules: vec![],
+        },
+        config_path: None,
+        visibility_default: Some(VisibilityDefault::Visible),
+        mutability_default: None,
+    })
+    .unwrap();
+
+    let workspace_batch = cfg.directory_child_visibility_batch(&VirtualPath::new("/workspace"));
+    assert!(!workspace_batch.uses_per_entry_visibility());
+    assert!(!workspace_batch.can_assume_all_visible());
+    for (path, is_dir) in [
+        (VirtualPath::new("/workspace/secret"), true),
+        (VirtualPath::new("/workspace/secret"), false),
+        (VirtualPath::new("/workspace/certs"), true),
+        (VirtualPath::new("/workspace/certs"), false),
+        (VirtualPath::new("/workspace/nested"), true),
+        (VirtualPath::new("/workspace/file.txt"), false),
+    ] {
+        assert_eq!(
+            workspace_batch.entry_is_readable(&path, is_dir),
+            cfg.entry_is_readable(&path, is_dir),
+            "{path:?}"
+        );
+    }
+
+    let dir_entries_batch =
+        cfg.directory_child_visibility_batch(&VirtualPath::new("/.screenfs-bench/dir-entries"));
+    assert!(!dir_entries_batch.uses_per_entry_visibility());
+    assert!(dir_entries_batch.can_assume_all_visible());
+    assert_eq!(
+        dir_entries_batch.entry_is_readable(
+            &VirtualPath::new("/.screenfs-bench/dir-entries/file.txt"),
+            false
+        ),
+        cfg.entry_is_readable(
+            &VirtualPath::new("/.screenfs-bench/dir-entries/file.txt"),
+            false
+        )
+    );
+    assert_eq!(
+        workspace_batch.entry_is_readable(&VirtualPath::new("/other/secret"), true),
+        cfg.entry_is_readable(&VirtualPath::new("/other/secret"), true)
+    );
+    assert_eq!(
+        workspace_batch.entry_is_readable(&VirtualPath::new("/workspace/secret/project"), true),
+        cfg.entry_is_readable(&VirtualPath::new("/workspace/secret/project"), true)
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn directory_child_visibility_batch_parent_scopes_visible_subtree_frontier() {
     let root = test_dir();
     let source = root.join("source");

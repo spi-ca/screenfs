@@ -51,6 +51,46 @@ fn matches_exact_rules_directory_prefixes_and_cwd_anchored_recursive_globs() {
 }
 
 #[test]
+fn matcher_descendant_query_can_exclude_same_anchor_subtree() {
+    let root = test_dir();
+    let source = root.join("source");
+    fs::create_dir_all(&source).unwrap();
+    let context = test_context(&source, &source, None);
+
+    let matcher = PathRuleMatcher::new(
+        [
+            "/workspace/secret",
+            "/workspace/secret/project",
+            "/workspace/certs/*.pem",
+        ],
+        Vec::new(),
+        &context,
+    )
+    .unwrap();
+
+    let same_anchor_only = PathRuleMatcher::new(["/same-anchor"], Vec::new(), &context).unwrap();
+    assert!(
+        !same_anchor_only
+            .may_match_descendant_of_other_than_same_subtree(&VirtualPath::new("/same-anchor"))
+    );
+    assert!(
+        !matcher
+            .may_match_descendant_of_other_than_same_subtree(&VirtualPath::new("/workspace/other"))
+    );
+    assert!(
+        matcher.may_match_descendant_of_other_than_same_subtree(&VirtualPath::new(
+            "/workspace/secret"
+        ))
+    );
+    assert!(
+        matcher
+            .may_match_descendant_of_other_than_same_subtree(&VirtualPath::new("/workspace/certs"))
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn matcher_indexes_candidates_by_family_and_normalized_anchor() {
     let root = test_dir();
     let source = root.join("source");

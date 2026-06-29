@@ -64,6 +64,11 @@ enum DirectoryChildVisibilityMode {
         visible_children: BTreeSet<OsString>,
         bridge_children: BTreeSet<OsString>,
     },
+    ParentScopedHiddenSubtrees {
+        parent: VirtualPath,
+        hidden_children: BTreeSet<OsString>,
+        bridge_children: BTreeSet<OsString>,
+    },
     PerEntry,
 }
 
@@ -96,6 +101,18 @@ impl DirectoryChildVisibilityBatch<'_> {
                 is_directory,
             )
             .unwrap_or_else(|| self.cfg.entry_is_readable(path, is_directory)),
+            DirectoryChildVisibilityMode::ParentScopedHiddenSubtrees {
+                parent,
+                hidden_children,
+                bridge_children,
+            } => parent_scoped_hidden_entry_is_readable(
+                parent,
+                hidden_children,
+                bridge_children,
+                path,
+                is_directory,
+            )
+            .unwrap_or_else(|| self.cfg.entry_is_readable(path, is_directory)),
             DirectoryChildVisibilityMode::PerEntry => {
                 self.cfg.entry_is_readable(path, is_directory)
             }
@@ -107,14 +124,19 @@ impl DirectoryChildVisibilityBatch<'_> {
     }
 
     pub fn can_assume_all_visible(&self) -> bool {
-        matches!(
-            self.mode,
-            DirectoryChildVisibilityMode::AllVisible
-                | DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
-                    fully_visible: true,
-                    ..
-                }
-        )
+        match &self.mode {
+            DirectoryChildVisibilityMode::AllVisible => true,
+            DirectoryChildVisibilityMode::ParentScopedVisibleSubtrees {
+                fully_visible: true,
+                ..
+            } => true,
+            DirectoryChildVisibilityMode::ParentScopedHiddenSubtrees {
+                hidden_children,
+                bridge_children,
+                ..
+            } => hidden_children.is_empty() && bridge_children.is_empty(),
+            _ => false,
+        }
     }
 
     pub fn parent_scoped_entry_is_readable(
@@ -137,6 +159,17 @@ impl DirectoryChildVisibilityBatch<'_> {
                 is_directory,
             ),
             DirectoryChildVisibilityMode::AllVisible => Some(true),
+            DirectoryChildVisibilityMode::ParentScopedHiddenSubtrees {
+                parent,
+                hidden_children,
+                bridge_children,
+            } => parent_scoped_hidden_entry_is_readable(
+                parent,
+                hidden_children,
+                bridge_children,
+                path,
+                is_directory,
+            ),
             DirectoryChildVisibilityMode::PerEntry => None,
         }
     }
@@ -159,6 +192,8 @@ pub struct RuntimeConfig {
     visible_rule_count: usize,
     readonly_rule_count: usize,
     writable_rule_count: usize,
+    skip_symlink_target_visibility_check: bool,
+    skip_resolved_writable_target_mutability_check: bool,
     pub attr_ttl: Duration,
     pub entry_ttl: Duration,
 }
@@ -243,6 +278,13 @@ impl RuntimeConfig {
         )?;
         validate_opposite_rules("readonly", &readonly_matcher, "writable", &writable_matcher)?;
 
+        let skip_symlink_target_visibility_check = visibility.default == VisibilityDefault::Visible
+            && internal_hidden_matcher.can_skip_symlink_target_visibility_check()
+            && hidden_matcher.can_skip_symlink_target_visibility_check();
+        let skip_resolved_writable_target_mutability_check = mutability.default
+            == MutabilityDefault::Writable
+            && readonly_matcher.descriptors().is_empty();
+
         Ok(Self {
             source_root: cli.source_root,
             mount_root: cli.mount_root,
@@ -259,6 +301,8 @@ impl RuntimeConfig {
             visible_rule_count: visibility.visible.len(),
             readonly_rule_count: mutability.readonly.len(),
             writable_rule_count: mutability.writable.len(),
+            skip_symlink_target_visibility_check,
+            skip_resolved_writable_target_mutability_check,
             attr_ttl: Duration::ZERO,
             entry_ttl: Duration::ZERO,
         })
@@ -314,6 +358,18 @@ impl RuntimeConfig {
                 .can_skip_symlink_target_visibility_check()
         {
             DirectoryChildVisibilityMode::AllVisible
+        } else if self.visibility_default == VisibilityDefault::Visible
+            && self
+                .internal_hidden_matcher
+                .can_skip_symlink_target_visibility_check()
+            && self.hidden_rule_count > 0
+            && self
+                .hidden_matcher
+                .descriptors()
+                .iter()
+                .all(RuleDescriptor::is_subtree)
+        {
+            self.parent_scoped_hidden_subtree_mode(parent)
         } else if self.visibility_default == VisibilityDefault::Hidden
             && self.hidden_rule_count == 0
             && self
@@ -331,6 +387,49 @@ impl RuntimeConfig {
             DirectoryChildVisibilityMode::PerEntry
         };
         DirectoryChildVisibilityBatch { cfg: self, mode }
+    }
+
+    fn parent_scoped_hidden_subtree_mode(
+        &self,
+        parent: &VirtualPath,
+    ) -> DirectoryChildVisibilityMode {
+        if self.hidden_matcher.matches_path(parent) {
+            return DirectoryChildVisibilityMode::PerEntry;
+        }
+
+        let mut hidden_children = BTreeSet::new();
+        let mut bridge_children = BTreeSet::new();
+        for descriptor in self.hidden_matcher.descriptors() {
+            let anchor = descriptor.anchor();
+            if parent.starts_with(anchor) {
+                return DirectoryChildVisibilityMode::PerEntry;
+            }
+            if !anchor.starts_with(parent) {
+                continue;
+            }
+            let Ok(relative) = anchor.as_path().strip_prefix(parent.as_path()) else {
+                continue;
+            };
+            let mut components = relative.components();
+            let Some(Component::Normal(child_name)) = components.next() else {
+                continue;
+            };
+            if components.next().is_none() {
+                let child_name = child_name.to_os_string();
+                if self
+                    .visible_matcher
+                    .may_match_descendant_of_other_than_same_subtree(anchor)
+                {
+                    bridge_children.insert(child_name.clone());
+                }
+                hidden_children.insert(child_name);
+            }
+        }
+        DirectoryChildVisibilityMode::ParentScopedHiddenSubtrees {
+            parent: parent.clone(),
+            hidden_children,
+            bridge_children,
+        }
     }
 
     fn parent_scoped_visible_subtree_mode(
@@ -379,13 +478,7 @@ impl RuntimeConfig {
     }
 
     pub fn can_skip_symlink_target_visibility_check(&self) -> bool {
-        self.visibility_default == VisibilityDefault::Visible
-            && self
-                .internal_hidden_matcher
-                .can_skip_symlink_target_visibility_check()
-            && self
-                .hidden_matcher
-                .can_skip_symlink_target_visibility_check()
+        self.skip_symlink_target_visibility_check
     }
 
     pub fn is_hidden_symlink_target(&self, link_path: &VirtualPath, raw_target: &OsStr) -> bool {
@@ -427,10 +520,7 @@ impl RuntimeConfig {
     ) -> bool {
         match path_decision {
             MutabilityDecision::Readonly => true,
-            MutabilityDecision::Writable => {
-                self.mutability_default == MutabilityDefault::Writable
-                    && self.readonly_matcher.descriptors().is_empty()
-            }
+            MutabilityDecision::Writable => self.skip_resolved_writable_target_mutability_check,
         }
     }
 
@@ -483,6 +573,27 @@ impl RuntimeConfig {
             AxisChoice::Positive => true,
         }
     }
+}
+
+fn parent_scoped_hidden_entry_is_readable(
+    parent: &VirtualPath,
+    hidden_children: &BTreeSet<OsString>,
+    bridge_children: &BTreeSet<OsString>,
+    path: &VirtualPath,
+    is_directory: bool,
+) -> Option<bool> {
+    let relative = path.as_path().strip_prefix(parent.as_path()).ok()?;
+    let mut components = relative.components();
+    let Some(Component::Normal(child_name)) = components.next() else {
+        return None;
+    };
+    if components.next().is_some() {
+        return None;
+    }
+    Some(
+        !hidden_children.contains(child_name)
+            || is_directory && bridge_children.contains(child_name),
+    )
 }
 
 fn parent_scoped_entry_is_readable(

@@ -358,7 +358,7 @@ pub(super) struct DirectoryScanStats {
 #[derive(Debug, Clone)]
 pub(super) struct DirEntryInfo {
     pub(super) name: OsString,
-    pub(super) child: VirtualPath,
+    pub(super) child: Option<VirtualPath>,
     pub(super) attr: FileAttr,
     pub(super) kind: FileType,
     pub(super) is_dir: bool,
@@ -584,6 +584,7 @@ pub(super) fn visit_dir_entries(
     base: &VirtualPath,
     start_offset: u64,
     require_attr: bool,
+    materialize_child: bool,
     mut include_name: impl FnMut(&[u8]) -> bool,
     mut visit: impl FnMut(DirEntryInfo) -> Result<(), i32>,
 ) -> Result<DirectoryScanStats, i32> {
@@ -618,7 +619,7 @@ pub(super) fn visit_dir_entries(
         #[cfg(feature = "perf-counters")]
         let name_child_path_materialization_start = Instant::now();
         let name_os = OsStr::from_bytes(name_bytes).to_os_string();
-        let child = base.join_child(&name_os);
+        let child = materialize_child.then(|| base.join_child(&name_os));
         let ino = start_offset + seen + 1;
         let dirent_kind = file_type_from_dirent_type(dent.d_type);
         #[cfg(feature = "perf-counters")]
