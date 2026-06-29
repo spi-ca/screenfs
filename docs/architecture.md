@@ -84,8 +84,8 @@ Visibility와 mutability 축 상세 흐름:
 
 - Directory listing은 FUSE `size` budget에 맞는 bounded page를 반환한다.
 - `src/fs.rs`는 현재 shared directory-page collection path에서 `readdirplus` scan에 `DirectoryChildVisibilityBatch`를 붙이고, plain `readdir` scan에는 helper가 per-entry fallback이 아님을 확정할 때만 붙인다. helper는 한 request의 한 parent directory scan 동안만 살아 있고 state/handle table에 저장되지 않으며 cross-request cache가 아니다.
-- current directory-local batch subset은 `AllVisible` 또는 default-hidden/no-hidden/no-internal-hidden + visible-subtree-anchor parent-local mode로만 제한된다. hidden rule, internal hidden rule, non-subtree visible rule 같은 rule-sensitive shape는 `PerEntry` matcher path로 fallback한다.
-- parent-local mode는 direct child frontier만 다루며 bridge-visible child를 directory에서만 readable로 취급한다. hidden `ENOENT` precedence와 axis별 most-specific rule wins는 여전히 `RuntimeConfig` visibility 판정이 source of truth다.
+- current directory-local batch subset은 `AllVisible`, default-visible/subtree-only-hidden parent-local hidden-subtree mode(visible descendant/direct-child carve-out은 bridge child로 반영), 또는 default-hidden/no-hidden/no-internal-hidden + visible-subtree-anchor parent-local mode로만 제한된다. internal hidden rule, non-subtree hidden rule, default-hidden mode의 non-subtree visible rule 같은 rule-sensitive shape는 `PerEntry` matcher path로 fallback한다.
+- parent-local mode는 direct child frontier만 다룬다. hidden-subtree mode는 immediate hidden child만 제외하되 visible descendant carve-out이 있을 수 있는 hidden child는 directory일 때 bridge-visible로 남기고, visible-subtree mode도 bridge-visible child를 directory에서만 readable로 취급한다. hidden `ENOENT` precedence와 axis별 most-specific rule wins는 여전히 `RuntimeConfig` visibility 판정이 source of truth다.
 - `readdirplus` lookup ref는 실제 반환 page의 child에만 증가시킨다.
 - `readdirplus`가 batch를 써도 symlink target point-of-use 검사와 returned entry `stat_child_no_follow()` 뒤 policy 재확인은 유지된다. returned symlink도 target visibility를 다시 확인한다.
 - full-directory child attr/inode snapshot cache나 stable listing result cache는 current contract가 아니다.
