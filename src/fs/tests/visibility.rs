@@ -164,9 +164,8 @@ fn exact_visible_absent_target_still_exposes_existing_bridge_ancestors() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[test]
-fn default_hidden_subtree_batch_keeps_readdirplus_bridge_and_symlink_filters() {
-    let dir = test_dir("default-hidden-subtree-batch");
+fn default_hidden_subtree_batch_fixture(label: &str) -> std::path::PathBuf {
+    let dir = test_dir(label);
     std::fs::create_dir_all(dir.join("home/me/project")).unwrap();
     std::fs::create_dir_all(dir.join("home/other")).unwrap();
     std::fs::create_dir_all(dir.join("home/secret")).unwrap();
@@ -177,6 +176,12 @@ fn default_hidden_subtree_batch_keeps_readdirplus_bridge_and_symlink_filters() {
         dir.join("home/me/project/link-hidden"),
     )
     .unwrap();
+    dir
+}
+
+#[test]
+fn default_hidden_subtree_batch_keeps_readdirplus_bridge_and_symlink_filters() {
+    let dir = default_hidden_subtree_batch_fixture("default-hidden-subtree-batch");
     let fs = fs_for_axes(
         &dir,
         Some(crate::cli::VisibilityDefault::Hidden),
@@ -217,6 +222,60 @@ fn default_hidden_subtree_batch_keeps_readdirplus_bridge_and_symlink_filters() {
     let project_fh = open_directory_handle(&fs, project);
     let project_names: Vec<String> =
         block_on(fs.readdirplus(dummy_req(), project, project_fh, 0, 4096))
+            .unwrap()
+            .into_iter()
+            .map(|entry| String::from_utf8(entry.name).unwrap())
+            .collect();
+    assert!(project_names.contains(&"file.txt".to_string()));
+    assert!(!project_names.contains(&"link-hidden".to_string()));
+    block_on(fs.releasedir(dummy_req(), project, project_fh, 0)).unwrap();
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn default_hidden_subtree_batch_keeps_readdir_bridge_and_symlink_filters() {
+    let dir = default_hidden_subtree_batch_fixture("default-hidden-subtree-batch-readdir");
+    let fs = fs_for_axes(
+        &dir,
+        Some(crate::cli::VisibilityDefault::Hidden),
+        Vec::new(),
+        vec!["/home/me/project".to_string()],
+        None,
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let home = fs
+        .reply_entry_for_path(VirtualPath::new("/home"))
+        .unwrap()
+        .attr
+        .ino;
+    let home_fh = open_directory_handle(&fs, home);
+    let home_names: Vec<String> = block_on(fs.readdir(dummy_req(), home, home_fh, 0, 4096))
+        .unwrap()
+        .into_iter()
+        .map(|entry| String::from_utf8(entry.name).unwrap())
+        .collect();
+    assert!(home_names.contains(&"me".to_string()));
+    assert!(!home_names.contains(&"other".to_string()));
+    assert!(!home_names.contains(&"secret".to_string()));
+    block_on(fs.releasedir(dummy_req(), home, home_fh, 0)).unwrap();
+
+    let me = lookup_child_inode(&fs, home, "me");
+    let me_fh = open_directory_handle(&fs, me);
+    let me_names: Vec<String> = block_on(fs.readdir(dummy_req(), me, me_fh, 0, 4096))
+        .unwrap()
+        .into_iter()
+        .map(|entry| String::from_utf8(entry.name).unwrap())
+        .collect();
+    assert!(me_names.contains(&"project".to_string()));
+    block_on(fs.releasedir(dummy_req(), me, me_fh, 0)).unwrap();
+
+    let project = lookup_child_inode(&fs, me, "project");
+    let project_fh = open_directory_handle(&fs, project);
+    let project_names: Vec<String> =
+        block_on(fs.readdir(dummy_req(), project, project_fh, 0, 4096))
             .unwrap()
             .into_iter()
             .map(|entry| String::from_utf8(entry.name).unwrap())

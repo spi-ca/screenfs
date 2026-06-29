@@ -627,6 +627,38 @@ fn opened_directory_at_path_rejects_final_symlink_to_bridge_visible_target() {
 }
 
 #[test]
+fn opened_directory_target_revalidates_write_intent_against_resolved_readonly_target() {
+    let dir = test_dir("opened-dir-target-write-intent-readonly-symlink");
+    std::fs::create_dir(dir.join("target")).unwrap();
+    std::os::unix::fs::symlink("target", dir.join("alias")).unwrap();
+    let fs = fs_for_axes(
+        &dir,
+        None,
+        Vec::new(),
+        Vec::new(),
+        Some(crate::cli::MutabilityDefault::Writable),
+        vec!["/target".to_string()],
+        Vec::new(),
+    );
+
+    let alias = fs
+        .open_confined(
+            &VirtualPath::new("/alias"),
+            libc::O_PATH | libc::O_DIRECTORY,
+            None,
+        )
+        .unwrap();
+    fs.guard_opened_directory_target(&VirtualPath::new("/alias"), &alias, false)
+        .unwrap();
+    assert_eq!(
+        fs.guard_opened_directory_target(&VirtualPath::new("/alias"), &alias, true)
+            .unwrap_err(),
+        libc::EROFS
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn opened_parent_directory_at_path_rejects_host_rename_replacement() {
     let dir = test_dir("opened-parent-dir-retarget");
     std::fs::create_dir(dir.join("parent")).unwrap();

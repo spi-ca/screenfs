@@ -547,10 +547,13 @@ impl ScreenFs {
         let candidate_limit = (remaining / min_entry_size).saturating_add(1).max(1);
         let dir_file = self.open_confined(path, libc::O_RDONLY | libc::O_DIRECTORY, None)?;
         self.guard_opened_directory_target(path, &dir_file, false)?;
-        let child_visibility = if with_plus {
-            Some(self.cfg.directory_child_visibility_batch(path))
-        } else {
-            None
+        let child_visibility = {
+            let batch = self.cfg.directory_child_visibility_batch(path);
+            if with_plus || !batch.uses_per_entry_visibility() {
+                Some(batch)
+            } else {
+                None
+            }
         };
         let mut candidates = BTreeMap::new();
         #[cfg(feature = "perf-counters")]
@@ -769,7 +772,11 @@ impl Filesystem for ScreenFs {
         let mut resolver = guards::RequestPathResolver::new(self);
         let write_intent = open_has_write_intent(flags);
         self.record_open_like_phase("open", OpenLikePhase::PreOpenGuard, || {
-            self.guard_open_flags_with_resolver(&mut resolver, &path, flags)
+            if write_intent || !self.cfg.can_skip_symlink_target_visibility_check() {
+                self.guard_open_flags_with_resolver(&mut resolver, &path, flags)
+            } else {
+                Ok(())
+            }
         })?;
         let open_flags = sanitize_open_flags(flags, false) & !libc::O_TRUNC;
         let file = self.open_confined(&path, open_flags, None)?;
@@ -942,12 +949,22 @@ impl Filesystem for ScreenFs {
         let _timer = fuse_op_timer!(self, "opendir");
         let path = self.path_for_inode(inode)?;
         let mut resolver = guards::RequestPathResolver::new(self);
+        let write_intent = open_has_write_intent(flags);
         self.record_open_like_phase("opendir", OpenLikePhase::PreOpenGuard, || {
-            self.guard_open_flags_with_resolver(&mut resolver, &path, flags)
+            if write_intent || !self.cfg.can_skip_symlink_target_visibility_check() {
+                self.guard_open_flags_with_resolver(&mut resolver, &path, flags)
+            } else {
+                Ok(())
+            }
         })?;
         let dir_file = self.open_confined(&path, libc::O_PATH | libc::O_DIRECTORY, None)?;
         self.record_open_like_phase("opendir", OpenLikePhase::PostOpenRevalidation, || {
-            self.guard_opened_directory_target_with_resolver(&mut resolver, &path, &dir_file, false)
+            self.guard_opened_directory_target_with_resolver(
+                &mut resolver,
+                &path,
+                &dir_file,
+                write_intent,
+            )
         })?;
         let fh = self.insert_open_directory(inode, path);
         Ok(ReplyOpen {
@@ -1014,7 +1031,11 @@ impl Filesystem for ScreenFs {
         let mut resolver = guards::RequestPathResolver::new(self);
         let mutation = mask & libc::W_OK as u32 != 0;
         self.record_open_like_phase("access", OpenLikePhase::PreOpenGuard, || {
-            self.guard_access_mask_with_resolver(&mut resolver, &path, mask)
+            if mutation || !self.cfg.can_skip_symlink_target_visibility_check() {
+                self.guard_access_mask_with_resolver(&mut resolver, &path, mask)
+            } else {
+                Ok(())
+            }
         })?;
         let file = self.open_confined(&path, libc::O_PATH, None)?;
         self.record_open_like_phase("access", OpenLikePhase::PostOpenRevalidation, || {

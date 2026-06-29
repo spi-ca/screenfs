@@ -595,9 +595,11 @@ impl ScreenFs {
         mutation: bool,
     ) -> Result<(), i32> {
         let resolved = resolver.resolved_virtual_path_for_open_file(file)?;
-        self.guard_resolved_target_fully_visible(path, &resolved)?;
-        if !self.entry_is_readable(&resolved, true) {
-            return Err(ENOENT);
+        if &resolved != path {
+            self.guard_resolved_target_fully_visible(path, &resolved)?;
+            if !self.entry_is_readable(&resolved, true) {
+                return Err(ENOENT);
+            }
         }
         self.guard_opened_writable_target(path, &resolved, mutation)
     }

@@ -84,9 +84,9 @@ Bridge-visible listing은 visible child 또는 visible descendant로 이어지�
 | direct-child anchor bridge | `/dir/*`, `/dir/*.pem`, `/dir/id_*`, `/dir/.env.*`, bare/cwd/HOME 동등형 | normalized anchor ancestor만 bridge-visible candidate; current directory/parent 기준 immediate child만 평가 |
 | recursive visible glob/shorthand | `**/*.pem`, `/**/*.pem`, `/dir/**/*.pem`, `**/.git/hooks`, `/repo/**/.git/hooks` 등 | unsupported/fail-fast; recursive bridge discovery, startup scan, lazy discovery 금지 |
 
-### Current `readdirplus` directory-local visibility batch
+### Current directory-local visibility batch for `readdir`/`readdirplus`
 
-- `DirectoryChildVisibilityBatch`는 현재 `readdirplus` scan에서만 쓰는 request/directory-local helper다. `readdir`, direct-path lookup/open/access, mutation guard는 기존 per-entry policy path를 그대로 사용하고, cross-request/handle cache로 승격하지 않는다.
+- `DirectoryChildVisibilityBatch`는 현재 shared directory-page collection path에서 `readdirplus` scan에 쓰고, `readdir` scan에는 helper가 `AllVisible` 또는 parent-local mode처럼 per-entry fallback이 아님을 확정할 때만 쓰는 request/directory-local helper다. direct-path lookup/open/access, mutation guard는 기존 per-entry policy path를 그대로 사용하고, cross-request/handle cache로 승격하지 않는다.
 - fast path는 두 shape로만 제한한다: (1) `visibility.default=visible` + no hidden/internal-hidden rules인 `AllVisible`, (2) `visibility.default=hidden` + no hidden/internal-hidden rules + visible subtree descriptor만 있는 parent-local mode. hidden rule, internal hidden rule, non-subtree visible rule처럼 rule-sensitive shape는 즉시 `PerEntry` fallback으로 돌아간다.
 - parent-local mode는 현재 parent의 direct child frontier만 분류한다. fully visible child는 바로 통과시키고, bridge-visible child는 directory일 때만 readable로 취급하며, parent의 direct child가 아니어서 helper가 확정할 수 없는 path만 기존 matcher 판정으로 되돌린다.
 - 이 batch는 correctness를 약화하지 않는다. hidden `ENOENT` precedence, axis별 most-specific rule wins, symlink target point-of-use 검사, returned `readdirplus` entry의 `stat_child_no_follow()` 뒤 `entry_is_readable()` 재확인, returned symlink target 재확인은 계속 유지된다.

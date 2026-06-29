@@ -209,13 +209,34 @@ fn perf_counters_record_scan_visibility_batch_skips_trivial_policy_shape() {
     assert_eq!(names, vec!["file.txt"]);
     assert_eq!(
         after.policy_decisions.count - before.policy_decisions.count,
-        1,
-        "trivial visible policy should skip scan-time and returned-entry child policy decisions while keeping the directory guard: {before:?}\n{after:?}"
+        0,
+        "trivial visible policy should skip scan-time and returned-entry child policy decisions on the directory page path: {before:?}\n{after:?}"
     );
     assert!(
         after
             .readdirplus_scan_splits
             .contains_key("scan_visibility"),
+        "{after:?}"
+    );
+
+    block_on(fs.releasedir(dummy_req(), listing, fh, 0)).unwrap();
+
+    let fh = open_directory_handle(&fs, listing);
+    let before = fs.perf_snapshot().expect("perf counters enabled");
+    let entries = block_on(fs.readdir(dummy_req(), listing, fh, 2, 4096)).unwrap();
+    let after = fs.perf_snapshot().expect("perf counters enabled");
+    let names = entries
+        .iter()
+        .map(|entry| String::from_utf8(entry.name.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["file.txt"]);
+    assert_eq!(
+        after.policy_decisions.count - before.policy_decisions.count,
+        0,
+        "trivial visible policy should skip readdir scan-time child policy decisions on the directory page path: {before:?}\n{after:?}"
+    );
+    assert!(
+        after.readdir_scan_splits.contains_key("scan_visibility"),
         "{after:?}"
     );
 
