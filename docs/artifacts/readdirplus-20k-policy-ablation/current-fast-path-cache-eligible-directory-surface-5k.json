@@ -1,205 +1,304 @@
 {
+  "cache_control": {
+    "applications": 0,
+    "applied_files": [],
+    "errors": [],
+    "method": "warm",
+    "notes": [
+      "warm mode leaves cache state unchanged before warmups and measured samples"
+    ],
+    "scope": "no explicit cache eviction; existing warm-cache behavior",
+    "skipped": [],
+    "support_checked": true,
+    "timing_applied": false
+  },
   "comparisons": {
     "readdir_basic": {
-      "mounted_median_sec": 0.048110153,
-      "mounted_over_native_median": 53.34080575293895,
-      "mounted_p50_sec": 0.048110153,
-      "mounted_p90_sec": 0.048748298,
-      "mounted_p95_sec": 0.048968622499999996,
-      "mounted_p99_sec": 0.049144882099999995,
-      "native_median_sec": 0.000901939,
-      "native_p50_sec": 0.000901939,
-      "native_p90_sec": 0.0009740198000000001,
-      "native_p95_sec": 0.0009799634,
-      "native_p99_sec": 0.00098471828
+      "mounted_median_sec": 0.014054288500000001,
+      "mounted_over_native_median": 11.822561331327337,
+      "mounted_p50_sec": 0.014054288500000001,
+      "mounted_p90_sec": 0.014383138600000001,
+      "mounted_p95_sec": 0.0144643303,
+      "mounted_p99_sec": 0.01452928366,
+      "native_median_sec": 0.0011887685,
+      "native_p50_sec": 0.0011887685,
+      "native_p90_sec": 0.0014680698,
+      "native_p95_sec": 0.0014768484,
+      "native_p99_sec": 0.00148387128
     },
     "readdirplus_basic": {
-      "mounted_median_sec": 0.37051050799999996,
-      "mounted_over_native_median": 111.13504294475214,
-      "mounted_p50_sec": 0.37051050799999996,
-      "mounted_p90_sec": 0.3821776579,
-      "mounted_p95_sec": 0.38566112995,
-      "mounted_p99_sec": 0.38844790759000003,
-      "native_median_sec": 0.0033338765,
-      "native_p50_sec": 0.0033338765,
-      "native_p90_sec": 0.0035313188,
-      "native_p95_sec": 0.0035511449,
-      "native_p99_sec": 0.00356700578
+      "mounted_median_sec": 0.1554731335,
+      "mounted_over_native_median": 42.76643305649088,
+      "mounted_p50_sec": 0.1554731335,
+      "mounted_p90_sec": 0.15718509879999998,
+      "mounted_p95_sec": 0.1574121499,
+      "mounted_p99_sec": 0.15759379078,
+      "native_median_sec": 0.003635401,
+      "native_p50_sec": 0.003635401,
+      "native_p90_sec": 0.003891468,
+      "native_p95_sec": 0.0039935685,
+      "native_p99_sec": 0.0040752489
     }
   },
   "environment": {
     "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
     "fusermount3": "fusermount3 version: 3.18.2",
-    "git_revision": "920c00e4308596bc285b236ae58139b30e24b0cb",
-    "git_status_porcelain": "M docs/artifacts/current-metadata-opendir-smoke.json\n M docs/artifacts/current-metadata-opendir-smoke.md\n M docs/artifacts/current-metadata-opendir-smoke.svg\n M docs/artifacts/current-next-performance-candidates.md\n M docs/artifacts/current-open-confined-surface-smoke.json\n M docs/artifacts/current-open-confined-surface-smoke.md\n M docs/artifacts/current-open-confined-surface-smoke.svg\n M docs/artifacts/current-policy-heavy-matrix-smoke.json\n M docs/artifacts/current-policy-heavy-matrix-smoke.md\n M docs/artifacts/current-policy-heavy-matrix-smoke.svg\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M scripts/bench-screenfs.py\n M scripts/test_bench_screenfs_workloads.py\n M src/fs.rs\n M src/fs/guards.rs\n M src/fs/perf.rs\n M src/fs/tests/perf.rs\n?? docs/artifacts/current-matcher-descendant-directory-smoke.json\n?? docs/artifacts/current-matcher-descendant-directory-smoke.md\n?? docs/artifacts/current-matcher-descendant-directory-smoke.svg\n?? docs/artifacts/matcher-descendant-combined-probe/\n?? docs/artifacts/mutation-invalidation-breadth-index/",
+    "git_revision": "bdc2ceafb1c61bbecab37ab28abf2df2be264ca7",
+    "git_status_porcelain": "M docs/artifacts/current-directory-symlink-surface-smoke.json\n M docs/artifacts/current-directory-symlink-surface-smoke.md\n M docs/artifacts/current-directory-symlink-surface-smoke.svg\n M docs/artifacts/current-matcher-descendant-directory-smoke.json\n M docs/artifacts/current-matcher-descendant-directory-smoke.md\n M docs/artifacts/current-matcher-descendant-directory-smoke.svg\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/matcher-readonly-access-wok.json\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/matcher-readonly-access-wok.md\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/matcher-readonly-access-wok.svg\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/read-only-close-surface-matcher32.json\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/read-only-close-surface-matcher32.md\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/read-only-close-surface-matcher32.svg\n M docs/artifacts/current-matcher-source-attribution-smoke/policy-heavy-matrix-smoke.json\n M docs/artifacts/current-matcher-source-attribution-smoke/policy-heavy-matrix-smoke.md\n M docs/artifacts/current-matcher-source-attribution-smoke/policy-heavy-matrix-smoke.svg\n M docs/artifacts/current-metadata-opendir-smoke.json\n M docs/artifacts/current-metadata-opendir-smoke.md\n M docs/artifacts/current-metadata-opendir-smoke.svg\n M docs/artifacts/current-mutation-invalidation-set-smoke.json\n M docs/artifacts/current-mutation-invalidation-set-smoke.md\n M docs/artifacts/current-mutation-invalidation-set-smoke.svg\n M docs/artifacts/current-mutation-invalidation-smoke.json\n M docs/artifacts/current-mutation-invalidation-smoke.md\n M docs/artifacts/current-mutation-invalidation-smoke.svg\n M docs/artifacts/current-open-confined-surface-smoke.json\n M docs/artifacts/current-open-confined-surface-smoke.md\n M docs/artifacts/current-open-confined-surface-smoke.svg\n M docs/artifacts/current-perf-counter-benchmark-result.json\n M docs/artifacts/current-perf-counter-benchmark-result.md\n M docs/artifacts/current-perf-counter-benchmark-result.png\n M docs/artifacts/current-perf-counter-benchmark-result.svg\n M docs/artifacts/current-pinned-mutation-invalidation-smoke.json\n M docs/artifacts/current-pinned-mutation-invalidation-smoke.md\n M docs/artifacts/current-pinned-mutation-invalidation-smoke.svg\n M docs/artifacts/current-policy-heavy-matrix-smoke.json\n M docs/artifacts/current-policy-heavy-matrix-smoke.md\n M docs/artifacts/current-policy-heavy-matrix-smoke.svg\n M docs/artifacts/current-read-write-surface-smoke.json\n M docs/artifacts/current-read-write-surface-smoke.md\n M docs/artifacts/current-read-write-surface-smoke.svg\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fallback-matcher32-directory-surface.json\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fallback-matcher32-directory-surface.md\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fallback-matcher32-directory-surface.svg\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-directory-surface.json\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-directory-surface.md\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-directory-surface.svg\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-readdirplus-20k.json\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-readdirplus-20k.md\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-readdirplus-20k.svg\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fallback-unsafe-policy-matcher32-policy-heavy-matrix.json\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fallback-unsafe-policy-matcher32-policy-heavy-matrix.md\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fallback-unsafe-policy-matcher32-policy-heavy-matrix.png\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fallback-unsafe-policy-matcher32-policy-heavy-matrix.svg\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-directory-surface.json\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-directory-surface.md\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-directory-surface.png\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-directory-surface.svg\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-metadata-open-path.json\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-metadata-open-path.md\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-metadata-open-path.png\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-metadata-open-path.svg\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-sync-surface.json\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-sync-surface.md\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-sync-surface.png\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-sync-surface.svg\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.json\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.md\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.svg\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.json\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.md\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.svg\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.json\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.md\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.svg\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.json\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.md\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.svg\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-io.json\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-io.md\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-io.svg\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-seq-256mib.json\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-seq-256mib.md\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-seq-256mib.svg\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface.json\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface.md\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface.svg\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-io.json\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-io.md\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-io.svg\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-seq-256mib.json\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-seq-256mib.md\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-seq-256mib.svg\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface.json\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface.md\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface.svg\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs.json\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs.md\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs.svg\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.json\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.md\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.svg\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs.json\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs.md\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs.svg\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-surface-storage-btrfs.json\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-surface-storage-btrfs.md\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-surface-storage-btrfs.svg\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-directory-surface-5k.json\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-directory-surface-5k.md\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-directory-surface-5k.svg\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-readdirplus-basic-20k.json\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-readdirplus-basic-20k.md\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-readdirplus-basic-20k.svg\n?? docs/artifacts/current-benchmark-rerun.log",
     "git_worktree_clean": false,
     "harness_repo_root": "/home/spi-ca/Codebase/screenfs",
     "mount_filesystem": {
       "block_size": 4096,
       "findmnt": "fuse screenfs rw,nosuid,nodev,relatime,user_id=1000,group_id=1000",
       "fragment_size": 4096,
-      "path": "/tmp/screenfs-bench-auxcee2z/mount",
+      "path": "/tmp/screenfs-bench-a9cnou7g/mount",
       "stat_f_type": "fuse"
     },
-    "platform": "Linux-7.1.1-1-spica-stable-git-x86_64-with-glibc2.43",
+    "platform": "Linux-7.2.0-rc1-1-spica-git-x86_64-with-glibc2.43",
     "python": "3.14.6",
     "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
     "source_filesystem": {
       "block_size": 4096,
       "findmnt": "tmpfs tmpfs rw,nosuid,nodev,relatime,lazytime,inode64",
       "fragment_size": 4096,
-      "path": "/tmp/screenfs-bench-auxcee2z/source",
+      "path": "/tmp/screenfs-bench-a9cnou7g/source",
       "stat_f_type": "tmpfs"
     },
-    "uname": "Linux ari14-lin 7.1.1-1-spica-stable-git #1 SMP PREEMPT Sat, 20 Jun 2026 00:06:59 +0000 x86_64 "
+    "uname": "Linux ari14-lin 7.2.0-rc1-1-spica-git #1 SMP PREEMPT Tue, 30 Jun 2026 14:59:18 +0000 x86_64 "
   },
   "harness": {
     "argv": [
-      "python3",
+      "/usr/bin/python3",
       "scripts/bench-screenfs.py",
-      "--perf-counters",
       "--screenfs-bin",
       "target/release/screenfs",
+      "--screenfs-source-root",
+      ".",
+      "--perf-counters",
       "--policy-preset",
       "fast-path-cache-eligible",
       "--workload-set",
       "directory-surface",
-      "--dir-entries",
-      "5000",
       "--iterations",
       "10",
       "--warmups",
       "3",
+      "--read-mib",
+      "64",
+      "--write-mib",
+      "64",
+      "--small-io-bytes",
+      "4096",
+      "--small-io-ops",
+      "1024",
+      "--sync-bytes",
+      "4096",
+      "--sync-ops",
+      "128",
+      "--small-files",
+      "2000",
+      "--dir-entries",
+      "5000",
+      "--rand-io-ops",
+      "16384",
+      "--open-read-close-ops",
+      "4096",
+      "--metadata-ops",
+      "512",
+      "--sync-4k-fsync-every",
+      "32",
+      "--hidden-misses",
+      "2000",
+      "--matcher-extra-rules",
+      "0",
+      "--matcher-misses",
+      "2000",
+      "--symlink-parent-mutations",
+      "2000",
       "--output-json",
-      "docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.json",
+      "/home/spi-ca/Codebase/screenfs/docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.json",
       "--output-md",
-      "docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.md",
+      "/home/spi-ca/Codebase/screenfs/docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.md",
       "--output-svg",
-      "docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.svg"
+      "/home/spi-ca/Codebase/screenfs/docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.svg"
     ],
-    "command_line": "python3 scripts/bench-screenfs.py --perf-counters --screenfs-bin target/release/screenfs --policy-preset fast-path-cache-eligible --workload-set directory-surface --dir-entries 5000 --iterations 10 --warmups 3 --output-json docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.json --output-md docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.md --output-svg docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.svg"
+    "command_line": "/usr/bin/python3 scripts/bench-screenfs.py --screenfs-bin target/release/screenfs --screenfs-source-root . --perf-counters --policy-preset fast-path-cache-eligible --workload-set directory-surface --iterations 10 --warmups 3 --read-mib 64 --write-mib 64 --small-io-bytes 4096 --small-io-ops 1024 --sync-bytes 4096 --sync-ops 128 --small-files 2000 --dir-entries 5000 --rand-io-ops 16384 --open-read-close-ops 4096 --metadata-ops 512 --sync-4k-fsync-every 32 --hidden-misses 2000 --matcher-extra-rules 0 --matcher-misses 2000 --symlink-parent-mutations 2000 --output-json /home/spi-ca/Codebase/screenfs/docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.json --output-md /home/spi-ca/Codebase/screenfs/docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.md --output-svg /home/spi-ca/Codebase/screenfs/docs/artifacts/readdirplus-20k-policy-ablation/current-fast-path-cache-eligible-directory-surface-5k.svg"
   },
   "mounted": [
     {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
       "name": "readdir_basic",
       "samples_sec": [
-        0.049188947,
-        0.047720877,
-        0.048499429,
-        0.045843467,
-        0.046792886,
-        0.047343425,
-        0.047645085,
-        0.048526224,
-        0.048675742,
-        0.048699337
+        0.014048964,
+        0.014059613,
+        0.014545522,
+        0.013584973,
+        0.014365096,
+        0.014157282,
+        0.014296778,
+        0.013809188,
+        0.013540236,
+        0.013667549
       ],
       "side": "mounted",
       "summary": {
-        "max_sec": 0.049188947,
-        "mean_sec": 0.0478935419,
-        "median_sec": 0.048110153,
-        "min_sec": 0.045843467,
-        "p50_sec": 0.048110153,
-        "p90_sec": 0.048748298,
-        "p95_sec": 0.048968622499999996,
-        "p99_sec": 0.049144882099999995,
-        "q1_sec": 0.047418840000000004,
-        "q3_sec": 0.048638362500000004,
-        "stdev_sec": 0.0010282145279110937
+        "max_sec": 0.014545522,
+        "mean_sec": 0.0140075201,
+        "median_sec": 0.014054288500000001,
+        "min_sec": 0.013540236,
+        "p50_sec": 0.014054288500000001,
+        "p90_sec": 0.014383138600000001,
+        "p95_sec": 0.0144643303,
+        "p99_sec": 0.01452928366,
+        "q1_sec": 0.013702958749999999,
+        "q3_sec": 0.014261903999999999,
+        "stdev_sec": 0.0003463545145436489
       }
     },
     {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
       "name": "readdirplus_basic",
       "samples_sec": [
-        0.290226299,
-        0.365176717,
-        0.371853848,
-        0.368405326,
-        0.381403553,
-        0.389144602,
-        0.377249069,
-        0.370187031,
-        0.370161081,
-        0.370833985
+        0.144839292,
+        0.141506179,
+        0.150369627,
+        0.153055503,
+        0.1551336,
+        0.157639201,
+        0.155866889,
+        0.155812667,
+        0.157134643,
+        0.155947139
       ],
       "side": "mounted",
       "summary": {
-        "max_sec": 0.389144602,
-        "mean_sec": 0.36546415109999997,
-        "median_sec": 0.37051050799999996,
-        "min_sec": 0.290226299,
-        "p50_sec": 0.37051050799999996,
-        "p90_sec": 0.3821776579,
-        "p95_sec": 0.38566112995,
-        "p99_sec": 0.38844790759000003,
-        "q1_sec": 0.36884426475,
-        "q3_sec": 0.37590026374999996,
-        "stdev_sec": 0.027360170122248215
+        "max_sec": 0.157639201,
+        "mean_sec": 0.152730474,
+        "median_sec": 0.1554731335,
+        "min_sec": 0.141506179,
+        "p50_sec": 0.1554731335,
+        "p90_sec": 0.15718509879999998,
+        "p95_sec": 0.1574121499,
+        "p99_sec": 0.15759379078,
+        "q1_sec": 0.151041096,
+        "q3_sec": 0.1559270765,
+        "stdev_sec": 0.00550642110418034
       }
     }
   ],
   "native": [
     {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
       "name": "readdir_basic",
       "samples_sec": [
-        0.000877,
-        0.000919643,
-        0.000912284,
-        0.000835931,
-        0.000823726,
-        0.000916895,
-        0.000972699,
-        0.000985907,
-        0.000891594,
-        0.000856938
+        0.001110351,
+        0.00123362,
+        0.001316589,
+        0.001466119,
+        0.001485627,
+        0.001387686,
+        0.001143917,
+        0.001006365,
+        0.000911088,
+        0.000814808
       ],
       "side": "native",
       "summary": {
-        "max_sec": 0.000985907,
-        "mean_sec": 0.0008992617,
-        "median_sec": 0.000901939,
-        "min_sec": 0.000823726,
-        "p50_sec": 0.000901939,
-        "p90_sec": 0.0009740198000000001,
-        "p95_sec": 0.0009799634,
-        "p99_sec": 0.00098471828,
-        "q1_sec": 0.0008619535,
-        "q3_sec": 0.0009189560000000001,
-        "stdev_sec": 5.3601873959882346e-05
+        "max_sec": 0.001485627,
+        "mean_sec": 0.001187617,
+        "median_sec": 0.0011887685,
+        "min_sec": 0.000814808,
+        "p50_sec": 0.0011887685,
+        "p90_sec": 0.0014680698,
+        "p95_sec": 0.0014768484,
+        "p99_sec": 0.00148387128,
+        "q1_sec": 0.0010323615,
+        "q3_sec": 0.00136991175,
+        "stdev_sec": 0.00023126171615725765
       }
     },
     {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
       "name": "readdirplus_basic",
       "samples_sec": [
-        0.003233358,
-        0.003570971,
-        0.003142735,
-        0.003187737,
-        0.003345947,
-        0.003519594,
-        0.003526913,
-        0.003126762,
-        0.003321806,
-        0.003421383
+        0.003413071,
+        0.003763453,
+        0.003843605,
+        0.003573482,
+        0.003359739,
+        0.003868779,
+        0.004095669,
+        0.00369732,
+        0.003506087,
+        0.003433279
       ],
       "side": "native",
       "summary": {
-        "max_sec": 0.003570971,
-        "mean_sec": 0.0033397206000000002,
-        "median_sec": 0.0033338765,
-        "min_sec": 0.003126762,
-        "p50_sec": 0.0033338765,
-        "p90_sec": 0.0035313188,
-        "p95_sec": 0.0035511449,
-        "p99_sec": 0.00356700578,
-        "q1_sec": 0.00319914225,
-        "q3_sec": 0.00349504125,
-        "stdev_sec": 0.0001654849237639356
+        "max_sec": 0.004095669,
+        "mean_sec": 0.0036554484,
+        "median_sec": 0.003635401,
+        "min_sec": 0.003359739,
+        "p50_sec": 0.003635401,
+        "p90_sec": 0.003891468,
+        "p95_sec": 0.0039935685,
+        "p99_sec": 0.0040752489,
+        "q1_sec": 0.003451481,
+        "q3_sec": 0.003823567,
+        "stdev_sec": 0.00023867752915373766
       }
     }
   ],
   "parameters": {
+    "cache_control": "warm",
+    "concurrency_workers": 4,
     "dir_entries": 5000,
     "hidden_misses": 2000,
     "iterations": 10,
@@ -220,9 +319,9 @@
     "write_mib": 64
   },
   "paths": {
-    "mount": "/tmp/screenfs-bench-auxcee2z/mount",
-    "source": "/tmp/screenfs-bench-auxcee2z/source",
-    "workdir": "/tmp/screenfs-bench-auxcee2z"
+    "mount": "/tmp/screenfs-bench-a9cnou7g/mount",
+    "source": "/tmp/screenfs-bench-a9cnou7g/source",
+    "workdir": "/tmp/screenfs-bench-a9cnou7g"
   },
   "policy": {
     "built_in_screenfs_args": [
@@ -248,16 +347,17 @@
     "supports_hidden_stat_miss": false,
     "supports_matcher_descendant_directory": false,
     "supports_matcher_hidden_stat_miss": false,
+    "supports_matcher_readonly_access_wok": false,
     "visible_paths": []
   },
   "schema": "screenfs-benchmark-v2",
   "screenfs": {
     "binary": "target/release/screenfs",
-    "binary_sha256": "59186deeaba2e91862cbf5c05f63a556346f7f0b491793bccc7d7aa145b95422",
+    "binary_sha256": "9a7935e61d81818a603cdf2db732726ac83cba83aeb7098f92dd9cbdd19a7378",
     "command": [
       "target/release/screenfs",
-      "/tmp/screenfs-bench-auxcee2z/source",
-      "/tmp/screenfs-bench-auxcee2z/mount",
+      "/tmp/screenfs-bench-a9cnou7g/source",
+      "/tmp/screenfs-bench-a9cnou7g/mount",
       "--visibility-default",
       "visible",
       "--mutability-default",
@@ -267,52 +367,52 @@
     "perf_summary": {
       "metrics": {
         "fuse_op.access": {
-          "avg_ns": 76351,
+          "avg_ns": 64569,
           "count": 1,
-          "max_ns": 76351,
-          "total_ns": 76351
+          "max_ns": 64569,
+          "total_ns": 64569
         },
         "fuse_op.getattr": {
-          "avg_ns": 10548,
+          "avg_ns": 2827,
           "count": 65027,
-          "max_ns": 327178,
-          "total_ns": 685915947
+          "max_ns": 273647,
+          "total_ns": 183854486
         },
         "fuse_op.lookup": {
-          "avg_ns": 9308,
+          "avg_ns": 3325,
           "count": 195057,
-          "max_ns": 337131,
-          "total_ns": 1815747171
+          "max_ns": 286733,
+          "total_ns": 648750035
         },
         "fuse_op.opendir": {
-          "avg_ns": 16484,
+          "avg_ns": 16067,
           "count": 26,
-          "max_ns": 46548,
-          "total_ns": 428607
+          "max_ns": 52676,
+          "total_ns": 417761
         },
         "fuse_op.readdir": {
-          "avg_ns": 5710336,
+          "avg_ns": 1655055,
           "count": 180,
-          "max_ns": 12166796,
-          "total_ns": 1027860571
+          "max_ns": 3313159,
+          "total_ns": 297910046
         },
         "fuse_op.readdirplus": {
-          "avg_ns": 10554782,
+          "avg_ns": 1537153,
           "count": 31,
-          "max_ns": 14124336,
-          "total_ns": 327198255
+          "max_ns": 1896726,
+          "total_ns": 47651751
         },
         "fuse_op.releasedir": {
-          "avg_ns": 464816,
+          "avg_ns": 305594,
           "count": 26,
-          "max_ns": 940392,
-          "total_ns": 12085235
+          "max_ns": 446016,
+          "total_ns": 7945461
         },
         "fuse_op.statfs": {
-          "avg_ns": 2862,
+          "avg_ns": 2284,
           "count": 2,
-          "max_ns": 3465,
-          "total_ns": 5725
+          "max_ns": 2525,
+          "total_ns": 4569
         },
         "invalidations": {
           "count": 0,
@@ -321,25 +421,49 @@
           "scanned_entries": 0
         },
         "matcher_candidate_order.descendant": {
-          "avg_ns": 126,
-          "count": 1099907,
-          "max_ns": 331463,
-          "total_ns": 139152394
+          "avg_ns": 114,
+          "count": 260137,
+          "max_ns": 48927,
+          "total_ns": 29751363
         },
         "matcher_candidate_order.path": {
-          "avg_ns": 131,
-          "count": 3299721,
-          "max_ns": 258563,
-          "total_ns": 434284773
+          "avg_ns": 129,
+          "count": 780411,
+          "max_ns": 258724,
+          "total_ns": 101380505
         },
         "matcher_candidate_order_ancestor_steps": {
-          "count": 14971860
+          "count": 3381424
         },
         "matcher_candidate_order_ancestor_steps.descendant": {
-          "count": 3742965
+          "count": 845356
         },
         "matcher_candidate_order_ancestor_steps.path": {
-          "count": 11228895
+          "count": 2536068
+        },
+        "matcher_candidate_order_by_source.hidden.path": {
+          "avg_ns": 130,
+          "count": 260137,
+          "max_ns": 258724,
+          "total_ns": 33844520
+        },
+        "matcher_candidate_order_by_source.internal_hidden.path": {
+          "avg_ns": 132,
+          "count": 260137,
+          "max_ns": 50747,
+          "total_ns": 34559228
+        },
+        "matcher_candidate_order_by_source.visible.descendant": {
+          "avg_ns": 114,
+          "count": 260137,
+          "max_ns": 48927,
+          "total_ns": 29751363
+        },
+        "matcher_candidate_order_by_source.visible.path": {
+          "avg_ns": 126,
+          "count": 260137,
+          "max_ns": 23598,
+          "total_ns": 32976757
         },
         "matcher_candidate_order_duplicates": {
           "count": 0
@@ -362,6 +486,18 @@
         "matcher_candidates": {
           "count": 0
         },
+        "matcher_candidates_by_source.hidden.path": {
+          "count": 0
+        },
+        "matcher_candidates_by_source.internal_hidden.path": {
+          "count": 0
+        },
+        "matcher_candidates_by_source.visible.descendant": {
+          "count": 0
+        },
+        "matcher_candidates_by_source.visible.path": {
+          "count": 0
+        },
         "matcher_family_candidates.direct_child_glob": {
           "count": 0
         },
@@ -372,40 +508,40 @@
           "count": 0
         },
         "open_confined_openat2": {
-          "avg_ns": 565,
-          "count": 266229,
-          "max_ns": 71063,
-          "total_ns": 150626708
+          "avg_ns": 487,
+          "count": 266202,
+          "max_ns": 275765,
+          "total_ns": 129664139
         },
         "open_like.post_open_revalidation.access": {
-          "avg_ns": 38228,
+          "avg_ns": 47462,
           "count": 1,
-          "max_ns": 38228,
-          "total_ns": 38228
+          "max_ns": 47462,
+          "total_ns": 47462
         },
         "open_like.post_open_revalidation.opendir": {
-          "avg_ns": 2650,
+          "avg_ns": 12388,
           "count": 26,
-          "max_ns": 3171,
-          "total_ns": 68915
+          "max_ns": 43187,
+          "total_ns": 322111
         },
         "open_like.pre_open_guard.access": {
-          "avg_ns": 31947,
+          "avg_ns": 310,
           "count": 1,
-          "max_ns": 31947,
-          "total_ns": 31947
+          "max_ns": 310,
+          "total_ns": 310
         },
         "open_like.pre_open_guard.opendir": {
-          "avg_ns": 11660,
+          "avg_ns": 205,
           "count": 26,
-          "max_ns": 39569,
-          "total_ns": 303177
+          "max_ns": 542,
+          "total_ns": 5335
         },
         "policy_decision": {
-          "avg_ns": 355,
-          "count": 1099907,
-          "max_ns": 113083,
-          "total_ns": 391038083
+          "avg_ns": 331,
+          "count": 260137,
+          "max_ns": 261309,
+          "total_ns": 86201944
         },
         "read_guard_path": {
           "avg_ns": 0,
@@ -435,22 +571,46 @@
           "total_ns": 0
         },
         "readdir_candidate_selection": {
-          "avg_ns": 315287,
+          "avg_ns": 232591,
           "count": 180,
-          "max_ns": 918589,
-          "total_ns": 56751817
+          "max_ns": 547630,
+          "total_ns": 41866385
         },
         "readdir_directory_scan": {
-          "avg_ns": 4950407,
+          "avg_ns": 856136,
           "count": 180,
-          "max_ns": 11246037,
-          "total_ns": 891073345
+          "max_ns": 1639774,
+          "total_ns": 154104624
         },
         "readdir_page_commit": {
-          "avg_ns": 636171,
+          "avg_ns": 609292,
           "count": 180,
-          "max_ns": 1956916,
-          "total_ns": 114510822
+          "max_ns": 2229552,
+          "total_ns": 109672687
+        },
+        "readdir_scan.name_child_path_materialization": {
+          "avg_ns": 51182,
+          "count": 180,
+          "max_ns": 348336,
+          "total_ns": 9212861
+        },
+        "readdir_scan.returned_child_path_materialization": {
+          "avg_ns": 164,
+          "count": 124331,
+          "max_ns": 47298,
+          "total_ns": 20506986
+        },
+        "readdir_scan.scan_fallback_attr": {
+          "avg_ns": 0,
+          "count": 180,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdir_scan.scan_visibility": {
+          "avg_ns": 29833,
+          "count": 180,
+          "max_ns": 64638,
+          "total_ns": 5370020
         },
         "readdir_symlink_visibility": {
           "avg_ns": 0,
@@ -462,28 +622,64 @@
           "count": 5828
         },
         "readdirplus_attr_generation_scan": {
-          "avg_ns": 7042,
+          "avg_ns": 936,
           "count": 5859,
-          "max_ns": 57488,
-          "total_ns": 41261806
+          "max_ns": 48574,
+          "total_ns": 5487655
         },
         "readdirplus_candidate_selection": {
-          "avg_ns": 580854,
+          "avg_ns": 405627,
           "count": 31,
-          "max_ns": 897741,
-          "total_ns": 18006488
+          "max_ns": 566773,
+          "total_ns": 12574458
         },
         "readdirplus_directory_scan": {
-          "avg_ns": 8742181,
+          "avg_ns": 1139179,
           "count": 31,
-          "max_ns": 11703487,
-          "total_ns": 271007630
+          "max_ns": 1478033,
+          "total_ns": 35314568
         },
         "readdirplus_page_commit": {
-          "avg_ns": 140624,
+          "avg_ns": 132965,
           "count": 31,
-          "max_ns": 217289,
-          "total_ns": 4359352
+          "max_ns": 310906,
+          "total_ns": 4121943
+        },
+        "readdirplus_scan.name_child_path_materialization": {
+          "avg_ns": 67225,
+          "count": 31,
+          "max_ns": 83350,
+          "total_ns": 2083988
+        },
+        "readdirplus_scan.returned_attr_hydration": {
+          "avg_ns": 941,
+          "count": 5828,
+          "max_ns": 48574,
+          "total_ns": 5487655
+        },
+        "readdirplus_scan.returned_child_path_materialization": {
+          "avg_ns": 203,
+          "count": 5828,
+          "max_ns": 2193,
+          "total_ns": 1188457
+        },
+        "readdirplus_scan.returned_policy_recheck": {
+          "avg_ns": 12,
+          "count": 5828,
+          "max_ns": 38,
+          "total_ns": 74632
+        },
+        "readdirplus_scan.scan_fallback_attr": {
+          "avg_ns": 0,
+          "count": 31,
+          "max_ns": 0,
+          "total_ns": 0
+        },
+        "readdirplus_scan.scan_visibility": {
+          "avg_ns": 55789,
+          "count": 31,
+          "max_ns": 69885,
+          "total_ns": 1729488
         },
         "readdirplus_symlink_visibility": {
           "avg_ns": 0,
@@ -492,82 +688,100 @@
           "total_ns": 0
         },
         "resolved_virtual_path": {
-          "avg_ns": 1392,
-          "count": 532218,
-          "max_ns": 317648,
-          "total_ns": 740869212
+          "avg_ns": 2294,
+          "count": 238,
+          "max_ns": 13555,
+          "total_ns": 546157
         },
         "resolved_virtual_path_from_open_fd": {
-          "avg_ns": 974,
-          "count": 266228,
-          "max_ns": 95047,
-          "total_ns": 259506483
+          "avg_ns": 2294,
+          "count": 238,
+          "max_ns": 13555,
+          "total_ns": 546157
         },
         "resolved_virtual_path_from_path": {
-          "avg_ns": 1809,
-          "count": 265990,
-          "max_ns": 317648,
-          "total_ns": 481362729
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
         },
         "resolved_virtual_path_from_path_canonicalize": {
-          "avg_ns": 923,
-          "count": 336765,
-          "max_ns": 316546,
-          "total_ns": 311071362
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
         },
         "resolved_virtual_path_from_path_component_walk": {
-          "avg_ns": 1477,
-          "count": 265990,
-          "max_ns": 317159,
-          "total_ns": 392884948
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
         },
         "resolved_virtual_path_from_path_source_root_confinement": {
-          "avg_ns": 122,
-          "count": 336765,
-          "max_ns": 55249,
-          "total_ns": 41132702
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
         },
         "resolved_virtual_path_from_path_virtual_conversion": {
-          "avg_ns": 275,
-          "count": 265990,
-          "max_ns": 24942,
-          "total_ns": 73300553
+          "avg_ns": 0,
+          "count": 0,
+          "max_ns": 0,
+          "total_ns": 0
         },
         "source_root_path": {
-          "avg_ns": 1631,
-          "count": 266202,
-          "max_ns": 87336,
-          "total_ns": 434414467
+          "avg_ns": 6433,
+          "count": 238,
+          "max_ns": 39282,
+          "total_ns": 1531222
         },
         "stat_child_no_follow": {
-          "avg_ns": 7245,
-          "count": 265991,
-          "max_ns": 324705,
-          "total_ns": 1927207007
+          "avg_ns": 895,
+          "count": 265964,
+          "max_ns": 276314,
+          "total_ns": 238040343
+        },
+        "stat_child_no_follow.attr_conversion": {
+          "avg_ns": 12,
+          "count": 265962,
+          "max_ns": 1158,
+          "total_ns": 3445150
+        },
+        "stat_child_no_follow.host_fstat": {
+          "avg_ns": 140,
+          "count": 265962,
+          "max_ns": 63049,
+          "total_ns": 37348110
+        },
+        "stat_child_no_follow_context.path_guard_or_metadata": {
+          "avg_ns": 895,
+          "count": 265964,
+          "max_ns": 276314,
+          "total_ns": 238040343
         },
         "state_read_lock_hold": {
-          "avg_ns": 65,
+          "avg_ns": 49,
           "count": 260322,
-          "max_ns": 9646,
-          "total_ns": 17162224
+          "max_ns": 50832,
+          "total_ns": 12816967
         },
         "state_read_lock_wait": {
-          "avg_ns": 21,
+          "avg_ns": 17,
           "count": 260322,
-          "max_ns": 6614,
-          "total_ns": 5706188
+          "max_ns": 14153,
+          "total_ns": 4558076
         },
         "state_write_lock_hold": {
-          "avg_ns": 1252,
+          "avg_ns": 1048,
           "count": 195344,
-          "max_ns": 1956763,
-          "total_ns": 244605170
+          "max_ns": 2229326,
+          "total_ns": 204862566
         },
         "state_write_lock_wait": {
-          "avg_ns": 20,
+          "avg_ns": 16,
           "count": 195344,
-          "max_ns": 696,
-          "total_ns": 4099769
+          "max_ns": 15339,
+          "total_ns": 3294658
         },
         "write_guard_mutation": {
           "avg_ns": 0,
@@ -588,20 +802,20 @@
           "total_ns": 0
         }
       },
-      "raw": "screenfs perf counters:\n  fuse_op.access: count=1 total_ns=76351 avg_ns=76351 max_ns=76351\n  fuse_op.getattr: count=65027 total_ns=685915947 avg_ns=10548 max_ns=327178\n  fuse_op.lookup: count=195057 total_ns=1815747171 avg_ns=9308 max_ns=337131\n  fuse_op.opendir: count=26 total_ns=428607 avg_ns=16484 max_ns=46548\n  fuse_op.readdir: count=180 total_ns=1027860571 avg_ns=5710336 max_ns=12166796\n  fuse_op.readdirplus: count=31 total_ns=327198255 avg_ns=10554782 max_ns=14124336\n  fuse_op.releasedir: count=26 total_ns=12085235 avg_ns=464816 max_ns=940392\n  fuse_op.statfs: count=2 total_ns=5725 avg_ns=2862 max_ns=3465\n  policy_decision: count=1099907 total_ns=391038083 avg_ns=355 max_ns=113083\n  matcher_candidates: count=0\n  matcher_family_candidates.direct_child_glob: count=0\n  matcher_family_candidates.recursive: count=0\n  matcher_family_candidates.subtree: count=0\n  matcher_candidate_order.descendant: count=1099907 total_ns=139152394 avg_ns=126 max_ns=331463\n  matcher_candidate_order.path: count=3299721 total_ns=434284773 avg_ns=131 max_ns=258563\n  matcher_candidate_order_duplicates: count=0\n  matcher_candidate_order_duplicates.descendant: count=0\n  matcher_candidate_order_duplicates.path: count=0\n  matcher_candidate_order_seen_slots: count=0\n  matcher_candidate_order_seen_slots.descendant: count=0\n  matcher_candidate_order_seen_slots.path: count=0\n  matcher_candidate_order_ancestor_steps: count=14971860\n  matcher_candidate_order_ancestor_steps.descendant: count=3742965\n  matcher_candidate_order_ancestor_steps.path: count=11228895\n  state_read_lock_wait: count=260322 total_ns=5706188 avg_ns=21 max_ns=6614\n  state_read_lock_hold: count=260322 total_ns=17162224 avg_ns=65 max_ns=9646\n  state_write_lock_wait: count=195344 total_ns=4099769 avg_ns=20 max_ns=696\n  state_write_lock_hold: count=195344 total_ns=244605170 avg_ns=1252 max_ns=1956763\n  open_confined_openat2: count=266229 total_ns=150626708 avg_ns=565 max_ns=71063\n  open_like.pre_open_guard.access: count=1 total_ns=31947 avg_ns=31947 max_ns=31947\n  open_like.pre_open_guard.opendir: count=26 total_ns=303177 avg_ns=11660 max_ns=39569\n  open_like.post_open_revalidation.access: count=1 total_ns=38228 avg_ns=38228 max_ns=38228\n  open_like.post_open_revalidation.opendir: count=26 total_ns=68915 avg_ns=2650 max_ns=3171\n  stat_child_no_follow: count=265991 total_ns=1927207007 avg_ns=7245 max_ns=324705\n  source_root_path: count=266202 total_ns=434414467 avg_ns=1631 max_ns=87336\n  resolved_virtual_path: count=532218 total_ns=740869212 avg_ns=1392 max_ns=317648\n  resolved_virtual_path_from_path: count=265990 total_ns=481362729 avg_ns=1809 max_ns=317648\n  resolved_virtual_path_from_path_component_walk: count=265990 total_ns=392884948 avg_ns=1477 max_ns=317159\n  resolved_virtual_path_from_path_canonicalize: count=336765 total_ns=311071362 avg_ns=923 max_ns=316546\n  resolved_virtual_path_from_path_source_root_confinement: count=336765 total_ns=41132702 avg_ns=122 max_ns=55249\n  resolved_virtual_path_from_path_virtual_conversion: count=265990 total_ns=73300553 avg_ns=275 max_ns=24942\n  resolved_virtual_path_from_open_fd: count=266228 total_ns=259506483 avg_ns=974 max_ns=95047\n  read_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_guard_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_guard_mutation: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_directory_scan: count=180 total_ns=891073345 avg_ns=4950407 max_ns=11246037\n  readdir_attr_generation_scan: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_entries: count=0\n  readdir_symlink_visibility: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_candidate_selection: count=180 total_ns=56751817 avg_ns=315287 max_ns=918589\n  readdir_page_commit: count=180 total_ns=114510822 avg_ns=636171 max_ns=1956916\n  readdirplus_directory_scan: count=31 total_ns=271007630 avg_ns=8742181 max_ns=11703487\n  readdirplus_attr_generation_scan: count=5859 total_ns=41261806 avg_ns=7042 max_ns=57488\n  readdirplus_attr_generation_entries: count=5828\n  readdirplus_symlink_visibility: count=31 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_candidate_selection: count=31 total_ns=18006488 avg_ns=580854 max_ns=897741\n  readdirplus_page_commit: count=31 total_ns=4359352 avg_ns=140624 max_ns=217289\n  invalidations: count=0 invalidated_entries=0 evicted_entries=0 scanned_entries=0"
+      "raw": "screenfs perf counters:\n  fuse_op.access: count=1 total_ns=64569 avg_ns=64569 max_ns=64569\n  fuse_op.getattr: count=65027 total_ns=183854486 avg_ns=2827 max_ns=273647\n  fuse_op.lookup: count=195057 total_ns=648750035 avg_ns=3325 max_ns=286733\n  fuse_op.opendir: count=26 total_ns=417761 avg_ns=16067 max_ns=52676\n  fuse_op.readdir: count=180 total_ns=297910046 avg_ns=1655055 max_ns=3313159\n  fuse_op.readdirplus: count=31 total_ns=47651751 avg_ns=1537153 max_ns=1896726\n  fuse_op.releasedir: count=26 total_ns=7945461 avg_ns=305594 max_ns=446016\n  fuse_op.statfs: count=2 total_ns=4569 avg_ns=2284 max_ns=2525\n  policy_decision: count=260137 total_ns=86201944 avg_ns=331 max_ns=261309\n  matcher_candidates: count=0\n  matcher_candidates_by_source.hidden.path: count=0\n  matcher_candidates_by_source.internal_hidden.path: count=0\n  matcher_candidates_by_source.visible.descendant: count=0\n  matcher_candidates_by_source.visible.path: count=0\n  matcher_family_candidates.direct_child_glob: count=0\n  matcher_family_candidates.recursive: count=0\n  matcher_family_candidates.subtree: count=0\n  matcher_candidate_order.descendant: count=260137 total_ns=29751363 avg_ns=114 max_ns=48927\n  matcher_candidate_order.path: count=780411 total_ns=101380505 avg_ns=129 max_ns=258724\n  matcher_candidate_order_by_source.hidden.path: count=260137 total_ns=33844520 avg_ns=130 max_ns=258724\n  matcher_candidate_order_by_source.internal_hidden.path: count=260137 total_ns=34559228 avg_ns=132 max_ns=50747\n  matcher_candidate_order_by_source.visible.descendant: count=260137 total_ns=29751363 avg_ns=114 max_ns=48927\n  matcher_candidate_order_by_source.visible.path: count=260137 total_ns=32976757 avg_ns=126 max_ns=23598\n  matcher_candidate_order_duplicates: count=0\n  matcher_candidate_order_duplicates.descendant: count=0\n  matcher_candidate_order_duplicates.path: count=0\n  matcher_candidate_order_seen_slots: count=0\n  matcher_candidate_order_seen_slots.descendant: count=0\n  matcher_candidate_order_seen_slots.path: count=0\n  matcher_candidate_order_ancestor_steps: count=3381424\n  matcher_candidate_order_ancestor_steps.descendant: count=845356\n  matcher_candidate_order_ancestor_steps.path: count=2536068\n  state_read_lock_wait: count=260322 total_ns=4558076 avg_ns=17 max_ns=14153\n  state_read_lock_hold: count=260322 total_ns=12816967 avg_ns=49 max_ns=50832\n  state_write_lock_wait: count=195344 total_ns=3294658 avg_ns=16 max_ns=15339\n  state_write_lock_hold: count=195344 total_ns=204862566 avg_ns=1048 max_ns=2229326\n  open_confined_openat2: count=266202 total_ns=129664139 avg_ns=487 max_ns=275765\n  open_like.pre_open_guard.access: count=1 total_ns=310 avg_ns=310 max_ns=310\n  open_like.pre_open_guard.opendir: count=26 total_ns=5335 avg_ns=205 max_ns=542\n  open_like.post_open_revalidation.access: count=1 total_ns=47462 avg_ns=47462 max_ns=47462\n  open_like.post_open_revalidation.opendir: count=26 total_ns=322111 avg_ns=12388 max_ns=43187\n  stat_child_no_follow: count=265964 total_ns=238040343 avg_ns=895 max_ns=276314\n  stat_child_no_follow.attr_conversion: count=265962 total_ns=3445150 avg_ns=12 max_ns=1158\n  stat_child_no_follow.host_fstat: count=265962 total_ns=37348110 avg_ns=140 max_ns=63049\n  stat_child_no_follow_context.path_guard_or_metadata: count=265964 total_ns=238040343 avg_ns=895 max_ns=276314\n  source_root_path: count=238 total_ns=1531222 avg_ns=6433 max_ns=39282\n  resolved_virtual_path: count=238 total_ns=546157 avg_ns=2294 max_ns=13555\n  resolved_virtual_path_from_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_path_component_walk: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_path_canonicalize: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_path_source_root_confinement: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_path_virtual_conversion: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_open_fd: count=238 total_ns=546157 avg_ns=2294 max_ns=13555\n  read_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_guard_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_guard_mutation: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_directory_scan: count=180 total_ns=154104624 avg_ns=856136 max_ns=1639774\n  readdir_scan.name_child_path_materialization: count=180 total_ns=9212861 avg_ns=51182 max_ns=348336\n  readdir_scan.returned_child_path_materialization: count=124331 total_ns=20506986 avg_ns=164 max_ns=47298\n  readdir_scan.scan_fallback_attr: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_scan.scan_visibility: count=180 total_ns=5370020 avg_ns=29833 max_ns=64638\n  readdir_attr_generation_scan: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_entries: count=0\n  readdir_symlink_visibility: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_candidate_selection: count=180 total_ns=41866385 avg_ns=232591 max_ns=547630\n  readdir_page_commit: count=180 total_ns=109672687 avg_ns=609292 max_ns=2229552\n  readdirplus_directory_scan: count=31 total_ns=35314568 avg_ns=1139179 max_ns=1478033\n  readdirplus_scan.name_child_path_materialization: count=31 total_ns=2083988 avg_ns=67225 max_ns=83350\n  readdirplus_scan.returned_attr_hydration: count=5828 total_ns=5487655 avg_ns=941 max_ns=48574\n  readdirplus_scan.returned_child_path_materialization: count=5828 total_ns=1188457 avg_ns=203 max_ns=2193\n  readdirplus_scan.returned_policy_recheck: count=5828 total_ns=74632 avg_ns=12 max_ns=38\n  readdirplus_scan.scan_fallback_attr: count=31 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_scan.scan_visibility: count=31 total_ns=1729488 avg_ns=55789 max_ns=69885\n  readdirplus_attr_generation_scan: count=5859 total_ns=5487655 avg_ns=936 max_ns=48574\n  readdirplus_attr_generation_entries: count=5828\n  readdirplus_symlink_visibility: count=31 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_candidate_selection: count=31 total_ns=12574458 avg_ns=405627 max_ns=566773\n  readdirplus_page_commit: count=31 total_ns=4121943 avg_ns=132965 max_ns=310906\n  invalidations: count=0 invalidated_entries=0 evicted_entries=0 scanned_entries=0"
     },
     "source": {
-      "git_revision": "920c00e4308596bc285b236ae58139b30e24b0cb",
-      "git_status_porcelain": "M docs/artifacts/current-metadata-opendir-smoke.json\n M docs/artifacts/current-metadata-opendir-smoke.md\n M docs/artifacts/current-metadata-opendir-smoke.svg\n M docs/artifacts/current-next-performance-candidates.md\n M docs/artifacts/current-open-confined-surface-smoke.json\n M docs/artifacts/current-open-confined-surface-smoke.md\n M docs/artifacts/current-open-confined-surface-smoke.svg\n M docs/artifacts/current-policy-heavy-matrix-smoke.json\n M docs/artifacts/current-policy-heavy-matrix-smoke.md\n M docs/artifacts/current-policy-heavy-matrix-smoke.svg\n M docs/benchmarks.md\n M docs/performance-roadmap.md\n M scripts/bench-screenfs.py\n M scripts/test_bench_screenfs_workloads.py\n M src/fs.rs\n M src/fs/guards.rs\n M src/fs/perf.rs\n M src/fs/tests/perf.rs\n?? docs/artifacts/current-matcher-descendant-directory-smoke.json\n?? docs/artifacts/current-matcher-descendant-directory-smoke.md\n?? docs/artifacts/current-matcher-descendant-directory-smoke.svg\n?? docs/artifacts/matcher-descendant-combined-probe/\n?? docs/artifacts/mutation-invalidation-breadth-index/",
+      "git_revision": "bdc2ceafb1c61bbecab37ab28abf2df2be264ca7",
+      "git_status_porcelain": "M docs/artifacts/current-directory-symlink-surface-smoke.json\n M docs/artifacts/current-directory-symlink-surface-smoke.md\n M docs/artifacts/current-directory-symlink-surface-smoke.svg\n M docs/artifacts/current-matcher-descendant-directory-smoke.json\n M docs/artifacts/current-matcher-descendant-directory-smoke.md\n M docs/artifacts/current-matcher-descendant-directory-smoke.svg\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/matcher-readonly-access-wok.json\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/matcher-readonly-access-wok.md\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/matcher-readonly-access-wok.svg\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/read-only-close-surface-matcher32.json\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/read-only-close-surface-matcher32.md\n M docs/artifacts/current-matcher-mutability-source-attribution-smoke/read-only-close-surface-matcher32.svg\n M docs/artifacts/current-matcher-source-attribution-smoke/policy-heavy-matrix-smoke.json\n M docs/artifacts/current-matcher-source-attribution-smoke/policy-heavy-matrix-smoke.md\n M docs/artifacts/current-matcher-source-attribution-smoke/policy-heavy-matrix-smoke.svg\n M docs/artifacts/current-metadata-opendir-smoke.json\n M docs/artifacts/current-metadata-opendir-smoke.md\n M docs/artifacts/current-metadata-opendir-smoke.svg\n M docs/artifacts/current-mutation-invalidation-set-smoke.json\n M docs/artifacts/current-mutation-invalidation-set-smoke.md\n M docs/artifacts/current-mutation-invalidation-set-smoke.svg\n M docs/artifacts/current-mutation-invalidation-smoke.json\n M docs/artifacts/current-mutation-invalidation-smoke.md\n M docs/artifacts/current-mutation-invalidation-smoke.svg\n M docs/artifacts/current-open-confined-surface-smoke.json\n M docs/artifacts/current-open-confined-surface-smoke.md\n M docs/artifacts/current-open-confined-surface-smoke.svg\n M docs/artifacts/current-perf-counter-benchmark-result.json\n M docs/artifacts/current-perf-counter-benchmark-result.md\n M docs/artifacts/current-perf-counter-benchmark-result.png\n M docs/artifacts/current-perf-counter-benchmark-result.svg\n M docs/artifacts/current-pinned-mutation-invalidation-smoke.json\n M docs/artifacts/current-pinned-mutation-invalidation-smoke.md\n M docs/artifacts/current-pinned-mutation-invalidation-smoke.svg\n M docs/artifacts/current-policy-heavy-matrix-smoke.json\n M docs/artifacts/current-policy-heavy-matrix-smoke.md\n M docs/artifacts/current-policy-heavy-matrix-smoke.svg\n M docs/artifacts/current-read-write-surface-smoke.json\n M docs/artifacts/current-read-write-surface-smoke.md\n M docs/artifacts/current-read-write-surface-smoke.svg\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fallback-matcher32-directory-surface.json\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fallback-matcher32-directory-surface.md\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fallback-matcher32-directory-surface.svg\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-directory-surface.json\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-directory-surface.md\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-directory-surface.svg\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-readdirplus-20k.json\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-readdirplus-20k.md\n M docs/artifacts/current-readdirplus-page-scan-attribution-smoke/fast-readdirplus-20k.svg\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fallback-unsafe-policy-matcher32-policy-heavy-matrix.json\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fallback-unsafe-policy-matcher32-policy-heavy-matrix.md\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fallback-unsafe-policy-matcher32-policy-heavy-matrix.png\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fallback-unsafe-policy-matcher32-policy-heavy-matrix.svg\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-directory-surface.json\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-directory-surface.md\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-directory-surface.png\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-directory-surface.svg\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-metadata-open-path.json\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-metadata-open-path.md\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-metadata-open-path.png\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-metadata-open-path.svg\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-sync-surface.json\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-sync-surface.md\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-sync-surface.png\n M docs/artifacts/metadata-open-path-claim/current-worktree-03bfdeb82ced-fast-path-cache-eligible-sync-surface.svg\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.json\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.md\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.svg\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.json\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.md\n M docs/artifacts/read-write-cold-cache-approx/current-fallback-unsafe-policy-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.svg\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.json\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.md\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs-posix-fadvise-read-fixture.svg\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.json\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.md\n M docs/artifacts/read-write-cold-cache-approx/current-fast-path-cache-eligible-read-write-surface-storage-btrfs-posix-fadvise-read-fixture.svg\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-io.json\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-io.md\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-io.svg\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-seq-256mib.json\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-seq-256mib.md\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface-large-seq-256mib.svg\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface.json\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface.md\n M docs/artifacts/read-write-followup-current/current-fallback-unsafe-policy-read-write-surface.svg\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-io.json\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-io.md\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-io.svg\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-seq-256mib.json\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-seq-256mib.md\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface-large-seq-256mib.svg\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface.json\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface.md\n M docs/artifacts/read-write-followup-current/current-fast-path-cache-eligible-read-write-surface.svg\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs.json\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs.md\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-concurrency-storage-btrfs.svg\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.json\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.md\n M docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.svg\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs.json\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs.md\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-concurrency-storage-btrfs.svg\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-surface-storage-btrfs.json\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-surface-storage-btrfs.md\n M docs/artifacts/read-write-storage-backed/current-fast-path-cache-eligible-read-write-surface-storage-btrfs.svg\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-directory-surface-5k.json\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-directory-surface-5k.md\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-directory-surface-5k.svg\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-readdirplus-basic-20k.json\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-readdirplus-basic-20k.md\n M docs/artifacts/readdirplus-20k-policy-ablation/current-fallback-unsafe-policy-readdirplus-basic-20k.svg\n?? docs/artifacts/current-benchmark-rerun.log",
       "git_worktree_clean": false,
-      "source_root": "/home/spi-ca/Codebase/screenfs",
-      "source_root_origin": "inferred-from-screenfs-bin"
+      "source_root": ".",
+      "source_root_origin": "cli"
     },
-    "stderr_log": "/tmp/screenfs-bench-auxcee2z/screenfs.stderr.log",
-    "stderr_preview": "r: count=26 total_ns=12085235 avg_ns=464816 max_ns=940392\n  fuse_op.statfs: count=2 total_ns=5725 avg_ns=2862 max_ns=3465\n  policy_decision: count=1099907 total_ns=391038083 avg_ns=355 max_ns=113083\n  matcher_candidates: count=0\n  matcher_family_candidates.direct_child_glob: count=0\n  matcher_family_candidates.recursive: count=0\n  matcher_family_candidates.subtree: count=0\n  matcher_candidate_order.descendant: count=1099907 total_ns=139152394 avg_ns=126 max_ns=331463\n  matcher_candidate_order.path: count=3299721 total_ns=434284773 avg_ns=131 max_ns=258563\n  matcher_candidate_order_duplicates: count=0\n  matcher_candidate_order_duplicates.descendant: count=0\n  matcher_candidate_order_duplicates.path: count=0\n  matcher_candidate_order_seen_slots: count=0\n  matcher_candidate_order_seen_slots.descendant: count=0\n  matcher_candidate_order_seen_slots.path: count=0\n  matcher_candidate_order_ancestor_steps: count=14971860\n  matcher_candidate_order_ancestor_steps.descendant: count=3742965\n  matcher_candidate_order_ancestor_steps.path: count=11228895\n  state_read_lock_wait: count=260322 total_ns=5706188 avg_ns=21 max_ns=6614\n  state_read_lock_hold: count=260322 total_ns=17162224 avg_ns=65 max_ns=9646\n  state_write_lock_wait: count=195344 total_ns=4099769 avg_ns=20 max_ns=696\n  state_write_lock_hold: count=195344 total_ns=244605170 avg_ns=1252 max_ns=1956763\n  open_confined_openat2: count=266229 total_ns=150626708 avg_ns=565 max_ns=71063\n  open_like.pre_open_guard.access: count=1 total_ns=31947 avg_ns=31947 max_ns=31947\n  open_like.pre_open_guard.opendir: count=26 total_ns=303177 avg_ns=11660 max_ns=39569\n  open_like.post_open_revalidation.access: count=1 total_ns=38228 avg_ns=38228 max_ns=38228\n  open_like.post_open_revalidation.opendir: count=26 total_ns=68915 avg_ns=2650 max_ns=3171\n  stat_child_no_follow: count=265991 total_ns=1927207007 avg_ns=7245 max_ns=324705\n  source_root_path: count=266202 total_ns=434414467 avg_ns=1631 max_ns=87336\n  resolved_virtual_path: count=532218 total_ns=740869212 avg_ns=1392 max_ns=317648\n  resolved_virtual_path_from_path: count=265990 total_ns=481362729 avg_ns=1809 max_ns=317648\n  resolved_virtual_path_from_path_component_walk: count=265990 total_ns=392884948 avg_ns=1477 max_ns=317159\n  resolved_virtual_path_from_path_canonicalize: count=336765 total_ns=311071362 avg_ns=923 max_ns=316546\n  resolved_virtual_path_from_path_source_root_confinement: count=336765 total_ns=41132702 avg_ns=122 max_ns=55249\n  resolved_virtual_path_from_path_virtual_conversion: count=265990 total_ns=73300553 avg_ns=275 max_ns=24942\n  resolved_virtual_path_from_open_fd: count=266228 total_ns=259506483 avg_ns=974 max_ns=95047\n  read_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_guard_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_guard_mutation: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_directory_scan: count=180 total_ns=891073345 avg_ns=4950407 max_ns=11246037\n  readdir_attr_generation_scan: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_entries: count=0\n  readdir_symlink_visibility: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_candidate_selection: count=180 total_ns=56751817 avg_ns=315287 max_ns=918589\n  readdir_page_commit: count=180 total_ns=114510822 avg_ns=636171 max_ns=1956916\n  readdirplus_directory_scan: count=31 total_ns=271007630 avg_ns=8742181 max_ns=11703487\n  readdirplus_attr_generation_scan: count=5859 total_ns=41261806 avg_ns=7042 max_ns=57488\n  readdirplus_attr_generation_entries: count=5828\n  readdirplus_symlink_visibility: count=31 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_candidate_selection: count=31 total_ns=18006488 avg_ns=580854 max_ns=897741\n  readdirplus_page_commit: count=31 total_ns=4359352 avg_ns=140624 max_ns=217289\n  invalidations: count=0 invalidated_entries=0 evicted_entries=0 scanned_entries=0\n"
+    "stderr_log": "/tmp/screenfs-bench-a9cnou7g/screenfs.stderr.log",
+    "stderr_preview": "l_ns=4558076 avg_ns=17 max_ns=14153\n  state_read_lock_hold: count=260322 total_ns=12816967 avg_ns=49 max_ns=50832\n  state_write_lock_wait: count=195344 total_ns=3294658 avg_ns=16 max_ns=15339\n  state_write_lock_hold: count=195344 total_ns=204862566 avg_ns=1048 max_ns=2229326\n  open_confined_openat2: count=266202 total_ns=129664139 avg_ns=487 max_ns=275765\n  open_like.pre_open_guard.access: count=1 total_ns=310 avg_ns=310 max_ns=310\n  open_like.pre_open_guard.opendir: count=26 total_ns=5335 avg_ns=205 max_ns=542\n  open_like.post_open_revalidation.access: count=1 total_ns=47462 avg_ns=47462 max_ns=47462\n  open_like.post_open_revalidation.opendir: count=26 total_ns=322111 avg_ns=12388 max_ns=43187\n  stat_child_no_follow: count=265964 total_ns=238040343 avg_ns=895 max_ns=276314\n  stat_child_no_follow.attr_conversion: count=265962 total_ns=3445150 avg_ns=12 max_ns=1158\n  stat_child_no_follow.host_fstat: count=265962 total_ns=37348110 avg_ns=140 max_ns=63049\n  stat_child_no_follow_context.path_guard_or_metadata: count=265964 total_ns=238040343 avg_ns=895 max_ns=276314\n  source_root_path: count=238 total_ns=1531222 avg_ns=6433 max_ns=39282\n  resolved_virtual_path: count=238 total_ns=546157 avg_ns=2294 max_ns=13555\n  resolved_virtual_path_from_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_path_component_walk: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_path_canonicalize: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_path_source_root_confinement: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_path_virtual_conversion: count=0 total_ns=0 avg_ns=0 max_ns=0\n  resolved_virtual_path_from_open_fd: count=238 total_ns=546157 avg_ns=2294 max_ns=13555\n  read_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_guard_path: count=0 total_ns=0 avg_ns=0 max_ns=0\n  read_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_handle_snapshot: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_guard_mutation: count=0 total_ns=0 avg_ns=0 max_ns=0\n  write_io: count=0 total_ns=0 avg_ns=0 max_ns=0\n  readdir_directory_scan: count=180 total_ns=154104624 avg_ns=856136 max_ns=1639774\n  readdir_scan.name_child_path_materialization: count=180 total_ns=9212861 avg_ns=51182 max_ns=348336\n  readdir_scan.returned_child_path_materialization: count=124331 total_ns=20506986 avg_ns=164 max_ns=47298\n  readdir_scan.scan_fallback_attr: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_scan.scan_visibility: count=180 total_ns=5370020 avg_ns=29833 max_ns=64638\n  readdir_attr_generation_scan: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_attr_generation_entries: count=0\n  readdir_symlink_visibility: count=180 total_ns=0 avg_ns=0 max_ns=0\n  readdir_candidate_selection: count=180 total_ns=41866385 avg_ns=232591 max_ns=547630\n  readdir_page_commit: count=180 total_ns=109672687 avg_ns=609292 max_ns=2229552\n  readdirplus_directory_scan: count=31 total_ns=35314568 avg_ns=1139179 max_ns=1478033\n  readdirplus_scan.name_child_path_materialization: count=31 total_ns=2083988 avg_ns=67225 max_ns=83350\n  readdirplus_scan.returned_attr_hydration: count=5828 total_ns=5487655 avg_ns=941 max_ns=48574\n  readdirplus_scan.returned_child_path_materialization: count=5828 total_ns=1188457 avg_ns=203 max_ns=2193\n  readdirplus_scan.returned_policy_recheck: count=5828 total_ns=74632 avg_ns=12 max_ns=38\n  readdirplus_scan.scan_fallback_attr: count=31 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_scan.scan_visibility: count=31 total_ns=1729488 avg_ns=55789 max_ns=69885\n  readdirplus_attr_generation_scan: count=5859 total_ns=5487655 avg_ns=936 max_ns=48574\n  readdirplus_attr_generation_entries: count=5828\n  readdirplus_symlink_visibility: count=31 total_ns=0 avg_ns=0 max_ns=0\n  readdirplus_candidate_selection: count=31 total_ns=12574458 avg_ns=405627 max_ns=566773\n  readdirplus_page_commit: count=31 total_ns=4121943 avg_ns=132965 max_ns=310906\n  invalidations: count=0 invalidated_entries=0 evicted_entries=0 scanned_entries=0\n"
   },
   "screenfs_only": [],
-  "timestamp": "2026-06-20T17:03:25.766255+00:00",
+  "timestamp": "2026-07-01T05:16:36.696692+00:00",
   "workloads": {
     "comparable": [
       "readdir_basic",

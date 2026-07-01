@@ -41,7 +41,7 @@ This audit maps the active benchmark/performance continuation work to concrete e
 
 ## Current validation evidence
 
-Observed current validation is recorded in `current-benchmark-continuation-validation.log` and includes:
+Observed current benchmark refresh evidence is recorded in `current-benchmark-rerun.log`; validation is recorded in `current-benchmark-continuation-validation.log` and includes:
 
 - Python harness tests: `scripts/test_bench_screenfs.py` and `scripts/test_bench_screenfs_workloads.py`.
 - Rust checks: `cargo fmt --check`, `cargo check`, `cargo check --features perf-counters`, `cargo clippy --all-targets --all-features`, and `cargo test --all-targets --all-features`.

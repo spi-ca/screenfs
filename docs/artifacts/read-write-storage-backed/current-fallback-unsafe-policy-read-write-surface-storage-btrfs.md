@@ -1,17 +1,17 @@
 # ScreenFS benchmark result
 
-- timestamp: `2026-06-20T18:10:07.027120+00:00`
-- harness_command_line: `python3 scripts/bench-screenfs.py --perf-counters --screenfs-bin target/release/screenfs --policy-preset fallback-unsafe-policy --workload-set read-write-surface --read-mib 256 --write-mib 256 --iterations 5 --warmups 2 --output-json docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.json --output-md docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.md --output-svg docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.svg`
+- timestamp: `2026-07-01T05:15:52.848895+00:00`
+- harness_command_line: `/usr/bin/python3 scripts/bench-screenfs.py --screenfs-bin target/release/screenfs --screenfs-source-root . --perf-counters --policy-preset fallback-unsafe-policy --workload-set read-write-surface --iterations 5 --warmups 2 --read-mib 256 --write-mib 256 --small-io-bytes 4096 --small-io-ops 1024 --sync-bytes 4096 --sync-ops 128 --small-files 2000 --dir-entries 5000 --rand-io-ops 16384 --concurrency-workers 4 --open-read-close-ops 4096 --metadata-ops 512 --sync-4k-fsync-every 32 --hidden-misses 2000 --matcher-extra-rules 0 --matcher-misses 2000 --symlink-parent-mutations 2000 --output-json /home/spi-ca/Codebase/screenfs/docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.json --output-md /home/spi-ca/Codebase/screenfs/docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.md --output-svg /home/spi-ca/Codebase/screenfs/docs/artifacts/read-write-storage-backed/current-fallback-unsafe-policy-read-write-surface-storage-btrfs.svg`
 - harness_repo_root: `/home/spi-ca/Codebase/screenfs`
-- git: `920c00e4308596bc285b236ae58139b30e24b0cb`
-- git_dirty_status: `M docs/artifacts/current-metadata-opendir-smoke.json;  M docs/artifacts/current-metadata-opendir-smoke.md;  M docs/artifacts/current-metadata-opendir-smoke.svg;  M docs/artifacts/current-next-performance-candidates.md;  M docs/artifacts/current-open-confined-surface-smoke.json; ... (+24 more)`
+- git: `bdc2ceafb1c61bbecab37ab28abf2df2be264ca7`
+- git_dirty_status: `M docs/artifacts/current-directory-symlink-surface-smoke.json;  M docs/artifacts/current-directory-symlink-surface-smoke.md;  M docs/artifacts/current-directory-symlink-surface-smoke.svg;  M docs/artifacts/current-matcher-descendant-directory-smoke.json;  M docs/artifacts/current-matcher-descendant-directory-smoke.md; ... (+94 more)`
 - git_worktree_clean: `False`
 - screenfs_bin: `target/release/screenfs`
-- screenfs_bin_sha256: `59186deeaba2e91862cbf5c05f63a556346f7f0b491793bccc7d7aa145b95422`
-- screenfs_source_root: `/home/spi-ca/Codebase/screenfs`
-- screenfs_source_root_origin: `inferred-from-screenfs-bin`
-- screenfs_source_git_dirty_status: `M docs/artifacts/current-metadata-opendir-smoke.json;  M docs/artifacts/current-metadata-opendir-smoke.md;  M docs/artifacts/current-metadata-opendir-smoke.svg;  M docs/artifacts/current-next-performance-candidates.md;  M docs/artifacts/current-open-confined-surface-smoke.json; ... (+24 more)`
-- screenfs_source_git: `920c00e4308596bc285b236ae58139b30e24b0cb`
+- screenfs_bin_sha256: `9a7935e61d81818a603cdf2db732726ac83cba83aeb7098f92dd9cbdd19a7378`
+- screenfs_source_root: `.`
+- screenfs_source_root_origin: `cli`
+- screenfs_source_git: `bdc2ceafb1c61bbecab37ab28abf2df2be264ca7`
+- screenfs_source_git_dirty_status: `M docs/artifacts/current-directory-symlink-surface-smoke.json;  M docs/artifacts/current-directory-symlink-surface-smoke.md;  M docs/artifacts/current-directory-symlink-surface-smoke.svg;  M docs/artifacts/current-matcher-descendant-directory-smoke.json;  M docs/artifacts/current-matcher-descendant-directory-smoke.md; ... (+94 more)`
 - screenfs_source_git_worktree_clean: `False`
 - policy_preset: `fallback-unsafe-policy`
 - policy_bucket: `fallback-unsafe-policy`
@@ -21,6 +21,11 @@
 - workload_set: `read-write-surface`
 - comparable_workloads: `seq_read, seq_write, small_read, small_write, rand_read_4k, rand_write_4k`
 - screenfs_only_workloads: `(none)`
+- cache_control: `warm`
+- cache_control_scope: `no explicit cache eviction; existing warm-cache behavior`
+- cache_control_timing_applied: `False`
+- cache_control_applications: `0`
+- cache_control_notes: `warm mode leaves cache state unchanged before warmups and measured samples`
 - concurrency_workers: `4`
 - iterations: `5`, warmups: `2`
 
@@ -28,12 +33,12 @@
 
 | workload | native p50 s | mounted p50 s | ratio mounted/native | mounted p90 s | mounted p95 s | mounted p99 s |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| seq_read | 0.048588 | 0.196820 | 4.051 | 0.200249 | 0.201008 | 0.201616 |
-| seq_write | 0.077392 | 0.191252 | 2.471 | 0.202961 | 0.204840 | 0.206343 |
-| small_read | 0.000819 | 0.027007 | 32.963 | 0.027320 | 0.027374 | 0.027418 |
-| small_write | 0.001820 | 0.068683 | 37.729 | 0.069726 | 0.069806 | 0.069869 |
-| rand_read_4k | 0.023776 | 0.968289 | 40.726 | 0.975795 | 0.976014 | 0.976190 |
-| rand_write_4k | 0.041455 | 1.609473 | 38.825 | 1.612224 | 1.612509 | 1.612736 |
+| seq_read | 0.047499 | 0.172900 | 3.640 | 0.174530 | 0.174532 | 0.174533 |
+| seq_write | 0.086128 | 0.153395 | 1.781 | 0.209467 | 0.211175 | 0.212541 |
+| small_read | 0.000739 | 0.017574 | 23.794 | 0.018286 | 0.018497 | 0.018666 |
+| small_write | 0.001350 | 0.049408 | 36.595 | 0.050238 | 0.050484 | 0.050680 |
+| rand_read_4k | 0.024393 | 0.536805 | 22.007 | 0.541979 | 0.542182 | 0.542344 |
+| rand_write_4k | 0.039345 | 1.081174 | 27.479 | 1.283895 | 1.304806 | 1.321536 |
 
 ## ScreenFS-only workloads
 
@@ -46,65 +51,80 @@ Perf counters were enabled and captured from ScreenFS stderr after unmount/termi
 
 ```text
 screenfs perf counters:
-  fuse_op.access: count=1 total_ns=65125 avg_ns=65125 max_ns=65125
-  fuse_op.create: count=21 total_ns=3437684 avg_ns=163699 max_ns=246255
-  fuse_op.flush: count=21 total_ns=2188992592 avg_ns=104237742 max_ns=362796009
-  fuse_op.getattr: count=123684 total_ns=2667703541 avg_ns=21568 max_ns=630489
-  fuse_op.getxattr: count=123655 total_ns=3772222476 avg_ns=30506 max_ns=319493
-  fuse_op.lookup: count=236 total_ns=5625920 avg_ns=23838 max_ns=74531
-  fuse_op.open: count=21 total_ns=596622 avg_ns=28410 max_ns=65566
-  fuse_op.read: count=116872 total_ns=3472303498 avg_ns=29710 max_ns=555658
-  fuse_op.release: count=42 total_ns=148961 avg_ns=3546 max_ns=6848
-  fuse_op.setattr: count=7 total_ns=589476 avg_ns=84210 max_ns=132747
-  fuse_op.statfs: count=2 total_ns=5848 avg_ns=2924 max_ns=4314
-  fuse_op.unlink: count=21 total_ns=155905920 avg_ns=7424091 max_ns=12893789
-  fuse_op.write: count=123648 total_ns=4857602143 avg_ns=39285 max_ns=1341420
-  policy_decision: count=1835799 total_ns=960220382 avg_ns=523 max_ns=312031
+  fuse_op.access: count=1 total_ns=73188 avg_ns=73188 max_ns=73188
+  fuse_op.create: count=21 total_ns=2166364 avg_ns=103160 max_ns=158382
+  fuse_op.flush: count=21 total_ns=2385018642 avg_ns=113572316 max_ns=338094005
+  fuse_op.getattr: count=123684 total_ns=1312264777 avg_ns=10609 max_ns=642970
+  fuse_op.getxattr: count=123655 total_ns=2075816599 avg_ns=16787 max_ns=978368
+  fuse_op.lookup: count=236 total_ns=4165361 avg_ns=17649 max_ns=69473
+  fuse_op.open: count=21 total_ns=377980 avg_ns=17999 max_ns=26955
+  fuse_op.read: count=116872 total_ns=2063021765 avg_ns=17651 max_ns=667732
+  fuse_op.release: count=42 total_ns=116791 avg_ns=2780 max_ns=5611
+  fuse_op.setattr: count=7 total_ns=377533 avg_ns=53933 max_ns=59552
+  fuse_op.statfs: count=2 total_ns=3928 avg_ns=1964 max_ns=2109
+  fuse_op.unlink: count=21 total_ns=148065117 avg_ns=7050719 max_ns=15295993
+  fuse_op.write: count=123648 total_ns=3355307730 avg_ns=27135 max_ns=5596923
+  policy_decision: count=1347459 total_ns=673730280 avg_ns=500 max_ns=330401
   matcher_candidates: count=0
+  matcher_candidates_by_source.hidden.path: count=0
+  matcher_candidates_by_source.internal_hidden.path: count=0
+  matcher_candidates_by_source.readonly.path: count=0
+  matcher_candidates_by_source.visible.descendant: count=0
+  matcher_candidates_by_source.visible.path: count=0
+  matcher_candidates_by_source.writable.path: count=0
   matcher_family_candidates.direct_child_glob: count=0
   matcher_family_candidates.recursive: count=0
   matcher_family_candidates.subtree: count=0
-  matcher_candidate_order.descendant: count=1588342 total_ns=245740983 avg_ns=154 max_ns=88656
-  matcher_candidate_order.path: count=5259940 total_ns=1045036050 avg_ns=198 max_ns=262351
+  matcher_candidate_order.descendant: count=1100002 total_ns=158007953 avg_ns=143 max_ns=257786
+  matcher_candidate_order.path: count=3794920 total_ns=682812117 avg_ns=179 max_ns=267095
+  matcher_candidate_order_by_source.hidden.path: count=1100002 total_ns=262946050 avg_ns=239 max_ns=54531
+  matcher_candidate_order_by_source.internal_hidden.path: count=1100002 total_ns=168402508 avg_ns=153 max_ns=267095
+  matcher_candidate_order_by_source.readonly.path: count=247457 total_ns=57329373 avg_ns=231 max_ns=85182
+  matcher_candidate_order_by_source.visible.descendant: count=1100002 total_ns=158007953 avg_ns=143 max_ns=257786
+  matcher_candidate_order_by_source.visible.path: count=1100002 total_ns=158671462 avg_ns=144 max_ns=18281
+  matcher_candidate_order_by_source.writable.path: count=247457 total_ns=35462724 avg_ns=143 max_ns=45880
   matcher_candidate_order_duplicates: count=0
   matcher_candidate_order_duplicates.descendant: count=0
   matcher_candidate_order_duplicates.path: count=0
-  matcher_candidate_order_seen_slots: count=1835799
+  matcher_candidate_order_seen_slots: count=1347459
   matcher_candidate_order_seen_slots.descendant: count=0
-  matcher_candidate_order_seen_slots.path: count=1835799
-  matcher_candidate_order_ancestor_steps: count=25436832
-  matcher_candidate_order_ancestor_steps.descendant: count=5864336
-  matcher_candidate_order_ancestor_steps.path: count=19572496
-  state_read_lock_wait: count=488187 total_ns=12042930 avg_ns=24 max_ns=4021
-  state_read_lock_hold: count=488187 total_ns=46106688 avg_ns=94 max_ns=60618
-  state_write_lock_wait: count=318 total_ns=13189 avg_ns=41 max_ns=427
-  state_write_lock_hold: count=318 total_ns=430855 avg_ns=1354 max_ns=22721
-  open_confined_openat2: count=612067 total_ns=463610606 avg_ns=757 max_ns=554904
-  open_like.pre_open_guard.access: count=1 total_ns=56327 avg_ns=56327 max_ns=56327
-  open_like.pre_open_guard.open: count=21 total_ns=458698 avg_ns=21842 max_ns=55644
-  open_like.post_open_revalidation.access: count=1 total_ns=3889 avg_ns=3889 max_ns=3889
-  open_like.post_open_revalidation.open: count=21 total_ns=67934 avg_ns=3234 max_ns=4179
-  stat_child_no_follow: count=488341 total_ns=5962991666 avg_ns=12210 max_ns=619366
-  source_root_path: count=735679 total_ns=1809630632 avg_ns=2459 max_ns=499588
-  resolved_virtual_path: count=1829202 total_ns=6775254019 avg_ns=3703 max_ns=585801
-  resolved_virtual_path_from_path: count=976595 total_ns=5730679916 avg_ns=5868 max_ns=290517
-  resolved_virtual_path_from_path_component_walk: count=976595 total_ns=5257664526 avg_ns=5383 max_ns=289819
-  resolved_virtual_path_from_path_canonicalize: count=2440802 total_ns=4511316433 avg_ns=1848 max_ns=288889
-  resolved_virtual_path_from_path_source_root_confinement: count=2440802 total_ns=481750864 avg_ns=197 max_ns=95057
-  resolved_virtual_path_from_path_virtual_conversion: count=976595 total_ns=414166318 avg_ns=424 max_ns=86158
-  resolved_virtual_path_from_open_fd: count=852607 total_ns=1044574103 avg_ns=1225 max_ns=585801
-  read_handle_snapshot: count=116872 total_ns=26617277 avg_ns=227 max_ns=9205
-  read_guard_path: count=116872 total_ns=2901664507 avg_ns=24827 max_ns=550785
-  read_io: count=116872 total_ns=520166499 avg_ns=4450 max_ns=107546
-  write_handle_snapshot: count=123648 total_ns=28568593 avg_ns=231 max_ns=60861
-  write_guard_mutation: count=123648 total_ns=3838952397 avg_ns=31047 max_ns=358485
-  write_io: count=123648 total_ns=964941389 avg_ns=7803 max_ns=1250010
-  file_sync.flush: count=21 total_ns=2188941937 avg_ns=104235330 max_ns=362793032
-  read_size_bucket.0_4k: count=100800 total_ns=169650131 avg_ns=1683 max_ns=107546
-  read_size_bucket.4k_64k: count=1505 total_ns=5368413 avg_ns=3567 max_ns=15988
-  read_size_bucket.64k_1m: count=14567 total_ns=345147955 avg_ns=23693 max_ns=99717
-  write_size_bucket.0_4k: count=121856 total_ns=484463505 avg_ns=3975 max_ns=279481
-  write_size_bucket.64k_1m: count=1792 total_ns=480477884 avg_ns=268123 max_ns=1250010
+  matcher_candidate_order_seen_slots.path: count=1347459
+  matcher_candidate_order_ancestor_steps: count=19577872
+  matcher_candidate_order_ancestor_steps.descendant: count=4399596
+  matcher_candidate_order_ancestor_steps.path: count=15178276
+  state_read_lock_wait: count=488187 total_ns=14366096 avg_ns=29 max_ns=8032
+  state_read_lock_hold: count=488187 total_ns=34755667 avg_ns=71 max_ns=1059459
+  state_write_lock_wait: count=318 total_ns=10722 avg_ns=33 max_ns=414
+  state_write_lock_hold: count=318 total_ns=357142 avg_ns=1123 max_ns=16792
+  open_confined_openat2: count=612067 total_ns=330070248 avg_ns=539 max_ns=296650
+  open_like.pre_open_guard.access: count=1 total_ns=57761 avg_ns=57761 max_ns=57761
+  open_like.pre_open_guard.open: count=21 total_ns=253275 avg_ns=12060 max_ns=17229
+  open_like.post_open_revalidation.access: count=1 total_ns=9223 avg_ns=9223 max_ns=9223
+  open_like.post_open_revalidation.open: count=21 total_ns=71565 avg_ns=3407 max_ns=5535
+  stat_child_no_follow: count=488341 total_ns=505980722 avg_ns=1036 max_ns=321868
+  stat_child_no_follow.attr_conversion: count=488234 total_ns=6552050 avg_ns=13 max_ns=5143
+  stat_child_no_follow.host_fstat: count=488234 total_ns=87234673 avg_ns=178 max_ns=319519
+  stat_child_no_follow_context.path_guard_or_metadata: count=488341 total_ns=505980722 avg_ns=1036 max_ns=321868
+  source_root_path: count=611919 total_ns=1129111660 avg_ns=1845 max_ns=814724
+  resolved_virtual_path: count=852522 total_ns=3176244309 avg_ns=3725 max_ns=337896
+  resolved_virtual_path_from_path: count=488255 total_ns=2826994772 avg_ns=5789 max_ns=337896
+  resolved_virtual_path_from_path_component_walk: count=488255 total_ns=2607935098 avg_ns=5341 max_ns=330158
+  resolved_virtual_path_from_path_canonicalize: count=1464402 total_ns=2237220083 avg_ns=1527 max_ns=329068
+  resolved_virtual_path_from_path_source_root_confinement: count=1464402 total_ns=251194379 avg_ns=171 max_ns=324363
+  resolved_virtual_path_from_path_virtual_conversion: count=488255 total_ns=195152105 avg_ns=399 max_ns=332086
+  resolved_virtual_path_from_open_fd: count=364267 total_ns=349249537 avg_ns=958 max_ns=316794
+  read_handle_snapshot: count=116872 total_ns=24214240 avg_ns=207 max_ns=325120
+  read_guard_path: count=116872 total_ns=1595494897 avg_ns=13651 max_ns=341398
+  read_io: count=116872 total_ns=424181322 avg_ns=3629 max_ns=94901
+  write_handle_snapshot: count=123648 total_ns=26680000 avg_ns=215 max_ns=1059919
+  write_guard_mutation: count=123648 total_ns=2477546214 avg_ns=20037 max_ns=861896
+  write_io: count=123648 total_ns=829770055 avg_ns=6710 max_ns=5568660
+  file_sync.flush: count=21 total_ns=2384988903 avg_ns=113570900 max_ns=338092806
+  read_size_bucket.0_4k: count=100800 total_ns=95453773 avg_ns=946 max_ns=94901
+  read_size_bucket.4k_64k: count=1505 total_ns=3170406 avg_ns=2106 max_ns=11243
+  read_size_bucket.64k_1m: count=14567 total_ns=325557143 avg_ns=22348 max_ns=74736
+  write_size_bucket.0_4k: count=121856 total_ns=338053030 avg_ns=2774 max_ns=390481
+  write_size_bucket.64k_1m: count=1792 total_ns=491717025 avg_ns=274395 max_ns=5568660
   readdir_directory_scan: count=0 total_ns=0 avg_ns=0 max_ns=0
   readdir_attr_generation_scan: count=0 total_ns=0 avg_ns=0 max_ns=0
   readdir_attr_generation_entries: count=0
@@ -124,4 +144,4 @@ screenfs perf counters:
 
 - Fixture creation, build time, and mount startup are not included in workload timings.
 - Native and mounted timings use the same prepared backing fixture; write workloads use separate native/mounted output files and remove them after each iteration. Workloads that return cleanup callbacks run those deletions outside timed latency samples, but perf counters still include cleanup-side `unlink`/invalidation work before unmount.
-- Interpret results as warm-cache local evidence unless the run environment records separate cache-control steps.
+- `--cache-control=posix-fadvise-read-fixture` applies `os.posix_fadvise(..., POSIX_FADV_DONTNEED)` to selected `source/.screenfs-bench` read fixtures before each warmup and measured sample for read-side workloads; mounted runs evict backing source paths rather than mounted view paths.
