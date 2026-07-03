@@ -99,3 +99,8 @@ Current baseline artifacts:
 - [TOCTOU hardening evidence](artifacts/current-toctou-hardening-evidence.md)
 - [Perf-counter baseline summary](artifacts/current-perf-counter-baseline-summary.md)
 - [Perf-counter benchmark result](artifacts/current-perf-counter-benchmark-result.md)
+- [Three-way raw fio fixed-overhead floor](artifacts/rawlat-three-way/summary.md)
+
+Planning / pre-implementation artifacts:
+
+- [Writeback/large-I/O preflight](artifacts/writeback-large-io-preflight/summary.md) — planning/provenance guidance only, not current support evidence.

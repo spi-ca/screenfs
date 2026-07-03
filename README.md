@@ -34,13 +34,15 @@ screenfs <source-root> <mount-root> \
   [--visible <pattern> ...] \
   [--mutability-default <writable|readonly>] \
   [--readonly <pattern> ...] \
-  [--writable <pattern> ...]
+  [--writable <pattern> ...] \
+  [--experimental-writeback-cache]
 ```
 
 - `<source-root>`: backing filesystem root. whole-root view에는 보통 `/`를 쓴다.
 - `<mount-root>`: ScreenFS view를 mount할 기존 디렉터리.
 - CLI에서 한 축 옵션을 하나라도 주면 그 축의 config block 전체를 대체한다. visibility와 mutability는 독립적으로 override된다.
 - 제거된 legacy option은 compatibility mapping 없이 unknown option으로 거부한다.
+- `--experimental-writeback-cache`는 opt-in smoke/benchmark surface이며 default support claim이 아니다. `O_WRONLY` read isolation을 security boundary로 삼는 workload에는 사용하지 않는다.
 
 ## Config shape
 
@@ -127,6 +129,8 @@ Checked-in performance evidence lives under `docs/artifacts/**` and should be re
 
 - Perf-counter smoke result: [`current-perf-counter-benchmark-result.md`](docs/artifacts/current-perf-counter-benchmark-result.md), [`json`](docs/artifacts/current-perf-counter-benchmark-result.json), [`svg`](docs/artifacts/current-perf-counter-benchmark-result.svg). This current artifact uses `--workload-set all` and records the formal harness command line, workload ratios, directory/read-only-close workloads, and raw ScreenFS perf counters.
 - Post-metadata follow-up before/after evidence: [`summary.md`](docs/artifacts/post-metadata-follow-up-claim/worktree-3cb95ba/summary.md) with paired directory-surface, glob-heavy directory-surface, read-only-close-surface, and metadata-open-path artifacts.
+- Canonical three-way fixed-overhead fio floor: [`rawlat-three-way/summary.md`](docs/artifacts/rawlat-three-way/summary.md), [`boxplot svg`](docs/artifacts/rawlat-three-way/boxplot.svg). This compares native, minimal managed passthrough, and ScreenFS raw fio completion latency on the same machine; read it as baseline fixed-overhead evidence, not before/after optimization proof.
+- Writeback/large-I/O preflight: [`writeback-large-io-preflight/summary.md`](docs/artifacts/writeback-large-io-preflight/summary.md). This is planning/provenance guidance only; it is not performance evidence and does not enable `FUSE_WRITEBACK_CACHE` by default.
 - Supplemental fio attribution: [`managed-fio-attribution-summary.md`](docs/artifacts/managed-fio-attribution-summary.md), [`perf-split json`](docs/artifacts/managed-fio-attribution-perf-split.json), [`boxplot svg`](docs/artifacts/managed-fio-attribution-boxplot.svg), [`boxplot png`](docs/artifacts/managed-fio-attribution-boxplot.png). This compares native, minimal managed passthrough, and ScreenFS fio latency attribution; it is attribution evidence, not claim-grade before/after evidence.
 
 ![Current perf-counter benchmark box plot](docs/artifacts/current-perf-counter-benchmark-result.svg)

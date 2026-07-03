@@ -1,0 +1,458 @@
+{
+  "cache_control": {
+    "applications": 0,
+    "applied_files": [],
+    "errors": [],
+    "method": "warm",
+    "notes": [
+      "warm mode leaves cache state unchanged before warmups and measured samples"
+    ],
+    "scope": "no explicit cache eviction; existing warm-cache behavior",
+    "skipped": [],
+    "support_checked": true,
+    "timing_applied": false
+  },
+  "comparisons": {
+    "sync_flush_only": {
+      "mounted_median_sec": 0.0112756505,
+      "mounted_over_native_median": 17.373174284871265,
+      "mounted_p50_sec": 0.0112756505,
+      "mounted_p90_sec": 0.012009411999999999,
+      "mounted_p95_sec": 0.0120317365,
+      "mounted_p99_sec": 0.012049596099999999,
+      "native_median_sec": 0.0006490265,
+      "native_p50_sec": 0.0006490265,
+      "native_p90_sec": 0.0007618944,
+      "native_p95_sec": 0.0007629267000000001,
+      "native_p99_sec": 0.00076375254
+    },
+    "sync_fsync_only": {
+      "mounted_median_sec": 0.0038349085,
+      "mounted_over_native_median": 16.37125207847289,
+      "mounted_p50_sec": 0.0038349085,
+      "mounted_p90_sec": 0.0042669572,
+      "mounted_p95_sec": 0.004269856099999999,
+      "mounted_p99_sec": 0.00427217522,
+      "native_median_sec": 0.0002342465,
+      "native_p50_sec": 0.0002342465,
+      "native_p90_sec": 0.0002503315,
+      "native_p95_sec": 0.00025089625,
+      "native_p99_sec": 0.00025134805
+    },
+    "sync_release_flush": {
+      "mounted_median_sec": 0.0098249085,
+      "mounted_over_native_median": 20.776110739287514,
+      "mounted_p50_sec": 0.0098249085,
+      "mounted_p90_sec": 0.0101842558,
+      "mounted_p95_sec": 0.0103454449,
+      "mounted_p99_sec": 0.010474396180000001,
+      "native_median_sec": 0.0004728945,
+      "native_p50_sec": 0.0004728945,
+      "native_p90_sec": 0.0004967309,
+      "native_p95_sec": 0.00049899845,
+      "native_p99_sec": 0.00050081249
+    }
+  },
+  "environment": {
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "fusermount3": "fusermount3 version: 3.18.2",
+    "git_revision": "29f0c974548bb323f63687ee18e62ec2627412d7",
+    "git_status_porcelain": "M README.md\n M docs/README.md\n M docs/architecture.md\n M docs/benchmarks.md\n M docs/design.md\n M docs/performance-roadmap.md\n M src/cli.rs\n M src/cli_tests.rs\n M src/config.rs\n M src/config_tests.rs\n M src/fs.rs\n M src/fs/state.rs\n M src/fs/tests.rs\n M src/fs/tests/data_mutations.rs\n M src/fs/tests/perf/data_path.rs\n M src/fs/tests/state_cache.rs\n M src/fs/tests/visibility.rs\n M src/main.rs\n?? docs/artifacts/writeback-large-io-preflight/\n?? tokscale-export-20260702-222604.json",
+    "git_worktree_clean": false,
+    "harness_repo_root": "/home/spi-ca/Codebase/screenfs",
+    "mount_filesystem": {
+      "block_size": 4096,
+      "findmnt": "fuse screenfs rw,nosuid,nodev,relatime,user_id=1000,group_id=1000",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-7v9wjlk2/mount",
+      "stat_f_type": "fuse"
+    },
+    "platform": "Linux-7.2.0-rc1-1-spica-git-x86_64-with-glibc2.43",
+    "python": "3.14.6",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "source_filesystem": {
+      "block_size": 4096,
+      "findmnt": "tmpfs tmpfs rw,nosuid,nodev,relatime,lazytime,inode64,huge=within_size",
+      "fragment_size": 4096,
+      "path": "/tmp/screenfs-bench-7v9wjlk2/source",
+      "stat_f_type": "tmpfs"
+    },
+    "uname": "Linux ari14-lin 7.2.0-rc1-1-spica-git #1 SMP PREEMPT Thu, 02 Jul 2026 12:02:48 +0000 x86_64 "
+  },
+  "harness": {
+    "argv": [
+      "python3",
+      "scripts/bench-screenfs.py",
+      "--screenfs-bin",
+      "/tmp/screenfs-release-target.gn4OdT/release/screenfs",
+      "--policy-preset",
+      "fast-path-cache-eligible",
+      "--policy-label",
+      "writeback-exp-rerun-sync-surface-baseline",
+      "--workload-set",
+      "sync-surface",
+      "--iterations",
+      "10",
+      "--warmups",
+      "3",
+      "--output-json",
+      "/tmp/screenfs-writeback-bench-rerun-20260703-105424/baseline-sync-surface.json",
+      "--output-md",
+      "/tmp/screenfs-writeback-bench-rerun-20260703-105424/baseline-sync-surface.md"
+    ],
+    "command_line": "python3 scripts/bench-screenfs.py --screenfs-bin /tmp/screenfs-release-target.gn4OdT/release/screenfs --policy-preset fast-path-cache-eligible --policy-label writeback-exp-rerun-sync-surface-baseline --workload-set sync-surface --iterations 10 --warmups 3 --output-json /tmp/screenfs-writeback-bench-rerun-20260703-105424/baseline-sync-surface.json --output-md /tmp/screenfs-writeback-bench-rerun-20260703-105424/baseline-sync-surface.md"
+  },
+  "mounted": [
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "sync_flush_only",
+      "samples_sec": [
+        0.011020328,
+        0.011278128,
+        0.010851184,
+        0.010907323,
+        0.011301318,
+        0.01100546,
+        0.012054061,
+        0.012004451,
+        0.011829348,
+        0.011273173
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.012054061,
+        "mean_sec": 0.0113524774,
+        "median_sec": 0.0112756505,
+        "min_sec": 0.010851184,
+        "p50_sec": 0.0112756505,
+        "p90_sec": 0.012009411999999999,
+        "p95_sec": 0.0120317365,
+        "p99_sec": 0.012049596099999999,
+        "q1_sec": 0.011009177,
+        "q3_sec": 0.0116973405,
+        "stdev_sec": 0.0004520731024863124
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "sync_fsync_only",
+      "samples_sec": [
+        0.003532942,
+        0.004272755,
+        0.003799013,
+        0.003766703,
+        0.003773677,
+        0.003910054,
+        0.003641966,
+        0.004087807,
+        0.003870804,
+        0.004266313
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.004272755,
+        "mean_sec": 0.0038922034,
+        "median_sec": 0.0038349085,
+        "min_sec": 0.003532942,
+        "p50_sec": 0.0038349085,
+        "p90_sec": 0.0042669572,
+        "p95_sec": 0.004269856099999999,
+        "p99_sec": 0.00427217522,
+        "q1_sec": 0.0037684465,
+        "q3_sec": 0.00404336875,
+        "stdev_sec": 0.0002481007138881752
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "sync_release_flush",
+      "samples_sec": [
+        0.010065817,
+        0.010506634,
+        0.010148436,
+        0.010066981,
+        0.009851188,
+        0.009687073,
+        0.009554832,
+        0.009653027,
+        0.009798629,
+        0.009483282
+      ],
+      "side": "mounted",
+      "summary": {
+        "max_sec": 0.010506634,
+        "mean_sec": 0.0098815899,
+        "median_sec": 0.0098249085,
+        "min_sec": 0.009483282,
+        "p50_sec": 0.0098249085,
+        "p90_sec": 0.0101842558,
+        "p95_sec": 0.0103454449,
+        "p99_sec": 0.010474396180000001,
+        "q1_sec": 0.0096615385,
+        "q3_sec": 0.01006669,
+        "stdev_sec": 0.0003150839342977432
+      }
+    }
+  ],
+  "native": [
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "sync_flush_only",
+      "samples_sec": [
+        0.000643977,
+        0.000654076,
+        0.000637867,
+        0.000637371,
+        0.000637809,
+        0.00063262,
+        0.000761665,
+        0.000716697,
+        0.000684047,
+        0.000763959
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.000763959,
+        "mean_sec": 0.0006770088,
+        "median_sec": 0.0006490265,
+        "min_sec": 0.00063262,
+        "p50_sec": 0.0006490265,
+        "p90_sec": 0.0007618944,
+        "p95_sec": 0.0007629267000000001,
+        "p99_sec": 0.00076375254,
+        "q1_sec": 0.0006378235,
+        "q3_sec": 0.0007085345,
+        "stdev_sec": 5.225890425521336e-05
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "sync_fsync_only",
+      "samples_sec": [
+        0.000215405,
+        0.000213272,
+        0.00021389,
+        0.000223586,
+        0.000228647,
+        0.000239846,
+        0.000250206,
+        0.000245391,
+        0.000242881,
+        0.000251461
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.000251461,
+        "mean_sec": 0.0002324585,
+        "median_sec": 0.0002342465,
+        "min_sec": 0.000213272,
+        "p50_sec": 0.0002342465,
+        "p90_sec": 0.0002503315,
+        "p95_sec": 0.00025089625,
+        "p99_sec": 0.00025134805,
+        "q1_sec": 0.00021745025,
+        "q3_sec": 0.0002447635,
+        "stdev_sec": 1.528798949974929e-05
+      }
+    },
+    {
+      "cache_control": {
+        "applications": 0,
+        "applied_files": [],
+        "errors": [],
+        "method": "warm",
+        "notes": [
+          "warm mode leaves cache state unchanged before warmups and measured samples"
+        ],
+        "scope": "no explicit cache eviction; existing warm-cache behavior",
+        "skipped": [],
+        "support_checked": true,
+        "timing_applied": false
+      },
+      "name": "sync_release_flush",
+      "samples_sec": [
+        0.000473719,
+        0.00049187,
+        0.000501266,
+        0.000495924,
+        0.000496227,
+        0.00047207,
+        0.000447995,
+        0.000448717,
+        0.000449692,
+        0.000446939
+      ],
+      "side": "native",
+      "summary": {
+        "max_sec": 0.000501266,
+        "mean_sec": 0.0004724419,
+        "median_sec": 0.0004728945,
+        "min_sec": 0.000446939,
+        "p50_sec": 0.0004728945,
+        "p90_sec": 0.0004967309,
+        "p95_sec": 0.00049899845,
+        "p99_sec": 0.00050081249,
+        "q1_sec": 0.00044896075,
+        "q3_sec": 0.0004949105,
+        "stdev_sec": 2.274414885659851e-05
+      }
+    }
+  ],
+  "parameters": {
+    "cache_control": "warm",
+    "concurrency_workers": 4,
+    "dir_entries": 5000,
+    "hidden_misses": 2000,
+    "iterations": 10,
+    "matcher_extra_rules": 0,
+    "matcher_misses": 2000,
+    "metadata_ops": 512,
+    "open_read_close_ops": 4096,
+    "rand_io_ops": 16384,
+    "read_mib": 64,
+    "small_files": 2000,
+    "small_io_bytes": 4096,
+    "small_io_ops": 1024,
+    "symlink_parent_mutations": 2000,
+    "sync_4k_fsync_every": 32,
+    "sync_bytes": 4096,
+    "sync_ops": 128,
+    "warmups": 3,
+    "write_mib": 64
+  },
+  "paths": {
+    "mount": "/tmp/screenfs-bench-7v9wjlk2/mount",
+    "source": "/tmp/screenfs-bench-7v9wjlk2/source",
+    "workdir": "/tmp/screenfs-bench-7v9wjlk2"
+  },
+  "policy": {
+    "built_in_screenfs_args": [
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "description": "Default visible/writable policy with no hidden or readonly carve-outs.",
+    "effective_bucket": "fast-path-cache-eligible",
+    "extra_screenfs_args": [],
+    "fast_path_cache_eligible": true,
+    "hidden_paths": [],
+    "label": "writeback-exp-rerun-sync-surface-baseline",
+    "manual_policy_override_flags": [],
+    "matcher_extra_rules": 0,
+    "notes": [
+      "effective policy remains cache-eligible for the current per-open read/write fast path"
+    ],
+    "readonly_paths": [],
+    "requested_bucket": "fast-path-cache-eligible",
+    "requested_preset": "fast-path-cache-eligible",
+    "supports_hidden_stat_miss": false,
+    "supports_matcher_descendant_directory": false,
+    "supports_matcher_hidden_stat_miss": false,
+    "supports_matcher_readonly_access_wok": false,
+    "visible_paths": []
+  },
+  "schema": "screenfs-benchmark-v2",
+  "screenfs": {
+    "binary": "/tmp/screenfs-release-target.gn4OdT/release/screenfs",
+    "binary_sha256": "4dfd6aed0c02f8fb95914205df84225a95795fafd19c3499ba034d7137dd5417",
+    "command": [
+      "/tmp/screenfs-release-target.gn4OdT/release/screenfs",
+      "/tmp/screenfs-bench-7v9wjlk2/source",
+      "/tmp/screenfs-bench-7v9wjlk2/mount",
+      "--visibility-default",
+      "visible",
+      "--mutability-default",
+      "writable"
+    ],
+    "perf_counters_enabled": false,
+    "perf_summary": null,
+    "source": {
+      "git_revision": null,
+      "git_status_porcelain": null,
+      "git_worktree_clean": null,
+      "source_root": null,
+      "source_root_origin": null
+    },
+    "stderr_log": "/tmp/screenfs-bench-7v9wjlk2/screenfs.stderr.log",
+    "stderr_preview": "mounting screenfs: source=/tmp/screenfs-bench-7v9wjlk2/source mount=/tmp/screenfs-bench-7v9wjlk2/mount visibility-default=visible visibility-source=cli hidden-rules=0 visible-rules=0 mutability-default=writable mutability-source=cli readonly-rules=0 writable-rules=0 io_uring=required writeback-cache=off\n"
+  },
+  "screenfs_only": [],
+  "timestamp": "2026-07-03T01:54:44.039518+00:00",
+  "workloads": {
+    "comparable": [
+      "sync_flush_only",
+      "sync_fsync_only",
+      "sync_release_flush"
+    ],
+    "mode": "named-set",
+    "requested_names": [
+      "sync_flush_only",
+      "sync_fsync_only",
+      "sync_release_flush"
+    ],
+    "requested_set": "sync-surface",
+    "screenfs_only": [],
+    "skipped": []
+  }
+}

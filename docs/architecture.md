@@ -26,6 +26,7 @@ hidden `ENOENT`가 mutability `EROFS`보다 먼저 적용된다. mount-level `ro
 - 기본 실행 전제는 non-root이며, effective uid 0 실행은 mount 전에 거부한다.
 - mount는 `fusermount3`, FUSE3, `FUSE_OVER_IO_URING` 협상 성공 기준이다.
 - `FUSE_OVER_IO_URING`은 FUSE request/reply transport 요구이며 backing filesystem 전체를 host-side `io_uring`로 전환한다는 뜻이 아니다.
+- current `src/main.rs` mount option contract는 기본 실행에서 `write_back == false`를 유지하고, `--experimental-writeback-cache`를 받은 opt-in smoke/benchmark 실행에서만 repo-local setter로 `write_back`을 켠다. ScreenFS는 아직 `init()` override, checked-in `FuseNotifier`/kernel page-cache invalidation path를 두지 않는다. 따라서 `writeback-cache`, kernel cache invalidation, `max_write`/`max_readahead` tuning은 default architecture contract가 아니라 experiment-only scope이며, pre-implementation gate는 [`performance-roadmap.md`](performance-roadmap.md)와 [`benchmarks.md`](benchmarks.md)를 따른다.
 - 기본 접근 모델은 mount owner와 동일 host uid다. `allow_other`와 chroot/user namespace 구성은 상위 supervisor 책임이다.
 - mount lifecycle/shutdown 변경은 `SIGINT`/`SIGTERM` 감지, cancellation handoff, FUSE serve loop graceful exit, explicit `fusermount3 -u <mount-root>` cleanup, 일반 unmount 실패 시 lazy-unmount option/manual guidance까지 current evidence로 남겨야 완료다.
 - `/proc`, `/sys`, `/dev`, `/run`의 native semantics 재현도 ScreenFS 단독 책임이 아니다.

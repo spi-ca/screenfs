@@ -303,6 +303,24 @@ is_fully_visible
 - 큰 IO가 지배적이면 backing FS latency와 host-side offload 가치 검토
 - runtime blocking이 확인될 때만 data path offload를 실험
 
+#### Writeback-cache / large-I/O pre-implementation gate
+
+현재 baseline 요약:
+
+- `src/main.rs`는 기본 실행에서 `write_back == false`를 유지하고 `--experimental-writeback-cache` opt-in smoke/benchmark 실행에서만 repo-local setter로 `write_back`을 켠다. ScreenFS는 아직 `init()` override가 없으므로 negotiated `ReplyInit` payload policy는 ScreenFS-specific knob이 아니라 pinned dependency baseline에 묶여 있다.
+- `src/fs/state.rs`의 `FileHandle`은 backing `Arc<File>`, requested user-visible access mode, experimental `writeback_internal_reads` marker, `FileIoGuardCache`, `flush_needs_sync`를 저장한다. `src/fs.rs`는 policy/opened-target guard 뒤 requested access mode로 `read`/`write` wrong-direction I/O를 `EBADF` 처리하고, `write_intent`에 따라 `FOPEN_NOFLUSH`와 `flush_needs_sync`를 나누며, focused tests는 현재 user access-mode contract와 hidden/readonly precedence를 유지한다. Default mode에서는 `O_WRONLY` handle read -> `EBADF`; experimental writeback mode에서는 widened write-only handle read request가 kernel read-before-write를 위해 허용될 수 있으므로 security/isolation claim으로 쓰지 않는다. Visible writable read-only handle write -> `EBADF`, readonly policy write -> `EROFS` precedence는 유지한다.
+
+후보 1~6은 claim-grade 지원 전에 아래 gate를 먼저 문서화하고 [`artifacts/writeback-large-io-preflight/summary.md`](artifacts/writeback-large-io-preflight/summary.md)에 선언한다:
+
+1. `O_WRONLY` writeback handle semantics: default mode keeps user-visible `read()` on `O_WRONLY` as `EBADF` while partial overwrite succeeds. Opt-in `--experimental-writeback-cache` attempts to widen write-only backing opens for kernel read-before-write style internal reads when the backing file also permits read access; if widening fails with `EACCES`/`EPERM`, ScreenFS falls back to the original write-only open and internal reads remain `EBADF`. Because the FUSE `read` handler cannot currently distinguish kernel writeback reads from any other handler-level read request, this mode is not suitable for workloads that rely on `O_WRONLY` as a read-isolation/security boundary. This is covered by `src/fs/tests/data_mutations.rs` `write_only_open_allows_partial_overwrite_but_read_returns_ebadf`, `experimental_writeback_allows_internal_read_on_write_only_handle`, `experimental_writeback_falls_back_for_write_only_non_readable_file`, `experimental_writeback_preserves_truncate_and_append_flags`, and `experimental_writeback_create_falls_back_for_existing_write_only_file`. Mounted smoke is still required before any claim-grade support.
+2. `FileHandle` user access mode separation: current `read`/`write`, `fallocate`, and `copy_file_range` already use explicit per-handle requested access metadata after policy/opened-target guards. If a future candidate widens backing fd capability beyond the caller request, keep `FOPEN_NOFLUSH`, `flush_needs_sync`, `EBADF`, and revalidation rules user-request based, and re-audit any added handle-based mutation path before claiming writeback safety.
+3. kernel cache invalidation unsupported scope: current mutation invalidation은 ScreenFS `State`/directory snapshot 범위일 뿐이며 checked-in `FuseNotifier`/kernel page-cache invalidation path는 없다. rename/unlink/symlink-retarget/policy-shift cache invalidation design 없이는 `writeback-cache` safety solved라고 쓰지 않는다.
+4. `max_write`/`max_readahead` experiment gate: transport payload tuning은 free knob이 아니라 benchmarked experiment다. 값을 바꾸기 전에 same-machine `read-write-surface` baseline, targeted larger-sequential or storage-backed row, companion `per-open-cache-minimum` context, 그리고 `sync-surface` guardrail row를 함께 남긴다.
+5. `fractal-fuse` `max_pages` / page-size caveat: local dependency inspection of pinned `fractal-fuse = 0.4.0` shows a `16 MiB` session-side `max_write` cap and current `max_pages = max_write / 4096` derivation. non-`4 KiB` page-size portability나 larger negotiated payload range는 dependency-coupled caveat로 읽고 자동으로 safe하다고 가정하지 않는다.
+6. sync/flush/release surface gate: any writeback or large-I/O candidate still keeps `sync_flush_only`, `sync_fsync_only`, `sync_release_flush` split, preserves read-only `FOPEN_NOFLUSH` vs write-capable flush semantics, and never skips `release()` cleanup. mounted kernel row가 `file_sync.release_flush`를 보내지 않으면 `sync_release_flush`는 여전히 context-only다.
+
+Formal claim-grade workload rules remain in [`benchmarks.md`](benchmarks.md).
+
 ### 3. Sync-heavy surface
 
 현재 harness surface:
