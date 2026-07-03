@@ -194,6 +194,7 @@ pub struct RuntimeConfig {
     writable_rule_count: usize,
     skip_symlink_target_visibility_check: bool,
     skip_resolved_writable_target_mutability_check: bool,
+    experimental_writeback_cache: bool,
     pub attr_ttl: Duration,
     pub entry_ttl: Duration,
 }
@@ -208,6 +209,7 @@ impl RuntimeConfig {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
     }
 
@@ -217,6 +219,7 @@ impl RuntimeConfig {
             config_path,
             visibility_default,
             mutability_default,
+            experimental_writeback_cache,
         } = args;
         let context = RuleNormalizationContext::from_environment(&cli.source_root)?;
         let file_config = match config_path.as_ref() {
@@ -303,6 +306,7 @@ impl RuntimeConfig {
             writable_rule_count: mutability.writable.len(),
             skip_symlink_target_visibility_check,
             skip_resolved_writable_target_mutability_check,
+            experimental_writeback_cache,
             attr_ttl: Duration::ZERO,
             entry_ttl: Duration::ZERO,
         })
@@ -479,6 +483,10 @@ impl RuntimeConfig {
 
     pub fn can_skip_symlink_target_visibility_check(&self) -> bool {
         self.skip_symlink_target_visibility_check
+    }
+
+    pub fn experimental_writeback_cache(&self) -> bool {
+        self.experimental_writeback_cache
     }
 
     pub fn is_hidden_symlink_target(&self, link_path: &VirtualPath, raw_target: &OsStr) -> bool {

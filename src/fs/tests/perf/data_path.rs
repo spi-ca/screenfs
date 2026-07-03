@@ -21,6 +21,7 @@ fn perf_counters_record_data_path_splits_on_success() {
         config_path: None,
         visibility_default: None,
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
     let fs = ScreenFs::new(cfg);
@@ -194,7 +195,7 @@ fn perf_counters_record_data_path_splits_on_snapshot_guard_and_io_failures() {
     let snapshot = fs.perf_snapshot().expect("perf counters enabled");
     assert_eq!(snapshot.write_handle_snapshot.count, 1, "{snapshot:?}");
     assert_eq!(snapshot.write_guard_mutation.count, 1, "{snapshot:?}");
-    assert_eq!(snapshot.write_io.count, 1, "{snapshot:?}");
+    assert_eq!(snapshot.write_io.count, 0, "{snapshot:?}");
     assert!(
         !snapshot.write_size_buckets.contains_key("0_4k"),
         "failed writes do not update success-only size buckets: {snapshot:?}"

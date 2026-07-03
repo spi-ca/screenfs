@@ -264,6 +264,303 @@ fn read_write_offsets_do_not_depend_on_shared_file_position() {
 }
 
 #[test]
+fn write_only_open_allows_partial_overwrite_but_read_returns_ebadf() {
+    let dir = test_dir("write-only-partial-overwrite");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let inode = lookup_root_inode(&fs, "file");
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_WRONLY as u32)).unwrap();
+
+    let mut buf = [0_u8; 3];
+    assert_eq!(
+        block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap_err(),
+        libc::EBADF
+    );
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 2, b"ZZ", 0, 0)).unwrap(),
+        2
+    );
+    assert_eq!(std::fs::read(dir.join("file")).unwrap(), b"abZZef");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn experimental_writeback_allows_internal_read_on_write_only_handle() {
+    let dir = test_dir("writeback-internal-read-write-only");
+    std::fs::write(dir.join("file"), b"abcdef").unwrap();
+    let fs = fs_for_experimental_writeback(&dir);
+    let inode = lookup_root_inode(&fs, "file");
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_WRONLY as u32)).unwrap();
+
+    let mut buf = [0_u8; 3];
+    assert_eq!(
+        block_on(fs.read(dummy_req(), inode, handle.fh, 1, &mut buf)).unwrap(),
+        3
+    );
+    assert_eq!(&buf, b"bcd");
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 2, b"X", 0, 0)).unwrap(),
+        1
+    );
+    assert_eq!(std::fs::read(dir.join("file")).unwrap(), b"abXdef");
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn experimental_writeback_falls_back_for_write_only_non_readable_file() {
+    let dir = test_dir("writeback-write-only-permission-fallback");
+    let file_path = dir.join("file");
+    std::fs::write(&file_path, b"abcdef").unwrap();
+    std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o200)).unwrap();
+    let fs = fs_for_experimental_writeback(&dir);
+    let inode = lookup_root_inode(&fs, "file");
+    let handle = block_on(fs.open(dummy_req(), inode, libc::O_WRONLY as u32)).unwrap();
+
+    let mut buf = [0_u8; 1];
+    assert_eq!(
+        block_on(fs.read(dummy_req(), inode, handle.fh, 0, &mut buf)).unwrap_err(),
+        libc::EBADF
+    );
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, handle.fh, 2, b"Y", 0, 0)).unwrap(),
+        1
+    );
+
+    block_on(fs.release(dummy_req(), inode, handle.fh, 0, 0, false, false)).unwrap();
+    std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(std::fs::read(&file_path).unwrap(), b"abYdef");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn experimental_writeback_preserves_truncate_and_append_flags() {
+    let dir = test_dir("writeback-truncate-append-flags");
+    let file_path = dir.join("file");
+    std::fs::write(&file_path, b"abcdef").unwrap();
+    let fs = fs_for_experimental_writeback(&dir);
+    let inode = lookup_root_inode(&fs, "file");
+
+    let truncated =
+        block_on(fs.open(dummy_req(), inode, (libc::O_WRONLY | libc::O_TRUNC) as u32)).unwrap();
+    let mut buf = [0_u8; 1];
+    assert_eq!(
+        block_on(fs.read(dummy_req(), inode, truncated.fh, 0, &mut buf)).unwrap(),
+        0
+    );
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, truncated.fh, 0, b"xy", 0, 0)).unwrap(),
+        2
+    );
+    block_on(fs.release(dummy_req(), inode, truncated.fh, 0, 0, false, false)).unwrap();
+    assert_eq!(std::fs::read(&file_path).unwrap(), b"xy");
+
+    let appended =
+        block_on(fs.open(dummy_req(), inode, (libc::O_WRONLY | libc::O_APPEND) as u32)).unwrap();
+    assert_eq!(
+        block_on(fs.write(dummy_req(), inode, appended.fh, 0, b"z", 0, 0)).unwrap(),
+        1
+    );
+    let mut buf = [0_u8; 3];
+    assert_eq!(
+        block_on(fs.read(dummy_req(), inode, appended.fh, 0, &mut buf)).unwrap(),
+        3
+    );
+    assert_eq!(&buf, b"xyz");
+    block_on(fs.release(dummy_req(), inode, appended.fh, 0, 0, false, false)).unwrap();
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn experimental_writeback_create_falls_back_for_existing_write_only_file() {
+    let dir = test_dir("writeback-create-write-only-fallback");
+    let file_path = dir.join("created");
+    let truncate_path = dir.join("truncated");
+    std::fs::write(&file_path, b"abc").unwrap();
+    std::fs::write(&truncate_path, b"abcdef").unwrap();
+    std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o200)).unwrap();
+    std::fs::set_permissions(&truncate_path, std::fs::Permissions::from_mode(0o200)).unwrap();
+    let fs = fs_for_experimental_writeback(&dir);
+    let created = block_on(fs.create(
+        dummy_req(),
+        FUSE_ROOT_ID,
+        OsStr::new("created"),
+        0o200,
+        (libc::O_CREAT | libc::O_WRONLY) as u32,
+    ))
+    .unwrap();
+
+    let mut buf = [0_u8; 1];
+    assert_eq!(
+        block_on(fs.read(dummy_req(), created.attr.ino, created.fh, 0, &mut buf)).unwrap_err(),
+        libc::EBADF
+    );
+    assert_eq!(
+        block_on(fs.write(dummy_req(), created.attr.ino, created.fh, 1, b"q", 0, 0)).unwrap(),
+        1
+    );
+    compio_block_on(fs.flush(dummy_req(), created.attr.ino, created.fh, 0)).unwrap();
+    block_on(fs.release(
+        dummy_req(),
+        created.attr.ino,
+        created.fh,
+        0,
+        0,
+        false,
+        false,
+    ))
+    .unwrap();
+
+    let truncated = block_on(fs.create(
+        dummy_req(),
+        FUSE_ROOT_ID,
+        OsStr::new("truncated"),
+        0o200,
+        (libc::O_CREAT | libc::O_TRUNC | libc::O_WRONLY) as u32,
+    ))
+    .unwrap();
+    assert_eq!(
+        block_on(fs.read(dummy_req(), truncated.attr.ino, truncated.fh, 0, &mut buf)).unwrap_err(),
+        libc::EBADF
+    );
+    assert_eq!(
+        block_on(fs.write(dummy_req(), truncated.attr.ino, truncated.fh, 0, b"z", 0, 0)).unwrap(),
+        1
+    );
+    block_on(fs.release(
+        dummy_req(),
+        truncated.attr.ino,
+        truncated.fh,
+        0,
+        0,
+        false,
+        false,
+    ))
+    .unwrap();
+
+    std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::set_permissions(&truncate_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(std::fs::read(&file_path).unwrap(), b"aqc");
+    assert_eq!(std::fs::read(&truncate_path).unwrap(), b"z");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readonly_and_hidden_write_paths_keep_erofs_ebadf_and_enoent() {
+    let dir = test_dir("write-path-errors");
+    std::fs::write(dir.join("visible"), b"abcdef").unwrap();
+    std::fs::write(dir.join("hidden"), b"secret").unwrap();
+
+    let writable_fs = fs_for(&dir, Vec::new(), Vec::new());
+    let visible = lookup_root_inode(&writable_fs, "visible");
+    let readonly_handle =
+        block_on(writable_fs.open(dummy_req(), visible, libc::O_RDONLY as u32)).unwrap();
+    assert_eq!(
+        block_on(writable_fs.write(dummy_req(), visible, readonly_handle.fh, 0, b"ZZ", 0, 0))
+            .unwrap_err(),
+        libc::EBADF
+    );
+    block_on(writable_fs.release(dummy_req(), visible, readonly_handle.fh, 0, 0, false, false))
+        .unwrap();
+
+    let readonly_fs = fs_for_root_readonly(&dir, vec!["/hidden".to_string()]);
+    let visible = lookup_root_inode(&readonly_fs, "visible");
+    let hidden = tracked_inode(&readonly_fs, "/hidden");
+    let readonly_handle =
+        block_on(readonly_fs.open(dummy_req(), visible, libc::O_RDONLY as u32)).unwrap();
+    assert_eq!(
+        block_on(readonly_fs.write(dummy_req(), visible, readonly_handle.fh, 0, b"ZZ", 0, 0))
+            .unwrap_err(),
+        libc::EROFS
+    );
+    block_on(readonly_fs.release(dummy_req(), visible, readonly_handle.fh, 0, 0, false, false))
+        .unwrap();
+    assert_eq!(
+        block_on(readonly_fs.open(dummy_req(), visible, libc::O_WRONLY as u32)).unwrap_err(),
+        libc::EROFS
+    );
+    assert_eq!(
+        block_on(readonly_fs.open(dummy_req(), hidden, libc::O_WRONLY as u32)).unwrap_err(),
+        ENOENT
+    );
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn handle_mutators_use_requested_access_after_policy_precedence() {
+    let dir = test_dir("handle-mutator-access-mode");
+    std::fs::write(dir.join("input"), b"abcdef").unwrap();
+    std::fs::write(dir.join("output"), b"------").unwrap();
+
+    let fs = fs_for(&dir, Vec::new(), Vec::new());
+    let input = lookup_root_inode(&fs, "input");
+    let output = lookup_root_inode(&fs, "output");
+    let input_writeonly = block_on(fs.open(dummy_req(), input, libc::O_WRONLY as u32)).unwrap();
+    let input_readonly = block_on(fs.open(dummy_req(), input, libc::O_RDONLY as u32)).unwrap();
+    let output_writeonly = block_on(fs.open(dummy_req(), output, libc::O_WRONLY as u32)).unwrap();
+    let output_readonly = block_on(fs.open(dummy_req(), output, libc::O_RDONLY as u32)).unwrap();
+
+    assert_eq!(
+        block_on(fs.fallocate(dummy_req(), output, output_readonly.fh, 0, 8, 0)).unwrap_err(),
+        libc::EBADF
+    );
+    assert_eq!(
+        block_on(fs.copy_file_range(
+            dummy_req(),
+            input,
+            input_writeonly.fh,
+            0,
+            output,
+            output_writeonly.fh,
+            0,
+            1,
+            0
+        ))
+        .unwrap_err(),
+        libc::EBADF
+    );
+    assert_eq!(
+        block_on(fs.copy_file_range(
+            dummy_req(),
+            input,
+            input_readonly.fh,
+            0,
+            output,
+            output_readonly.fh,
+            0,
+            1,
+            0
+        ))
+        .unwrap_err(),
+        libc::EBADF
+    );
+
+    block_on(fs.release(dummy_req(), input, input_writeonly.fh, 0, 0, false, false)).unwrap();
+    block_on(fs.release(dummy_req(), input, input_readonly.fh, 0, 0, false, false)).unwrap();
+    block_on(fs.release(dummy_req(), output, output_writeonly.fh, 0, 0, false, false)).unwrap();
+    block_on(fs.release(dummy_req(), output, output_readonly.fh, 0, 0, false, false)).unwrap();
+
+    let readonly_fs = fs_for_root_readonly(&dir, vec![]);
+    let output = lookup_root_inode(&readonly_fs, "output");
+    let readonly_handle =
+        block_on(readonly_fs.open(dummy_req(), output, libc::O_RDONLY as u32)).unwrap();
+    assert_eq!(
+        block_on(readonly_fs.fallocate(dummy_req(), output, readonly_handle.fh, 0, 8, 0))
+            .unwrap_err(),
+        libc::EROFS
+    );
+    block_on(readonly_fs.release(dummy_req(), output, readonly_handle.fh, 0, 0, false, false))
+        .unwrap();
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn cache_eligible_opened_file_read_write_keep_pinned_fd_after_host_rename() {
     let root = test_dir("cache-eligible-pinned-fd-after-host-rename");
     let source = root.join("source");

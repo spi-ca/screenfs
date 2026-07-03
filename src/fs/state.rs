@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::fs::File;
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
 
 use fractal_fuse::abi::FUSE_ROOT_ID;
@@ -51,19 +52,73 @@ impl FileIoGuardCache {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FileHandleAccessMode {
+    ReadOnly,
+    WriteOnly,
+    ReadWrite,
+}
+
+impl FileHandleAccessMode {
+    pub(super) fn from_open_flags(flags: u32) -> Self {
+        Self::from_access_bits(flags as i32)
+    }
+
+    fn from_access_bits(flags: i32) -> Self {
+        match flags & libc::O_ACCMODE {
+            libc::O_WRONLY => Self::WriteOnly,
+            libc::O_RDWR => Self::ReadWrite,
+            _ => Self::ReadOnly,
+        }
+    }
+
+    pub(super) fn from_file(file: &File) -> Self {
+        let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+        if flags >= 0 {
+            Self::from_access_bits(flags)
+        } else {
+            Self::ReadWrite
+        }
+    }
+
+    pub(super) const fn allows_read(self) -> bool {
+        !matches!(self, Self::WriteOnly)
+    }
+
+    pub(super) const fn allows_write(self) -> bool {
+        !matches!(self, Self::ReadOnly)
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct FileHandle {
     pub(super) inode: u64,
     pub(super) path: VirtualPath,
     pub(super) file: Arc<File>,
+    pub(super) requested_access: FileHandleAccessMode,
+    pub(super) writeback_internal_reads: bool,
     pub(super) io_guard_cache: FileIoGuardCache,
     pub(super) flush_needs_sync: bool,
 }
 
-pub(super) type FileSnapshot = (VirtualPath, Arc<File>);
+#[derive(Clone, Copy, Debug)]
+pub(super) struct FileHandleOptions {
+    pub(super) requested_access: FileHandleAccessMode,
+    pub(super) writeback_internal_reads: bool,
+    pub(super) io_guard_cache: FileIoGuardCache,
+    pub(super) flush_needs_sync: bool,
+}
+
+pub(super) type FileSnapshot = (VirtualPath, Arc<File>, FileHandleAccessMode);
 pub(super) type FileSyncSnapshot = Arc<File>;
 pub(super) type FileFlushSyncSnapshot = (Arc<File>, bool);
-pub(super) type FileDataPathSnapshot = (VirtualPath, Arc<File>, FileIoGuardCache);
+pub(super) type FileDataPathSnapshot = (
+    VirtualPath,
+    Arc<File>,
+    FileIoGuardCache,
+    FileHandleAccessMode,
+    bool,
+);
 pub(super) type CopyFileRangeSnapshot = (FileSnapshot, FileSnapshot);
 
 #[derive(Debug, Clone)]
@@ -205,7 +260,18 @@ impl State {
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn insert_file(&mut self, inode: u64, path: VirtualPath, file: File) -> u64 {
-        self.insert_file_with_guard_cache(inode, path, file, FileIoGuardCache::default(), true)
+        let requested_access = FileHandleAccessMode::from_file(&file);
+        self.insert_file_with_guard_cache(
+            inode,
+            path,
+            file,
+            FileHandleOptions {
+                requested_access,
+                writeback_internal_reads: false,
+                io_guard_cache: FileIoGuardCache::default(),
+                flush_needs_sync: true,
+            },
+        )
     }
 
     pub(super) fn insert_file_with_guard_cache(
@@ -213,8 +279,7 @@ impl State {
         inode: u64,
         path: VirtualPath,
         file: File,
-        io_guard_cache: FileIoGuardCache,
-        flush_needs_sync: bool,
+        options: FileHandleOptions,
     ) -> u64 {
         let fh = self.next_handle();
         self.files.insert(
@@ -223,8 +288,10 @@ impl State {
                 inode,
                 path,
                 file: Arc::new(file),
-                io_guard_cache,
-                flush_needs_sync,
+                requested_access: options.requested_access,
+                writeback_internal_reads: options.writeback_internal_reads,
+                io_guard_cache: options.io_guard_cache,
+                flush_needs_sync: options.flush_needs_sync,
             },
         );
         if inode != FUSE_ROOT_ID
@@ -483,11 +550,10 @@ impl ScreenFs {
         inode: u64,
         path: VirtualPath,
         file: File,
-        io_guard_cache: FileIoGuardCache,
-        flush_needs_sync: bool,
+        options: FileHandleOptions,
     ) -> u64 {
         self.with_state_write(|state| {
-            state.insert_file_with_guard_cache(inode, path, file, io_guard_cache, flush_needs_sync)
+            state.insert_file_with_guard_cache(inode, path, file, options)
         })
     }
 
@@ -507,7 +573,11 @@ impl ScreenFs {
             if handle.inode != inode {
                 return Err(ENOENT);
             }
-            Ok((handle.path.clone(), Arc::clone(&handle.file)))
+            Ok((
+                handle.path.clone(),
+                Arc::clone(&handle.file),
+                handle.requested_access,
+            ))
         })
     }
 
@@ -549,6 +619,8 @@ impl ScreenFs {
                 handle.path.clone(),
                 Arc::clone(&handle.file),
                 handle.io_guard_cache,
+                handle.requested_access,
+                handle.writeback_internal_reads,
             ))
         })
     }
@@ -574,8 +646,16 @@ impl ScreenFs {
                 return Err(ENOENT);
             }
             Ok((
-                (input.path.clone(), Arc::clone(&input.file)),
-                (output.path.clone(), Arc::clone(&output.file)),
+                (
+                    input.path.clone(),
+                    Arc::clone(&input.file),
+                    input.requested_access,
+                ),
+                (
+                    output.path.clone(),
+                    Arc::clone(&output.file),
+                    output.requested_access,
+                ),
             ))
         })
     }
@@ -606,6 +686,7 @@ impl ScreenFs {
         parent_path: &VirtualPath,
         path: VirtualPath,
         file: File,
+        options: FileHandleOptions,
     ) -> (u64, u64) {
         let io_guard_cache = self.open_file_io_guard_cache();
         self.with_state_write(|state| {
@@ -620,7 +701,15 @@ impl ScreenFs {
             #[cfg(not(feature = "perf-counters"))]
             state.invalidate_exact_path(&path);
             let inode = state.lookup_path(path.clone());
-            let fh = state.insert_file_with_guard_cache(inode, path, file, io_guard_cache, true);
+            let fh = state.insert_file_with_guard_cache(
+                inode,
+                path,
+                file,
+                FileHandleOptions {
+                    io_guard_cache,
+                    ..options
+                },
+            );
             #[cfg(feature = "perf-counters")]
             self.perf.record_invalidation(stats);
             (inode, fh)

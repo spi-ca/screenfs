@@ -16,6 +16,7 @@ fn parses_positionals_after_binary_name() {
     assert!(args.config_path.is_none());
     assert_eq!(args.visibility_default, None);
     assert_eq!(args.mutability_default, None);
+    assert!(!args.experimental_writeback_cache);
 }
 
 #[test]
@@ -40,6 +41,7 @@ fn parses_two_axis_policy_options_and_config() {
         "/var/tmp",
         "--readonly",
         "**/.git/hooks/**",
+        "--experimental-writeback-cache",
     ])
     .unwrap();
     assert_eq!(args.cli.source_root, PathBuf::from("/"));
@@ -54,6 +56,7 @@ fn parses_two_axis_policy_options_and_config() {
     assert_eq!(args.config_path, Some(PathBuf::from("screenfs.yaml")));
     assert_eq!(args.visibility_default, Some(VisibilityDefault::Visible));
     assert_eq!(args.mutability_default, Some(MutabilityDefault::Readonly));
+    assert!(args.experimental_writeback_cache);
 }
 
 #[test]
@@ -80,6 +83,10 @@ fn compact_usage_marks_repeatable_policy_options_as_repeatable_flags() {
     assert!(usage.contains("[--visible <pattern>]..."), "{usage}");
     assert!(usage.contains("[--readonly <pattern>]..."), "{usage}");
     assert!(usage.contains("[--writable <pattern>]..."), "{usage}");
+    assert!(
+        usage.contains("[--experimental-writeback-cache]"),
+        "{usage}"
+    );
     assert!(!usage.contains("--hidden <pattern> ..."), "{usage}");
 }
 
@@ -137,6 +144,8 @@ fn help_text_describes_two_axis_policy() {
     assert!(help.contains("--visible <PATTERN>"));
     assert!(help.contains("--readonly <PATTERN>"));
     assert!(help.contains("--writable <PATTERN>"));
+    assert!(help.contains("--experimental-writeback-cache"));
+    assert!(help.contains("writeback-cache"));
     assert!(help.contains("bridge-visible"));
     assert!(help.contains("visibility:"));
     assert!(help.contains("mutability:"));

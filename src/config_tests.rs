@@ -29,6 +29,7 @@ fn launch(
         config_path: None,
         visibility_default,
         mutability_default,
+        experimental_writeback_cache: false,
     })
     .unwrap()
 }
@@ -71,6 +72,7 @@ fn directory_child_visibility_batch_fast_path_requires_no_hidden_rules() {
         config_path: None,
         visibility_default: Some(VisibilityDefault::Visible),
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
 
@@ -116,6 +118,7 @@ fn directory_child_visibility_batch_parent_scopes_hidden_subtree_frontier() {
         config_path: None,
         visibility_default: Some(VisibilityDefault::Visible),
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
 
@@ -181,6 +184,7 @@ fn directory_child_visibility_batch_parent_scopes_visible_subtree_frontier() {
         config_path: None,
         visibility_default: Some(VisibilityDefault::Hidden),
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
 
@@ -246,6 +250,7 @@ fn directory_child_visibility_batch_parent_scope_matches_per_entry_for_indexed_s
         config_path: None,
         visibility_default: Some(VisibilityDefault::Hidden),
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
 
@@ -347,6 +352,7 @@ fn mount_root_internal_hidden_rule_cannot_be_made_visible() {
         config_path: None,
         visibility_default: Some(VisibilityDefault::Hidden),
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
     assert_eq!(
@@ -505,6 +511,7 @@ fn unprovable_opposite_glob_overlap_fails_fast() {
         config_path: None,
         visibility_default: None,
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap_err();
     assert!(
@@ -565,6 +572,7 @@ fn four_policy_surfaces_share_normalized_virtual_semantics() {
             config_path: None,
             visibility_default: Some(VisibilityDefault::Hidden),
             mutability_default: Some(MutabilityDefault::Readonly),
+            experimental_writeback_cache: false,
         })
         .unwrap();
 
@@ -599,6 +607,7 @@ fn four_policy_surfaces_share_bare_basename_glob_semantics() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         assert!(hidden_cfg.matches_hidden_rule(&VirtualPath::new("/workspace/app/cert.pem/chain")));
@@ -618,6 +627,7 @@ fn four_policy_surfaces_share_bare_basename_glob_semantics() {
             config_path: None,
             visibility_default: Some(VisibilityDefault::Hidden),
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         assert!(
@@ -641,6 +651,7 @@ fn four_policy_surfaces_share_bare_basename_glob_semantics() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         assert!(
@@ -664,6 +675,7 @@ fn four_policy_surfaces_share_bare_basename_glob_semantics() {
             config_path: None,
             visibility_default: None,
             mutability_default: Some(MutabilityDefault::Readonly),
+            experimental_writeback_cache: false,
         })
         .unwrap();
         assert!(
@@ -701,6 +713,7 @@ fn four_policy_surfaces_share_direct_child_glob_semantics() {
             config_path: None,
             visibility_default: Some(VisibilityDefault::Hidden),
             mutability_default: Some(MutabilityDefault::Readonly),
+            experimental_writeback_cache: false,
         })
         .unwrap();
 
@@ -749,6 +762,7 @@ fn four_policy_surfaces_share_anchored_shorthand_normalization_semantics() {
             config_path: None,
             visibility_default: Some(VisibilityDefault::Hidden),
             mutability_default: Some(MutabilityDefault::Readonly),
+            experimental_writeback_cache: false,
         })
         .unwrap();
 
@@ -801,6 +815,7 @@ fn config_file_accepts_recursive_literal_directory_shorthand_for_hidden_readonly
         config_path: Some(config_path),
         visibility_default: None,
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
 
@@ -837,6 +852,7 @@ fn visible_recursive_literal_directory_shorthand_rejects_recursive_bridge_discov
         config_path: Some(config_path),
         visibility_default: None,
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap_err();
     assert!(
@@ -870,6 +886,7 @@ fn shorthand_and_trailing_descendant_forms_conflict_at_same_normalized_specifici
         config_path: None,
         visibility_default: None,
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap_err();
     assert!(
@@ -912,6 +929,7 @@ fn visible_rules_reject_recursive_bridge_discovery_but_keep_discovery_free_forms
                 config_path: None,
                 visibility_default: Some(VisibilityDefault::Hidden),
                 mutability_default: None,
+                experimental_writeback_cache: false,
             })
             .unwrap();
         }
@@ -944,6 +962,7 @@ fn visible_rules_reject_recursive_bridge_discovery_but_keep_discovery_free_forms
                 config_path: None,
                 visibility_default: Some(VisibilityDefault::Hidden),
                 mutability_default: None,
+                experimental_writeback_cache: false,
             })
             .unwrap_err();
             assert!(
@@ -985,6 +1004,7 @@ fn canonical_glob_families_share_visibility_and_mutability_axis_semantics() {
             config_path: None,
             visibility_default: None,
             mutability_default: Some(MutabilityDefault::Readonly),
+            experimental_writeback_cache: false,
         })
         .unwrap();
 
@@ -1040,6 +1060,7 @@ fn config_uses_two_axis_schema_and_cli_replaces_axis_independently() {
         config_path: Some(config_path),
         visibility_default: None,
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
 
@@ -1075,6 +1096,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             config_path: Some(config_path.clone()),
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap_err();
         assert!(
@@ -1095,6 +1117,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap_err();
         assert!(err.contains("hidden and visible rules conflict"), "{err}");
@@ -1113,6 +1136,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap_err();
         assert!(err.contains("hidden and visible rules conflict"), "{err}");
@@ -1137,6 +1161,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap_err();
         assert!(
@@ -1161,6 +1186,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap_err();
         assert!(err.contains("hidden and visible rules conflict"), "{err}");
@@ -1179,6 +1205,7 @@ fn rejects_unknown_config_fields_and_same_specificity_conflicts() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap_err();
         assert!(
@@ -1216,6 +1243,7 @@ fn bare_and_recursive_globs_keep_containment_override_semantics() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
 
@@ -1250,6 +1278,7 @@ fn cwd_sensitive_glob_shorthands_fail_fast_when_current_dir_is_outside_source_ro
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         assert!(absolute_only.matches_hidden_rule(&VirtualPath::new("/absolute")));
@@ -1267,6 +1296,7 @@ fn cwd_sensitive_glob_shorthands_fail_fast_when_current_dir_is_outside_source_ro
                 config_path: None,
                 visibility_default: None,
                 mutability_default: None,
+                experimental_writeback_cache: false,
             })
             .unwrap_err();
 
@@ -1468,6 +1498,7 @@ fn symlink_target_fast_path_is_enabled_only_when_visibility_policy_cannot_hide_t
             config_path: None,
             visibility_default: Some(VisibilityDefault::Visible),
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         assert!(cfg.can_skip_symlink_target_visibility_check());
@@ -1484,6 +1515,7 @@ fn symlink_target_fast_path_is_enabled_only_when_visibility_policy_cannot_hide_t
             config_path: None,
             visibility_default: Some(VisibilityDefault::Visible),
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         assert!(!hidden_cfg.can_skip_symlink_target_visibility_check());
@@ -1500,6 +1532,7 @@ fn symlink_target_fast_path_is_enabled_only_when_visibility_policy_cannot_hide_t
             config_path: None,
             visibility_default: Some(VisibilityDefault::Hidden),
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         assert!(!default_hidden_cfg.can_skip_symlink_target_visibility_check());

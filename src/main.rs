@@ -49,11 +49,12 @@ fn main() -> std::io::Result<()> {
         std::process::exit(2);
     }
 
+    let experimental_writeback_cache = args.experimental_writeback_cache;
     let cfg = RuntimeConfig::from_launch(args)
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
 
     eprintln!(
-        "mounting screenfs: source={} mount={} visibility-default={} visibility-source={} hidden-rules={} visible-rules={} mutability-default={} mutability-source={} readonly-rules={} writable-rules={} io_uring=required",
+        "mounting screenfs: source={} mount={} visibility-default={} visibility-source={} hidden-rules={} visible-rules={} mutability-default={} mutability-source={} readonly-rules={} writable-rules={} io_uring=required writeback-cache={}",
         cfg.source_root.display(),
         cfg.mount_root.display(),
         cfg.visibility_default().as_str(),
@@ -63,10 +64,20 @@ fn main() -> std::io::Result<()> {
         cfg.mutability_default().as_str(),
         cfg.mutability_source().as_str(),
         cfg.readonly_rule_count(),
-        cfg.writable_rule_count()
+        cfg.writable_rule_count(),
+        if experimental_writeback_cache {
+            "experimental"
+        } else {
+            "off"
+        }
     );
 
-    let opts = screenfs_mount_options();
+    let opts = screenfs_mount_options(experimental_writeback_cache);
+    if experimental_writeback_cache {
+        eprintln!(
+            "warning: --experimental-writeback-cache is opt-in smoke/benchmark surface only; kernel cache invalidation is not supported and O_WRONLY read isolation is not a security boundary"
+        );
+    }
 
     let mount_root = cfg.mount_root.clone();
     let mount_root_for_mountinfo = normalize_mount_root_for_mountinfo(&mount_root);
@@ -333,15 +344,20 @@ fn decode_mountinfo_path(encoded: &str) -> String {
 /// mount itself, while `fractal-fuse = 0.4.0` enforces `FUSE_OVER_IO_URING`
 /// during `Session::run`'s `FUSE_INIT` negotiation. Do not use this helper to
 /// opt backing host filesystem I/O into `io_uring`.
-fn screenfs_mount_options() -> MountOptions {
-    MountOptions::new()
+fn screenfs_mount_options(experimental_writeback_cache: bool) -> MountOptions {
+    let opts = MountOptions::new()
         .fs_name("screenfs")
         // Handler-level readonly is the source of truth. Do not set mount-level ro
         // until mount smoke proves it preserves hidden-before-EROFS semantics.
         .read_only(false)
         .force_readdir_plus(true)
         .default_permissions(false)
-        .allow_other(false)
+        .allow_other(false);
+    if experimental_writeback_cache {
+        opts.write_back(true)
+    } else {
+        opts
+    }
 }
 
 #[cfg(test)]
@@ -350,7 +366,7 @@ mod tests {
 
     #[test]
     fn screenfs_mount_options_preserve_current_mount_policy() {
-        let opts = screenfs_mount_options();
+        let opts = screenfs_mount_options(false);
 
         assert_eq!(opts.fs_name.as_deref(), Some("screenfs"));
         assert!(!opts.read_only);
@@ -370,6 +386,18 @@ mod tests {
         assert!(opts.gid.is_none());
         assert!(opts.rootmode.is_none());
         assert!(opts.custom_options.is_none());
+    }
+
+    #[test]
+    fn screenfs_mount_options_enable_writeback_only_for_experiment() {
+        let default_opts = screenfs_mount_options(false);
+        let experimental_opts = screenfs_mount_options(true);
+
+        assert!(!default_opts.write_back);
+        assert!(experimental_opts.write_back);
+        assert_eq!(experimental_opts.fs_name.as_deref(), Some("screenfs"));
+        assert!(!experimental_opts.read_only);
+        assert!(experimental_opts.force_readdir_plus);
     }
 
     #[test]

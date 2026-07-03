@@ -55,6 +55,7 @@ fn fs_for_policy(
         config_path: None,
         visibility_default: None,
         mutability_default,
+        experimental_writeback_cache: false,
     })
     .unwrap();
     ScreenFs::new(cfg)
@@ -74,6 +75,28 @@ fn fs_for(
     )
 }
 
+fn fs_for_experimental_writeback(source: &Path) -> ScreenFs {
+    let mount = source.join("mount");
+    std::fs::create_dir_all(&mount).unwrap();
+    let _env = ProcessEnvGuard::new(source, None);
+    let cfg = RuntimeConfig::from_launch(LaunchArgs {
+        cli: CliArgs {
+            source_root: source.to_path_buf(),
+            mount_root: mount,
+            visibility_hidden_rules: Vec::new(),
+            visibility_visible_rules: Vec::new(),
+            mutability_readonly_rules: Vec::new(),
+            mutability_writable_rules: Vec::new(),
+        },
+        config_path: None,
+        visibility_default: None,
+        mutability_default: None,
+        experimental_writeback_cache: true,
+    })
+    .unwrap();
+    ScreenFs::new(cfg)
+}
+
 fn fs_for_external_mount(source: &Path, mount: &Path) -> ScreenFs {
     std::fs::create_dir_all(mount).unwrap();
     let _env = ProcessEnvGuard::new(source, None);
@@ -89,6 +112,7 @@ fn fs_for_external_mount(source: &Path, mount: &Path) -> ScreenFs {
         config_path: None,
         visibility_default: None,
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
     ScreenFs::new(cfg)
@@ -128,6 +152,7 @@ fn fs_for_axes(
         config_path: None,
         visibility_default,
         mutability_default,
+        experimental_writeback_cache: false,
     })
     .unwrap();
     ScreenFs::new(cfg)
@@ -150,6 +175,7 @@ fn fs_for_perf(source: &Path) -> ScreenFs {
         config_path: None,
         visibility_default: None,
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap();
     ScreenFs::new(cfg)

@@ -529,8 +529,9 @@ fn read_only_state_snapshots_can_run_concurrently() {
             scope.spawn(|| {
                 for _ in 0..100 {
                     assert_eq!(fs.path_for_inode(inode).unwrap(), VirtualPath::new("/file"));
-                    let (path, _file) = fs.file_handle_snapshot(inode, handle.fh).unwrap();
+                    let (path, _file, access) = fs.file_handle_snapshot(inode, handle.fh).unwrap();
                     assert_eq!(path, VirtualPath::new("/file"));
+                    assert!(access.allows_read());
                 }
             });
         }

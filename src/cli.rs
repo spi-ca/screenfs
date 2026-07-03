@@ -75,6 +75,7 @@ pub struct LaunchArgs {
     pub config_path: Option<PathBuf>,
     pub visibility_default: Option<VisibilityDefault>,
     pub mutability_default: Option<MutabilityDefault>,
+    pub experimental_writeback_cache: bool,
 }
 
 // `CliArgs` owns the legacy-compatible parsing helpers used by tests.
@@ -138,7 +139,7 @@ impl CliArgs {
 // `LaunchArgs` parses the full process argv, including optional config paths
 // and per-axis override defaults.
 impl LaunchArgs {
-    const USAGE_LINE: &str = "usage: screenfs <source-root> <mount-root> [--config <path>] [--visibility-default <visible|hidden>] [--hidden <pattern>]... [--visible <pattern>]... [--mutability-default <writable|readonly>] [--readonly <pattern>]... [--writable <pattern>]...";
+    const USAGE_LINE: &str = "usage: screenfs <source-root> <mount-root> [--config <path>] [--visibility-default <visible|hidden>] [--hidden <pattern>]... [--visible <pattern>]... [--mutability-default <writable|readonly>] [--readonly <pattern>]... [--writable <pattern>]... [--experimental-writeback-cache]";
 
     pub fn wants_help<I, S>(args: I) -> bool
     where
@@ -169,6 +170,7 @@ impl LaunchArgs {
         let mut config_path = None;
         let mut visibility_default = None;
         let mut mutability_default = None;
+        let mut experimental_writeback_cache = false;
         let mut i = 0;
         while i < args.len() {
             let arg = args[i].to_string_lossy();
@@ -214,6 +216,10 @@ impl LaunchArgs {
                     config_path = Some(PathBuf::from(value));
                     i += 2;
                 }
+                "--experimental-writeback-cache" => {
+                    experimental_writeback_cache = true;
+                    i += 1;
+                }
                 "--help" | "-h" => return Err(Self::usage()),
                 other if other.starts_with('-') => return Err(CliArgs::unknown_option(other)),
                 _ => {
@@ -246,6 +252,7 @@ impl LaunchArgs {
             config_path,
             visibility_default,
             mutability_default,
+            experimental_writeback_cache,
         })
     }
 
@@ -279,6 +286,8 @@ Options:
                                          Repeatable; opposite of --writable
       --writable <PATTERN>               Allow mutation for matching visible paths
                                          Repeatable; opposite of --readonly
+      --experimental-writeback-cache     Opt into FUSE writeback-cache experiment
+                                         Default remains off; not claim-grade or security-boundary support
   -h, --help                             Show this help text
 
 Policy axes:
@@ -322,6 +331,7 @@ Notes:
   - Run as a non-root user.
   - <MOUNT_ROOT> must already exist.
   - Invalid config or rule grammar fails before mount and reports the offending path/rule; recursive visible globs also suggest explicit subtree replacements.
+  - --experimental-writeback-cache is opt-in smoke/benchmark surface only; it does not change hidden ENOENT or readonly EROFS policy contracts and does not make writeback-cache claim-grade support. Do not use it when O_WRONLY read isolation is a security boundary.
 "
         .to_string()
     }

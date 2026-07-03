@@ -465,6 +465,7 @@ fn recursive_visible_globs_fail_fast_before_mount() {
             config_path: None,
             visibility_default: Some(crate::cli::VisibilityDefault::Hidden),
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap_err();
         assert!(
@@ -507,6 +508,7 @@ fn default_hidden_cwd_rebased_direct_child_visible_glob_uses_anchor_bridge_witho
             config_path: None,
             visibility_default: Some(crate::cli::VisibilityDefault::Hidden),
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         ScreenFs::new(cfg)
@@ -597,6 +599,7 @@ fn default_hidden_anchored_wildcard_all_and_subtree_shorthands_preserve_visibili
             config_path: None,
             visibility_default: Some(crate::cli::VisibilityDefault::Hidden),
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         ScreenFs::new(cfg)
@@ -722,6 +725,7 @@ fn default_hidden_absolute_txt_visible_globs_accept_direct_child_and_reject_recu
         config_path: None,
         visibility_default: Some(crate::cli::VisibilityDefault::Hidden),
         mutability_default: None,
+        experimental_writeback_cache: false,
     })
     .unwrap_err();
     assert!(err.contains("recursive visible globs are unsupported"));
@@ -763,6 +767,7 @@ fn hidden_direct_child_suffix_rules_keep_enoent_precedence_over_readonly() {
             config_path: None,
             visibility_default: None,
             mutability_default: None,
+            experimental_writeback_cache: false,
         })
         .unwrap();
         ScreenFs::new(cfg)

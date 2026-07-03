@@ -40,7 +40,10 @@ use self::backing::{
 use self::perf::PerfCounters;
 #[cfg(all(test, feature = "perf-counters"))]
 use self::perf::PerfSnapshot;
-use self::state::{DirectoryResume, DirectorySnapshotEntry, FileIoGuardCache, State};
+use self::state::{
+    DirectoryResume, DirectorySnapshotEntry, FileHandleAccessMode, FileHandleOptions,
+    FileIoGuardCache, State,
+};
 
 #[cfg(feature = "perf-counters")]
 macro_rules! fuse_op_timer {
@@ -135,6 +138,20 @@ impl ScreenFs {
 
     pub fn config(&self) -> &RuntimeConfig {
         &self.cfg
+    }
+
+    fn backing_open_flags_for_handle(&self, flags: u32, creating: bool) -> (i32, bool) {
+        let sanitized = sanitize_open_flags(flags, creating);
+        let should_widen = self.cfg.experimental_writeback_cache()
+            && matches!(
+                FileHandleAccessMode::from_open_flags(flags),
+                FileHandleAccessMode::WriteOnly
+            );
+        if should_widen {
+            ((sanitized & !libc::O_ACCMODE) | libc::O_RDWR, true)
+        } else {
+            (sanitized, false)
+        }
     }
 
     fn open_file_io_guard_cache(&self) -> FileIoGuardCache {
@@ -819,8 +836,22 @@ impl Filesystem for ScreenFs {
                 Ok(())
             }
         })?;
-        let open_flags = sanitize_open_flags(flags, false) & !libc::O_TRUNC;
-        let file = self.open_confined(&path, open_flags, None)?;
+        let requested_access = FileHandleAccessMode::from_open_flags(flags);
+        let normal_open_flags = sanitize_open_flags(flags, false) & !libc::O_TRUNC;
+        let (experimental_open_flags, wants_writeback_internal_reads) =
+            self.backing_open_flags_for_handle(flags, false);
+        let experimental_open_flags = experimental_open_flags & !libc::O_TRUNC;
+        let (file, writeback_internal_reads) =
+            match self.open_confined(&path, experimental_open_flags, None) {
+                Ok(file) => (file, wants_writeback_internal_reads),
+                Err(err)
+                    if wants_writeback_internal_reads
+                        && matches!(err, libc::EACCES | libc::EPERM) =>
+                {
+                    (self.open_confined(&path, normal_open_flags, None)?, false)
+                }
+                Err(err) => return Err(err),
+            };
         self.record_open_like_phase("open", OpenLikePhase::PostOpenRevalidation, || {
             self.guard_opened_file_target_with_resolver(&mut resolver, &path, &file, write_intent)
         })?;
@@ -829,8 +860,12 @@ impl Filesystem for ScreenFs {
             inode,
             path,
             file,
-            self.open_file_io_guard_cache(),
-            write_intent,
+            FileHandleOptions {
+                requested_access,
+                writeback_internal_reads,
+                io_guard_cache: self.open_file_io_guard_cache(),
+                flush_needs_sync: write_intent,
+            },
         );
         Ok(ReplyOpen {
             fh,
@@ -854,7 +889,7 @@ impl Filesystem for ScreenFs {
         #[cfg(feature = "perf-counters")]
         self.perf
             .record_read_handle_snapshot(snapshot_start.elapsed());
-        let (path, file, io_guard_cache) = snapshot?;
+        let (path, file, io_guard_cache, requested_access, writeback_internal_reads) = snapshot?;
         #[cfg(feature = "perf-counters")]
         let guard_start = Instant::now();
         let guard = if io_guard_cache.skip_read_guard {
@@ -869,6 +904,9 @@ impl Filesystem for ScreenFs {
         #[cfg(feature = "perf-counters")]
         self.perf.record_read_guard_path(guard_start.elapsed());
         guard?;
+        if !requested_access.allows_read() && !writeback_internal_reads {
+            return Err(libc::EBADF);
+        }
         #[cfg(feature = "perf-counters")]
         let io_start = Instant::now();
         let result = file.read_at(buf, offset).map_err(errno_from_io);
@@ -900,7 +938,7 @@ impl Filesystem for ScreenFs {
         #[cfg(feature = "perf-counters")]
         self.perf
             .record_write_handle_snapshot(snapshot_start.elapsed());
-        let (path, file, io_guard_cache) = snapshot?;
+        let (path, file, io_guard_cache, requested_access, _writeback_internal_reads) = snapshot?;
         #[cfg(feature = "perf-counters")]
         let guard_start = Instant::now();
         let guard = if io_guard_cache.skip_write_guard {
@@ -915,6 +953,9 @@ impl Filesystem for ScreenFs {
         #[cfg(feature = "perf-counters")]
         self.perf.record_write_guard_mutation(guard_start.elapsed());
         guard?;
+        if !requested_access.allows_write() {
+            return Err(libc::EBADF);
+        }
         #[cfg(feature = "perf-counters")]
         let io_start = Instant::now();
         let result = file.write_at(data, offset).map_err(errno_from_io);
@@ -1349,10 +1390,33 @@ impl Filesystem for ScreenFs {
         }
         let (_parent, parent_dir, child_name) = self.open_parent_dir(&path)?;
         self.guard_opened_directory_at_path(&parent_path, &parent_dir, true)?;
-        let open_flags = (sanitize_open_flags(flags, true) & !libc::O_TRUNC) | libc::O_NOFOLLOW;
-        let file = match open_child_at(&parent_dir, &child_name, open_flags, Some(mode & 0o7777)) {
-            Ok(file) => file,
+        let normal_open_flags =
+            (sanitize_open_flags(flags, true) & !libc::O_TRUNC) | libc::O_NOFOLLOW;
+        let (experimental_open_flags, wants_writeback_internal_reads) =
+            self.backing_open_flags_for_handle(flags, true);
+        let experimental_open_flags = (experimental_open_flags & !libc::O_TRUNC) | libc::O_NOFOLLOW;
+        let (file, writeback_internal_reads) = match open_child_at(
+            &parent_dir,
+            &child_name,
+            experimental_open_flags,
+            Some(mode & 0o7777),
+        ) {
+            Ok(file) => (file, wants_writeback_internal_reads),
             Err(libc::ELOOP) => return Err(ENOENT),
+            Err(err)
+                if wants_writeback_internal_reads && matches!(err, libc::EACCES | libc::EPERM) =>
+            {
+                match open_child_at(
+                    &parent_dir,
+                    &child_name,
+                    normal_open_flags,
+                    Some(mode & 0o7777),
+                ) {
+                    Ok(file) => (file, false),
+                    Err(libc::ELOOP) => return Err(ENOENT),
+                    Err(err) => return Err(err),
+                }
+            }
             Err(err) => return Err(err),
         };
         if let Err(err) = self.guard_opened_file_target(&path, &file, true) {
@@ -1367,7 +1431,18 @@ impl Filesystem for ScreenFs {
             }
             return Err(err);
         }
-        let (inode, fh) = self.finalize_created_file(&parent_path, path.clone(), file);
+        let requested_access = FileHandleAccessMode::from_open_flags(flags);
+        let (inode, fh) = self.finalize_created_file(
+            &parent_path,
+            path.clone(),
+            file,
+            FileHandleOptions {
+                requested_access,
+                writeback_internal_reads,
+                io_guard_cache: self.open_file_io_guard_cache(),
+                flush_needs_sync: true,
+            },
+        );
         let attr = self.attr_for_path(&path, inode)?;
         Ok(ReplyCreate {
             ttl: self.cfg.entry_ttl,
@@ -1390,9 +1465,12 @@ impl Filesystem for ScreenFs {
         mode: u32,
     ) -> FsResult<()> {
         let _timer = fuse_op_timer!(self, "fallocate");
-        let (path, file) = self.file_handle_snapshot(inode, fh)?;
+        let (path, file, requested_access) = self.file_handle_snapshot(inode, fh)?;
         self.guard_mutation_path(&path, true)?;
         self.guard_opened_file_target(&path, &file, true)?;
+        if !requested_access.allows_write() {
+            return Err(libc::EBADF);
+        }
         let result = unsafe {
             libc::fallocate(
                 file.as_raw_fd(),
@@ -1439,13 +1517,16 @@ impl Filesystem for ScreenFs {
         flags: u64,
     ) -> FsResult<usize> {
         let _timer = fuse_op_timer!(self, "copy_file_range");
-        let ((input_path, input_file), (output_path, output_file)) =
+        let ((input_path, input_file, input_access), (output_path, output_file, output_access)) =
             self.copy_file_range_snapshot(inode_in, fh_in, inode_out, fh_out)?;
         self.guard_read_path(&input_path)?;
         self.guard_opened_file_target(&input_path, &input_file, false)?;
         let output_parent = Self::parent_path(&output_path);
         self.guard_mutation_coordinates(&[], &[(&output_path, true), (&output_parent, true)])?;
         self.guard_opened_file_target(&output_path, &output_file, true)?;
+        if !input_access.allows_read() || !output_access.allows_write() {
+            return Err(libc::EBADF);
+        }
         let mut in_off = off_in as libc::off64_t;
         let mut out_off = off_out as libc::off64_t;
         let copied = unsafe {
