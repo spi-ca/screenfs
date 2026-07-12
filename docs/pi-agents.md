@@ -30,13 +30,13 @@ Trusted project에서만 repo-controlled Pi resources를 사용한다. 실행 �
 
 | File | model | thinking | tools |
 | --- | --- | --- | --- |
-| `.pi/agents/user-representative.md` | `openai-codex/gpt-5.4-mini` | `low` | `read`, `grep`, `find`, `ls` |
-| `.pi/agents/software-systems-engineer.md` | `openai-codex/gpt-5.4` | `high` | `read`, `grep`, `find`, `ls`, `bash` |
-| `.pi/agents/software-designer.md` | `openai-codex/gpt-5.4` | `high` | `read`, `grep`, `find`, `ls`, `bash` |
-| `.pi/agents/software-developer.md` | `openai-codex/gpt-5.4` | `high` | `read`, `grep`, `find`, `ls`, `bash`, `edit`, `write` |
-| `.pi/agents/software-implementer.md` | `openai-codex/gpt-5.4` | `high` | `read`, `grep`, `find`, `ls`, `bash`, `edit`, `write` |
-| `.pi/agents/software-qa.md` | `openai-codex/gpt-5.4-mini` | `medium` | `read`, `grep`, `find`, `ls`, `bash` |
-| `.pi/agents/software-reviewer.md` | `openai-codex/gpt-5.4` | `high` | `read`, `grep`, `find`, `ls`, `bash` |
+| `.pi/agents/user-representative.md` | `openai-codex/gpt-5.6-luna` | `low` | `read`, `grep`, `find`, `ls` |
+| `.pi/agents/software-systems-engineer.md` | `openai-codex/gpt-5.6-sol` | `high` | `read`, `grep`, `find`, `ls`, `bash` |
+| `.pi/agents/software-designer.md` | `openai-codex/gpt-5.6-sol` | `high` | `read`, `grep`, `find`, `ls`, `bash` |
+| `.pi/agents/software-developer.md` | `openai-codex/gpt-5.6-terra` | `high` | `read`, `grep`, `find`, `ls`, `bash`, `edit`, `write` |
+| `.pi/agents/software-implementer.md` | `openai-codex/gpt-5.6-terra` | `high` | `read`, `grep`, `find`, `ls`, `bash`, `edit`, `write` |
+| `.pi/agents/software-qa.md` | `openai-codex/gpt-5.6-luna` | `medium` | `read`, `grep`, `find`, `ls`, `bash` |
+| `.pi/agents/software-reviewer.md` | `openai-codex/gpt-5.6-sol` | `high` | `read`, `grep`, `find`, `ls`, `bash` |
 
 편집 가능 agent는 `software-developer`, `software-implementer`뿐이고 둘 다 `edit`와 `write`를 함께 가진다. `bash`가 없는 agent는 `user-representative`뿐이다. 병렬 lane 전제는 `software-developer`에만 둔다.
 
